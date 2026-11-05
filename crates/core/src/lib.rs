@@ -32,6 +32,7 @@
 //! | [`assets`] | The developer's assets in `.weaver/assets/`: the list, copy in, rename, delete, the paths of a drag out |
 //! | [`notes`] | The developer's notes in `.weaver/notes/`: reading and writing the sheet, naming, copying in, reading and trashing the images, the sheet's hash and the images' names the watcher reports |
 //! | [`solo_mode`] | Solo mode: the state of the working copy, the block in git's local exclusions, the tracked files it cannot hide |
+//! | [`solo_merge`] | Merge in Solo mode: availability, the branches, the git steps of a merge, `merge/merge.json` and the check of a merge in progress |
 
 pub mod agent_files;
 pub mod assets;
@@ -57,5 +58,6 @@ pub mod protocol;
 pub mod question;
 pub mod runtime;
 pub mod settings;
+pub mod solo_merge;
 pub mod solo_mode;
 pub mod system_certificates;

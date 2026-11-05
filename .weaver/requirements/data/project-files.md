@@ -22,12 +22,13 @@ description: "Use when reading, writing or validating files under `.weaver/`: la
   task-images/<task id>/       local only: images tied to Tasks
   notes/                       local only: the developer's notes, notes.md and its images (see `notes-view`)
   solo/solo.json               local only: Solo mode of this working copy (see `solo-mode`)
+  merge/merge.json             local only: the merge in progress (see `solo-merge`)
 ```
 
 - `model/`, `requirements/`, `specs.yaml`, `proposals/`, `tasks/`, `drifts/`, `history/` and `assets/` are versioned with the project. Decided Proposals and Drifts are never deleted.
 - `assets/` is created only when the first asset is copied in, never at initialisation, and gets no `.gitignore`. Weaver never reads its files as Model, Requirement, Specs or card files, never puts them in the project picture, and never writes in it except through the Assets view.
 - `notes/` is created only when the sheet or an image is first written, never at initialisation. Like `assets/`, its files are never Model, Requirement, Specs or card files nor part of the project picture, and only the Notes view writes in it.
-- Local-only folders (`requests/`, `short-numbers/`, `task-images/`, `notes/`, `solo/`) each hold their own `.gitignore` containing `*`, written when the folder is created and written again whenever it is missing. Nothing else in `.weaver/` is ignored.
+- Local-only folders (`requests/`, `short-numbers/`, `task-images/`, `notes/`, `solo/`, `merge/`) each hold their own `.gitignore` containing `*`, written when the folder is created and written again whenever it is missing. Nothing else in `.weaver/` is ignored.
 - The Model, Requirements and Specs formats are exactly those of the `FORMAT.md` reference installed with the `weaver-design` skill. The core's parser and that file are tested together: every example in it parses, and every rule it states is enforced by `model check` or the hand-over.
 - Files and folders whose name starts with `.` are never read as Model, Requirement, Specs or card files.
 - A `.trama` folder, the project folder of earlier versions of Weaver, is never read, written, moved or deleted: without `.weaver/` the folder is not a project, and with both the project is `.weaver/`.
@@ -110,6 +111,7 @@ A Proposal is the folder `.weaver/proposals/<id>-<slug>/` holding `proposal.md` 
 | `option` | after a code fix decision: the chosen fix option, from 1 |
 | `note` | optional: the developer's note on the decision |
 | `job` | optional: identity of the job that filed it |
+| `merge` | optional: `true` when it comes from a merge; written only by `drift new`, never changed |
 | `created` | creation instant |
 | `decided` | the instant of the decision, once decided |
 

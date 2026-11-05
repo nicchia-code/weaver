@@ -52,7 +52,7 @@ pub fn commands() -> Vec<Command> {
         Command::new("project", "edit", "Updates the installed skills, or changes Solo mode.", edit)
             .notes(&[
                 "Without input, Update skills: writes again every installed file that differs from the one this version of Weaver carries, creates the starting Requirement Areas when the Requirements are missing, and generates the Requirement skills again. It always reports what it changed, or the error.",
-                "With `solo`, only Solo mode changes: `off`, `folders` or `files`. Weaver writes or removes its block in git's local exclusions at once and prints `solo`. A change that fails (no git, not in a repository, exclusions not writable) changes nothing and says why. Files git already tracks are not hidden: they are listed in `solo.tracked`.",
+                "With `solo`, only Solo mode changes: `off`, `folders` or `files`. Weaver writes or removes its block in git's local exclusions at once and prints `solo`. A change that fails (no git, not in a repository, exclusions not writable) changes nothing and says why. Files git already tracks are not hidden: they are listed in `solo.tracked`. While a merge of Weaver is in progress (the Board shows it), Solo mode cannot change in any way: the command is refused with `Finish or abort the merge in progress first.` and nothing changes.",
             ])
             .input(vec![opt("solo", one_of(&Mode::NAMES), "Change only Solo mode of this working copy: `off`, `folders` or `files`. Without it, Update skills runs.")])
             .output(vec![
@@ -151,8 +151,13 @@ fn solo_markdown(solo: &Inspection) -> String {
 
 /// A change of Solo mode that did not happen: the reason, and nothing changed.
 fn solo_failure(reason: &Reason) -> Failure {
-    let message = format!("Could not change Solo mode: {reason}.");
-    if reason.is_unavailable() {
+    // The reason of a merge in progress is a sentence of its own, with its period.
+    let reason_text = reason.to_string();
+    let message = format!(
+        "Could not change Solo mode: {}.",
+        reason_text.trim_end_matches('.')
+    );
+    if reason.is_unavailable() || matches!(reason, Reason::MergeInProgress) {
         Failure::refused(message)
     } else {
         Failure::failed(message)
@@ -761,6 +766,37 @@ mod tests {
             error.message
         );
         assert!(!dir.path().join(".weaver/solo").exists());
+    }
+
+    #[test]
+    fn project_edit_with_solo_is_refused_while_a_merge_is_in_progress_and_changes_nothing() {
+        let (_dir, root) = repo();
+        call_with(0, &root, json!({ "solo": "folders" })).unwrap();
+        let block = exclusions(&root);
+        let state = fs::read_to_string(root.join(".weaver/solo/solo.json")).unwrap();
+        // A merge of Weaver is in progress: `merge.json` exists.
+        fs::create_dir_all(root.join(".weaver/merge")).unwrap();
+        fs::write(root.join(".weaver/merge/merge.json"), "{}\n").unwrap();
+
+        for mode in ["off", "files"] {
+            let error = call_with(1, &root, json!({ "solo": mode })).unwrap_err();
+            assert_eq!(error.code, "refused", "{mode}");
+            assert_eq!(
+                error.message,
+                "Could not change Solo mode: Finish or abort the merge in progress first.",
+                "{mode}"
+            );
+            assert_eq!(exclusions(&root), block, "{mode}");
+            assert_eq!(
+                fs::read_to_string(root.join(".weaver/solo/solo.json")).unwrap(),
+                state,
+                "{mode}"
+            );
+        }
+        // Once the merge is over, the change goes through.
+        fs::remove_file(root.join(".weaver/merge/merge.json")).unwrap();
+        let off = call_with(1, &root, json!({ "solo": "off" })).unwrap();
+        assert_eq!(off.json["solo"]["mode"], "off");
     }
 
     #[test]

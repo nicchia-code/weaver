@@ -14,7 +14,9 @@ use crate::project::refs::parse_reference;
 use crate::project::tasks;
 
 use super::prepared::{self, Prepared, PreparedDecision};
-use super::{drift_options, fingerprint, is_open, refs_of, status_of, FixOption, DRIFT_KEYS};
+use super::{
+    drift_options, fingerprint, is_merge, is_open, refs_of, status_of, FixOption, DRIFT_KEYS,
+};
 use super::{FIX_OPTIONS, HAPPENS, SHOULD, WHERE_IN_CODE};
 
 /// A problem of an input, with the JSON path of the value it comes from.
@@ -52,6 +54,9 @@ pub struct NewDrift {
     pub previous: Option<String>,
     /// The job that files it.
     pub job: Option<String>,
+    /// The Drift comes from a merge. Only the agent of a scan after a merge may ask for it: the
+    /// caller checks that; this module only writes the key.
+    pub merge: bool,
 }
 
 /// A Drift about to be filed.
@@ -212,6 +217,9 @@ pub fn plan_new(
     if let Some(job) = &input.job {
         set(&mut front, "job", job.as_str());
     }
+    if input.merge {
+        set(&mut front, "merge", true);
+    }
     set(&mut front, "created", created);
 
     let mut body = format!(
@@ -311,6 +319,7 @@ pub fn plan_edit(
         match prepared::validate_input(
             id,
             drift_options(drift).len(),
+            is_merge(drift),
             attached_now,
             &input.question,
             &input.decisions,

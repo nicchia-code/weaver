@@ -58,15 +58,25 @@ pub fn classify(text: &str) -> Option<ProxyProblem> {
 /// embed it (`requirements/ui#system-certificates`, "Proxy explanations"). With
 /// `system_certificates_on` the text does not suggest turning System Certificates on.
 pub fn explanation(problem: ProxyProblem, system_certificates_on: bool) -> String {
-    match (problem, system_certificates_on) {
-        (ProxyProblem::Certificate { .. }, false) => CERTIFICATE_OFF.to_owned(),
-        (ProxyProblem::Certificate { .. }, true) => CERTIFICATE_ON.to_owned(),
-        (ProxyProblem::Http { code }, false) => {
-            format!("omp received an HTTP {code} error; {HTTP_BLOCKING}, {TURN_ON}")
+    match problem {
+        ProxyProblem::Certificate { .. } => {
+            certificate_explanation(system_certificates_on).to_owned()
         }
-        (ProxyProblem::Http { code }, true) => {
+        ProxyProblem::Http { code } if system_certificates_on => {
             format!("omp received an HTTP {code} error; {HTTP_BLOCKING}")
         }
+        ProxyProblem::Http { code } => {
+            format!("omp received an HTTP {code} error; {HTTP_BLOCKING}, {TURN_ON}")
+        }
+    }
+}
+
+/// The explanation of a certificate error, for the setting as it is.
+fn certificate_explanation(system_certificates_on: bool) -> &'static str {
+    if system_certificates_on {
+        CERTIFICATE_ON
+    } else {
+        CERTIFICATE_OFF
     }
 }
 
@@ -77,16 +87,49 @@ pub fn explain(text: &str, system_certificates_on: bool) -> Option<String> {
 }
 
 /// The text of `Missing` after a failed installer (`requirements/ui#system-certificates`, "Failed
-/// installer"), with the final full stop. With the setting off it also says that turning System
-/// Certificates on may fix it.
+/// installer"), by the exit code the installer wrote in its marker, with the final full stop.
+/// `91` and any code the installer does not give also say, with the setting off, that turning
+/// System Certificates on may fix it.
 pub fn installer_failed_text(exit_code: i32, system_certificates_on: bool) -> String {
-    let mut text = format!(
-        "The omp installer failed (exit code {exit_code}); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
-    );
-    if !system_certificates_on {
-        text.push_str(" Turning on System Certificates in Weaver's settings may fix it.");
+    let suffix = if system_certificates_on {
+        ""
+    } else {
+        " Turning on System Certificates in Weaver's settings may fix it."
+    };
+    match exit_code {
+        90 => "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.".to_owned(),
+        91 => format!("The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal.{suffix}"),
+        92 => "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.".to_owned(),
+        93 => "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal.".to_owned(),
+        other => format!("The omp installer failed (exit code {other}); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause.{suffix}"),
     }
-    text
+}
+
+/// How the background download of an update ended without success.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadFailure {
+    /// The download exited with this code; `94` (the release is not newer) is not a failure of
+    /// this kind: its reason stays the one of `omp update`.
+    Exit(i32),
+    /// The download went past its time limit.
+    TimedOut,
+}
+
+/// The `(<reason>)` of a failed update whose background download failed
+/// (`requirements/ui#system-certificates`, "Failed download of an update"), with no final full
+/// stop. `91` is the certificate explanation for the setting as it is.
+pub fn download_failed_reason(failure: DownloadFailure, system_certificates_on: bool) -> String {
+    match failure {
+        DownloadFailure::TimedOut => "the download of omp timed out".to_owned(),
+        DownloadFailure::Exit(90) => {
+            "the download was blocked, probably by a corporate proxy that filters downloads"
+                .to_owned()
+        }
+        DownloadFailure::Exit(91) => certificate_explanation(system_certificates_on).to_owned(),
+        DownloadFailure::Exit(92) => "the downloaded omp was incomplete or altered".to_owned(),
+        DownloadFailure::Exit(93) => "the downloaded omp did not start".to_owned(),
+        DownloadFailure::Exit(other) => format!("the download of omp failed (exit code {other})"),
+    }
 }
 
 const CERTIFICATE_OFF: &str = "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
@@ -611,7 +654,33 @@ mod tests {
     }
 
     #[test]
-    fn the_failed_installer_text_depends_on_the_setting() {
+    fn the_failed_installer_text_is_by_exit_code() {
+        for on in [false, true] {
+            assert_eq!(
+                installer_failed_text(90, on),
+                "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."
+            );
+            assert_eq!(
+                installer_failed_text(92, on),
+                "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."
+            );
+            assert_eq!(
+                installer_failed_text(93, on),
+                "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal."
+            );
+        }
+        assert_eq!(
+            installer_failed_text(91, true),
+            "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."
+        );
+        assert_eq!(
+            installer_failed_text(91, false),
+            "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."
+        );
+    }
+
+    #[test]
+    fn the_failed_installer_text_of_any_other_code_depends_on_the_setting() {
         assert_eq!(
             installer_failed_text(22, true),
             "The omp installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
@@ -620,6 +689,71 @@ mod tests {
             installer_failed_text(1, false),
             "The omp installer failed (exit code 1); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it."
         );
+        // 94 is only for updates: for an installer it is any other code.
+        assert_eq!(
+            installer_failed_text(94, true),
+            "The omp installer failed (exit code 94); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
+        );
+    }
+
+    #[test]
+    fn the_download_of_an_update_fails_with_a_reason_by_code() {
+        for on in [false, true] {
+            assert_eq!(
+                download_failed_reason(DownloadFailure::Exit(90), on),
+                "the download was blocked, probably by a corporate proxy that filters downloads"
+            );
+            assert_eq!(
+                download_failed_reason(DownloadFailure::Exit(92), on),
+                "the downloaded omp was incomplete or altered"
+            );
+            assert_eq!(
+                download_failed_reason(DownloadFailure::Exit(93), on),
+                "the downloaded omp did not start"
+            );
+            assert_eq!(
+                download_failed_reason(DownloadFailure::Exit(7), on),
+                "the download of omp failed (exit code 7)"
+            );
+            assert_eq!(
+                download_failed_reason(DownloadFailure::TimedOut, on),
+                "the download of omp timed out"
+            );
+        }
+    }
+
+    #[test]
+    fn the_certificate_reason_of_a_download_follows_the_setting_as_it_is() {
+        assert_eq!(
+            download_failed_reason(DownloadFailure::Exit(91), false),
+            "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it"
+        );
+        assert_eq!(
+            download_failed_reason(DownloadFailure::Exit(91), true),
+            "omp could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause"
+        );
+    }
+
+    #[test]
+    fn no_cause_text_ends_with_a_full_stop_in_a_reason_or_names_a_product() {
+        let mut texts = Vec::new();
+        for on in [false, true] {
+            for code in [90, 91, 92, 93, 7] {
+                texts.push((
+                    download_failed_reason(DownloadFailure::Exit(code), on),
+                    false,
+                ));
+                texts.push((installer_failed_text(code, on), true));
+            }
+            texts.push((download_failed_reason(DownloadFailure::TimedOut, on), false));
+        }
+        for (text, stops) in texts {
+            assert_eq!(text.ends_with('.'), stops, "{text}");
+            let lower = text.to_lowercase();
+            for product in ["github", "zscaler", "netskope", "cisco", "cloudflare"] {
+                assert!(!lower.contains(product), "{text}");
+            }
+        }
     }
 
     #[test]

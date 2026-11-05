@@ -11,7 +11,7 @@ use std::path::Path;
 use weaver_core::job_instruction::{Job, ProposalKind};
 use weaver_core::jobs::admission::{self, Refusal, StartPlan};
 use weaver_core::jobs::{names, JobKind};
-use weaver_core::project::board;
+use weaver_core::project::board::{self, AgentFacts};
 use weaver_core::project::cards::{Card, CardKind};
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::proposal::data::{self, Kind};
@@ -54,9 +54,27 @@ impl Jobs {
         self.host.settings().max_parallel_agents.max(1)
     }
 
+    /// The facts about the agent's work now, with the merge of Solo mode read from the project
+    /// the start is for.
+    fn facts_in(&self, ctx: &Ctx) -> AgentFacts {
+        let mut facts = self.facts_of(ctx.project_id);
+        facts.merge_in_progress = weaver_core::solo_merge::in_progress(ctx.root);
+        facts
+    }
+
     /// The checks every start shares, then the job.
     fn start(&self, ctx: &Ctx, plan: StartPlan) -> Result<String, Refusal> {
-        admission::check_start(plan.kind, ctx.image, &self.facts_of(ctx.project_id))?;
+        let facts = self.facts_in(ctx);
+        self.start_with(ctx, plan, &facts)
+    }
+
+    fn start_with(
+        &self,
+        ctx: &Ctx,
+        plan: StartPlan,
+        facts: &AgentFacts,
+    ) -> Result<String, Refusal> {
+        admission::check_start(plan.kind, ctx.image, facts)?;
         for gate in self.hooks.gates.read().expect("gates poisoned").iter() {
             if let Some(reason) = gate.refuse(ctx.image, &plan) {
                 return Err(Refusal(reason));
@@ -85,6 +103,7 @@ impl Jobs {
             task: None,
             proposal_model: None,
             max_agents,
+            merged: None,
         }
     }
 
@@ -95,7 +114,7 @@ impl Jobs {
         let mut plan = admission::plan_run_task(
             ctx.image,
             &ctx.numbers(),
-            &self.facts_of(ctx.project_id),
+            &self.facts_in(ctx),
             task,
             &chosen,
             self.max_agents(),
@@ -113,7 +132,7 @@ impl Jobs {
         let execution = self.host.settings().models.execution;
         let plans = admission::plan_run_all(
             ctx.image,
-            &self.facts_of(ctx.project_id),
+            &self.facts_in(ctx),
             &chosen,
             &execution,
             self.max_agents(),
@@ -151,15 +170,51 @@ impl Jobs {
 
     /// `developer.SCAN_SYSTEM`.
     pub fn start_scan(&self, ctx: &Ctx) -> Result<String, Refusal> {
-        self.start(
+        self.scan(ctx, Job::Scan, None)
+    }
+
+    /// `solo-merge.CONCLUDED`: the scan of the whole System that Weaver starts by itself, with no
+    /// confirmation, through the path of `Scan System`. `merged` are the files the merge brought
+    /// (relative to the project root with `/`, sorted); they go into the job's record, where
+    /// `weaver job show` reads them. The merge must already be forgotten (`merge.json` deleted),
+    /// or the scan is refused.
+    pub fn start_scan_after_merge(
+        &self,
+        ctx: &Ctx,
+        merged: Vec<String>,
+    ) -> Result<String, Refusal> {
+        self.scan(ctx, Job::ScanAfterMerge, Some(merged))
+    }
+
+    fn scan(&self, ctx: &Ctx, job: Job, merged: Option<Vec<String>>) -> Result<String, Refusal> {
+        let mut plan = Self::plan(
+            JobKind::Scan,
+            names::SCAN.to_owned(),
+            job,
+            None,
+            self.max_agents(),
+        );
+        plan.merged = merged;
+        self.start(ctx, plan)
+    }
+
+    /// `developer.RESOLVE_MERGE_CONFLICTS`: a `merge` job on the merge in progress. `conflicts` is
+    /// the number of files that still have conflicts, as git has just told the caller; the job is
+    /// refused when it is 0, when no merge is in progress or when another `merge` job of the
+    /// project has not ended.
+    pub fn start_merge(&self, ctx: &Ctx, conflicts: u32) -> Result<String, Refusal> {
+        let mut facts = self.facts_in(ctx);
+        facts.merge_conflicts = conflicts > 0;
+        self.start_with(
             ctx,
             Self::plan(
-                JobKind::Scan,
-                names::SCAN.to_owned(),
-                Job::Scan,
+                JobKind::Merge,
+                names::MERGE.to_owned(),
+                Job::MergeConflicts,
                 None,
                 self.max_agents(),
             ),
+            &facts,
         )
     }
 

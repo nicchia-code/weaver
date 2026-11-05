@@ -30,7 +30,7 @@ pub use super::proposal::resolution::{drift_options, section_text, FixOption};
 
 /// Keys of a Drift file, in the order `requirements/data#drift` lists them. `fingerprint` follows
 /// them: a dismissal records the text fingerprint of the Drift's references there.
-pub const DRIFT_KEYS: [&str; 12] = [
+pub const DRIFT_KEYS: [&str; 13] = [
     "status",
     "refs",
     "origin",
@@ -40,6 +40,7 @@ pub const DRIFT_KEYS: [&str; 12] = [
     "option",
     "note",
     "job",
+    "merge",
     "created",
     "decided",
     "fingerprint",
@@ -59,6 +60,11 @@ pub fn status_of(drift: &Card) -> Option<&str> {
 /// The Drift is Open: it waits for the developer.
 pub fn is_open(drift: &Card) -> bool {
     status_of(drift) == Some("open")
+}
+
+/// The Drift comes from a merge (`merge: true`): written only by `drift new`, never changed.
+pub fn is_merge(drift: &Card) -> bool {
+    drift.bool_key("merge") == Some(true)
 }
 
 /// What the Drift concerns, as written in its file.

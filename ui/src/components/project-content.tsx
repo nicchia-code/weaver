@@ -10,6 +10,7 @@ import { HistoryView } from "@/components/history/history-view";
 import { JobsBoardActions } from "@/components/jobs/board-actions";
 import { JobsView } from "@/components/jobs/jobs-view";
 import { JobsProvider, useJobs } from "@/components/jobs/use-jobs";
+import { MergeProvider } from "@/components/merge/use-merge";
 import { NotesView } from "@/components/notes/notes-view";
 import { NotesProvider } from "@/components/notes/use-notes";
 import { ConnectedSettingsView } from "@/components/omp-status";
@@ -127,14 +128,16 @@ export function ProjectContent({ projectId }: { projectId: string }) {
         <NotesProvider projectId={projectId}>
           <BoardProvider projectId={projectId}>
             <JobsProvider projectId={projectId}>
-              <RequestsProvider projectId={projectId}>
-                {/* The round the agent (or Weaver, for a Drift) asks: a modal overlay over every view. */}
-                <AsksProvider projectId={projectId}>
-                  <QuestionRoundLayer projectId={projectId}>
-                    <ProjectShell projectId={projectId} />
-                  </QuestionRoundLayer>
-                </AsksProvider>
-              </RequestsProvider>
+              <MergeProvider projectId={projectId}>
+                <RequestsProvider projectId={projectId}>
+                  {/* The round the agent (or Weaver, for a Drift) asks: a modal overlay over every view. */}
+                  <AsksProvider projectId={projectId}>
+                    <QuestionRoundLayer projectId={projectId}>
+                      <ProjectShell projectId={projectId} />
+                    </QuestionRoundLayer>
+                  </AsksProvider>
+                </RequestsProvider>
+              </MergeProvider>
             </JobsProvider>
           </BoardProvider>
         </NotesProvider>

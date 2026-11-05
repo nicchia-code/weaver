@@ -103,6 +103,6 @@ deployment:
     note: updates from GitHub Releases, signed with the updater key kept in GitHub Actions secrets
 infrastructure:
   - name: omp
-    note: the only coding agent Weaver starts, as an ACP server, and the only source of model names; installed with its official installer from the system terminal when missing, updated by Weaver
+    note: the only coding agent Weaver starts, as an ACP server, and the only source of model names; installed with its official installer from the system terminal when missing, updated by Weaver; when its own download channel fails, downloaded from its GitHub releases (can1357/oh-my-pi, REST API releases/latest)
 notes: |
   Code signing and notarisation on macOS and signing on Windows are deliberately left out for now and will come with a dedicated Proposal.

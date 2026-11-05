@@ -40,6 +40,9 @@ use crate::notes::{
     NotesFlush, NotesImageOutcome, NotesImagesAdded, NotesRefusalReason, NotesSheet,
     NotesTrashRefusal, NotesTrashed, NotesWritten, PastedImage,
 };
+use crate::project_setup::merge::{
+    MergeAnswer, MergeBranches, MergeNotice, MergeProgress, MergeStatus,
+};
 use crate::project_setup::{InitialiseResult, ProjectStatus, SoloChange};
 use crate::project_view::ViewSnapshot;
 use crate::proposal_view::{
@@ -56,7 +59,7 @@ use crate::subagents::wire::{
 use crate::updates::{UpdateInfo, UpdateStatus};
 use crate::usage::{UsagePhase, UsageStatus};
 use crate::windows::commands::{RecentEntry, WelcomeState};
-use crate::windows::manager::{HideFailed, ShowRequest, ShowView};
+use crate::windows::manager::{HideFailed, MenuOpenFailed, ShowRequest, ShowView};
 use crate::windows::unsaved::{
     FilesCloseTab, FilesFlush, FilesSaveFailed, SaveFailure, SavedFile, TabText,
 };
@@ -149,6 +152,11 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     ProjectStatus::export_all_to(dir)?;
     InitialiseResult::export_all_to(dir)?;
     SoloChange::export_all_to(dir)?;
+    MergeStatus::export_all_to(dir)?;
+    MergeProgress::export_all_to(dir)?;
+    MergeNotice::export_all_to(dir)?;
+    MergeAnswer::export_all_to(dir)?;
+    MergeBranches::export_all_to(dir)?;
     SyncReport::export_all_to(dir)?;
     TreeEntry::export_all_to(dir)?;
     OmpStatus::export_all_to(dir)?;
@@ -169,6 +177,7 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     WelcomeState::export_all_to(dir)?;
     ShowRequest::export_all_to(dir)?;
     HideFailed::export_all_to(dir)?;
+    MenuOpenFailed::export_all_to(dir)?;
     ShowView::export_all_to(dir)?;
     JobsSnapshot::export_all_to(dir)?;
     ConversationSnapshot::export_all_to(dir)?;

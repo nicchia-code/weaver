@@ -19,6 +19,9 @@ pub mod limits {
     pub const MODELS: Duration = Duration::from_secs(15);
     pub const UPDATE_CHECK: Duration = Duration::from_secs(30);
     pub const UPDATE: Duration = Duration::from_secs(5 * 60);
+    /// The download of omp from its GitHub release, run in the background after `omp update`
+    /// failed.
+    pub const GITHUB_UPDATE: Duration = Duration::from_secs(15 * 60);
     pub const LOGOUT: Duration = Duration::from_secs(30);
     pub const USAGE: Duration = Duration::from_secs(30);
     /// The read of the login PATH at start.

@@ -19,7 +19,9 @@ use weaver_core::job_instruction;
 use weaver_core::jobs::admission::StartPlan;
 use weaver_core::jobs::machine::{Effect, Event, JobMachine, MessageId, PermissionEnd, RequestId};
 use weaver_core::jobs::notes::{self, Normalised};
-use weaver_core::jobs::{AnnouncementRecord, JobKind, JobRecord, JobState, JobStore};
+use weaver_core::jobs::{
+    names, AnnouncementRecord, FiledCard, JobKind, JobRecord, JobState, JobStore,
+};
 use weaver_core::project::board::AgentFacts;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
 use weaver_core::project::ids;
@@ -50,13 +52,6 @@ pub struct NewJob {
     pub plan: StartPlan,
 }
 
-/// A card an announcement named has been filed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Claim {
-    kind: GhostKind,
-    card: String,
-}
-
 pub(crate) struct Live {
     pub record: JobRecord,
     pub project_id: String,
@@ -79,6 +74,9 @@ pub(crate) struct Live {
     pub exit_details: Option<String>,
     /// The order of the announcements, for the ghosts.
     pub announced: HashMap<String, u64>,
+    /// Where the job was created among the announcements, for Weaver's own ghost of a setup or an
+    /// import: it sits where it would sit if it had been announced at creation.
+    pub order: u64,
     /// Its sub-agents, and the loop that reads their transcripts.
     pub agents: Agents,
     pub poller: Arc<Poller>,
@@ -121,7 +119,6 @@ pub(crate) struct Inner {
     pub jobs: HashMap<String, Live>,
     /// Projects whose registry records were read in this run.
     loaded: HashSet<String>,
-    claims: HashMap<String, Claim>,
     next_announcement: u64,
     /// Tasks finished since the last Scan System started, by project.
     done_since_scan: HashMap<String, u32>,
@@ -425,8 +422,14 @@ impl Jobs {
             .count()
     }
 
-    /// What the Board needs to know about the agent's work in the project.
+    /// What the Board needs to know about the agent's work in the project. The merge of Solo mode
+    /// is read from the project folder when the project is open; whether its files still have
+    /// conflicts is asked of git by whoever starts a `merge` job, never here.
     pub fn facts_of(&self, project_id: &str) -> AgentFacts {
+        let merging = self
+            .host
+            .picture(project_id)
+            .is_some_and(|(root, _)| weaver_core::solo_merge::in_progress(&root));
         let inner = self.lock();
         let active = inner
             .jobs
@@ -434,12 +437,14 @@ impl Jobs {
             .filter(|l| l.project_id == project_id && l.record.state.is_active());
         let mut facts = AgentFacts {
             done_since_last_scan: inner.done_since_scan.get(project_id).copied().unwrap_or(0),
+            merge_in_progress: merging,
             ..AgentFacts::default()
         };
         for live in active {
             facts.working_jobs.insert(live.record.id.clone());
             facts.run_in_progress |= live.record.kind.is_run();
             facts.resolve_working |= live.record.kind == JobKind::Resolve;
+            facts.merge_job_unended |= live.record.kind == JobKind::Merge;
             if live.record.kind == JobKind::Resolve {
                 facts
                     .resolving_drifts
@@ -449,7 +454,9 @@ impl Jobs {
         facts
     }
 
-    /// The cards the jobs of the project announced and that have not arrived, in announcement order.
+    /// The cards the jobs of the project announced and that have not arrived, in announcement order,
+    /// and, for a setup or import job that has none on the Board, its own ghost, in the place it
+    /// would have if it had been announced when the job was created.
     pub fn ghosts_of(&self, project_id: &str) -> Vec<Ghost> {
         let picture = self.host.picture(project_id).map(|(_, image)| image);
         let inner = self.lock();
@@ -459,21 +466,17 @@ impl Jobs {
             .values()
             .filter(|l| l.project_id == project_id && l.record.state.is_active())
         {
+            let before = ghosts.len();
             for announcement in &live.record.announcements {
-                let claim = inner.claims.get(&announcement.id);
-                if let (Some(claim), Some(image)) = (claim, picture.as_ref()) {
-                    if card_is_on_the_board(image, claim) {
+                if let (Some(card), Some(image)) = (announcement.card.as_ref(), picture.as_ref()) {
+                    if card_is_on_the_board(image, card) {
                         continue;
                     }
                 }
-                let kind = match announcement.kind.as_str() {
-                    "proposal" => GhostKind::Proposal,
-                    "drift" => GhostKind::Drift,
-                    _ => GhostKind::Task,
-                };
+                let kind = ghost_kind(&announcement.kind).unwrap_or(GhostKind::Task);
                 let phase = if live.record.state == JobState::Waiting {
                     GhostPhase::WaitingForAnswers
-                } else if claim.is_some() {
+                } else if announcement.card.is_some() {
                     GhostPhase::Writing
                 } else if live.record.kind == JobKind::Refinement {
                     GhostPhase::BeingRefined
@@ -491,6 +494,11 @@ impl Jobs {
                         note: live.record.latest_note().map(|note| note.text.clone()),
                     },
                 ));
+            }
+            if ghosts.len() == before {
+                if let Some(ghost) = weaver_ghost(live) {
+                    ghosts.push((live.order, ghost));
+                }
             }
         }
         ghosts.sort_by_key(|(order, _)| *order);
@@ -593,6 +601,7 @@ impl Jobs {
                 name: new.plan.name.clone(),
                 project: new.root.to_string_lossy().into_owned(),
                 target: new.plan.target.clone(),
+                merged: new.plan.merged.clone(),
                 state: JobState::Queued,
                 reason: None,
                 created,
@@ -610,6 +619,8 @@ impl Jobs {
                 overlay: String::new(),
             };
             self.persist(&record);
+            inner.next_announcement += 1;
+            let order = inner.next_announcement;
             inner.jobs.insert(
                 id.clone(),
                 Live {
@@ -629,6 +640,7 @@ impl Jobs {
                     agents: Agents::new(),
                     poller: Arc::new(Poller::default()),
                     announced: HashMap::new(),
+                    order,
                 },
             );
             if new.plan.kind == JobKind::Scan {
@@ -783,12 +795,9 @@ impl Jobs {
                     live.record.pid_started = None;
                     live.texts.clear();
                     outcome.ended = Some(live.info());
-                    // The cards it announced and never filed are withdrawn.
-                    let withdrawn: Vec<String> =
-                        live.record.announcements.drain(..).map(|a| a.id).collect();
-                    for announcement in withdrawn {
-                        inner.claims.remove(&announcement);
-                    }
+                    // The cards it announced and never filed are withdrawn, and those that arrived
+                    // with them.
+                    live.record.announcements.clear();
                 }
             }
         }
@@ -1148,6 +1157,7 @@ impl Jobs {
                 id: id.clone(),
                 kind: kind.to_owned(),
                 title: title.trim().to_owned(),
+                card: None,
             });
             live.announced.insert(id.clone(), order);
             self.persist(&live.record);
@@ -1166,29 +1176,30 @@ impl Jobs {
         card: &str,
         announcement: &str,
     ) -> Option<String> {
-        let kind = match kind {
-            "proposal" => GhostKind::Proposal,
-            "drift" => GhostKind::Drift,
-            "task" => GhostKind::Task,
-            _ => return None,
-        };
+        ghost_kind(kind)?;
         let project = {
             let mut inner = self.lock();
             let owner = inner
                 .jobs
                 .values()
                 .find(|l| l.record.announcements.iter().any(|a| a.id == announcement))
-                .map(|l| (l.record.id.clone(), l.project_id.clone()));
+                .map(|l| l.record.id.clone());
             match (owner, job) {
-                (Some((owner, project)), Some(job)) if owner == job => {
-                    inner.claims.insert(
-                        announcement.to_owned(),
-                        Claim {
-                            kind,
-                            card: card.to_owned(),
-                        },
-                    );
-                    project
+                (Some(owner), Some(job)) if owner == job => {
+                    let live = inner.jobs.get_mut(&owner).expect("found above");
+                    if let Some(announced) = live
+                        .record
+                        .announcements
+                        .iter_mut()
+                        .find(|a| a.id == announcement)
+                    {
+                        announced.card = Some(FiledCard {
+                            kind: kind.to_owned(),
+                            id: card.to_owned(),
+                        });
+                    }
+                    self.persist(&live.record);
+                    live.project_id.clone()
                 }
                 _ => {
                     return Some(format!(
@@ -1312,11 +1323,14 @@ impl Jobs {
             .done_since_scan
             .entry(project_id.to_owned())
             .or_insert(counter);
-        for mut record in registry
+        let mut records: Vec<JobRecord> = registry
             .records
             .into_iter()
             .filter(|r| r.project == project)
-        {
+            .collect();
+        // Creation order, so that the ghosts of the jobs keep it after a restart.
+        records.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.id.cmp(&b.id)));
+        for mut record in records {
             if inner.jobs.contains_key(&record.id) {
                 continue;
             }
@@ -1345,11 +1359,15 @@ impl Jobs {
             if changed {
                 self.persist(&record);
             }
+            inner.next_announcement += 1;
+            let order = inner.next_announcement;
             let announced = record
                 .announcements
                 .iter()
-                .enumerate()
-                .map(|(n, a)| (a.id.clone(), n as u64))
+                .map(|a| {
+                    inner.next_announcement += 1;
+                    (a.id.clone(), inner.next_announcement)
+                })
                 .collect();
             inner.jobs.insert(
                 record.id.clone(),
@@ -1369,6 +1387,7 @@ impl Jobs {
                     agents: Agents::new(),
                     poller: Arc::new(Poller::default()),
                     announced,
+                    order,
                     record,
                 },
             );
@@ -1478,15 +1497,52 @@ impl Access for JobAccess {
     }
 }
 
-/// Whether the card a claim names is on the Board of the picture: a Task or a Drift is as soon as
-/// the file is read, a Proposal once it is not a Draft any more.
-fn card_is_on_the_board(image: &weaver_core::project::image::ProjectImage, claim: &Claim) -> bool {
+/// What `kind` of an announcement or of a card says.
+fn ghost_kind(kind: &str) -> Option<GhostKind> {
+    match kind {
+        "proposal" => Some(GhostKind::Proposal),
+        "drift" => Some(GhostKind::Drift),
+        "task" => Some(GhostKind::Task),
+        _ => None,
+    }
+}
+
+/// Weaver's own ghost of a setup or an import job (`requirements/ui#work`): a Proposal being
+/// prepared that the job has not announced. Its identity comes from the job and never equals an
+/// announcement's (those have no `:`); it is never stored.
+fn weaver_ghost(live: &Live) -> Option<Ghost> {
+    let title = match live.record.kind {
+        JobKind::Setup => names::SETUP,
+        JobKind::Import => names::IMPORT_GHOST_TITLE,
+        _ => return None,
+    };
+    Some(Ghost {
+        id: format!("job:{}", live.record.id),
+        job_id: live.record.id.clone(),
+        kind: GhostKind::Proposal,
+        title: title.to_owned(),
+        phase: if live.record.state == JobState::Waiting {
+            GhostPhase::WaitingForAnswers
+        } else {
+            GhostPhase::Preparing
+        },
+        note: live.record.latest_note().map(|note| note.text.clone()),
+    })
+}
+
+/// Whether the card filed with an announcement is on the Board of the picture: a Task or a Drift
+/// is as soon as the file is read, a Proposal once it is not a Draft any more.
+fn card_is_on_the_board(
+    image: &weaver_core::project::image::ProjectImage,
+    filed: &FiledCard,
+) -> bool {
     use weaver_core::project::cards::CardKind;
-    match claim.kind {
-        GhostKind::Task => image.card(CardKind::Task, &claim.card).is_some(),
-        GhostKind::Drift => image.card(CardKind::Drift, &claim.card).is_some(),
-        GhostKind::Proposal => image
-            .card(CardKind::Proposal, &claim.card)
+    match ghost_kind(&filed.kind) {
+        Some(GhostKind::Task) => image.card(CardKind::Task, &filed.id).is_some(),
+        Some(GhostKind::Drift) => image.card(CardKind::Drift, &filed.id).is_some(),
+        Some(GhostKind::Proposal) => image
+            .card(CardKind::Proposal, &filed.id)
             .is_some_and(|p| p.str_key("status") != Some("draft")),
+        None => false,
     }
 }

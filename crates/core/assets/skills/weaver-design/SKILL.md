@@ -1,6 +1,6 @@
 ---
 name: weaver-design
-description: Use when the instruction names a written design request for a project that has a `.weaver/` folder, or when the developer wants to add, change or think through behaviour of the System, or how it must be built (interface, technology, quality, data, business rules). Turns the conversation into a Proposal for the Model and its Requirements. Not for writing code.
+description: Use when the instruction of a Weaver job names a written design request in `.weaver/requests/` of a project that has a `.weaver/` folder, or asks to rework a rejected Proposal or refine a stale one with this skill. Interviews the developer with `weaver question new` and turns the answers into a Proposal for the Model and its Requirements. Only inside such a job, never in Chat or Ask more conversations, and not for writing code.
 ---
 
 # Weaver: design
@@ -19,6 +19,7 @@ Announce every Proposal as soon as you know you will write it: `weaver announcem
 
 ## Hard rules
 
+- This skill runs only in a Weaver job whose instruction names it: a written design request, a rework or a refinement. Without that instruction (Chat, Ask more) do not follow it, announce nothing, ask no round and open no Proposal: a change of the Model or the Requirements starts from a design request that the developer writes with `+ Work Item` on the Board and sends.
 - NEVER edit `.weaver/model/` or `.weaver/requirements/` directly, nor the generated `weaver-req-*` skills. Every change goes through a Proposal, created with `weaver proposal new --input -`.
 - Agents may approve, reject or discard a Proposal, decide a Drift or delete a Task in To do (`weaver task delete`) only when the developer explicitly asks for that decision in the conversation. Without that request, do not decide and do not ask the developer about it: stop and tell them the decision is theirs, on the Board. An explicit design request does not by itself authorise any of them. After handing over a finished Proposal, stop and ask the developer to review it.
 - The Model describes *what can happen*, never *how it is built*: no variables, field names, database columns, endpoints, classes or file paths. A State is a situation in domain words ("Awaiting payment"), not a combination of values. How it is built (layout, styling, libraries, limits, data fields, formulas) belongs in the Requirements.

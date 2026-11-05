@@ -19,6 +19,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 type DriftCardData = BoardCardOf<"drift">;
 
+/** Why `Fix the code` waits on a Drift from a merge, which has no fix option chosen. */
+const CHOOSE_AN_OPTION = "Choose a fix option";
+
 /** How a card is named in a sentence: its short number, else its permanent id. */
 function nameOf(ref: { id: string; shortNumber: string | null }): string {
   return ref.shortNumber ?? ref.id;
@@ -37,7 +40,7 @@ function BadgeWithTip({ text, tip, variant }: { text: string; tip: string; varia
   );
 }
 
-/** `recurring`, `resolving` and `prepared`, in that order, each with its tooltip. */
+/** `recurring`, `resolving`, `prepared` and `merge`, in that order, each with its tooltip. */
 function DriftBadges({ card }: { card: DriftCardData }) {
   const { view } = card;
   return (
@@ -47,6 +50,7 @@ function DriftBadges({ card }: { card: DriftCardData }) {
       ) : null}
       {view.resolving ? <BadgeWithTip variant="warning" text="resolving" tip="An agent is resolving this Drift" /> : null}
       {view.prepared ? <BadgeWithTip variant="secondary" text="prepared" tip="Resolve asks the prepared question at once" /> : null}
+      {view.merge ? <BadgeWithTip variant="outline" text="merge" tip="Found by the scan after a merge" /> : null}
     </>
   );
 }
@@ -99,18 +103,20 @@ function DriftCard({ card }: { card: DriftCardData }) {
 }
 
 /**
- * The fix decision: the options (recommended preselected), the note and `Fix the code`; with an
- * attached Proposal `Accept Proposal`, replaced by `Refine` when it is stale and Open, or by
- * `Refine` and `Discard` when a refinement left it half-way. Every reason comes from the backend.
+ * The fix decision: the options (the recommended one preselected, except on a Drift from a merge,
+ * which has none chosen: its `Accept Proposal` is the recommended one), the note and `Fix the
+ * code`; with an attached Proposal `Accept Proposal`, replaced by `Refine` when it is stale and
+ * Open, or by `Refine` and `Discard` when a refinement left it half-way. Every reason comes from
+ * the backend.
  */
 function DecisionForm({ card }: { card: DriftCardData }) {
   const { fixDriftCode, acceptDriftProposal, refineDriftProposal, discardDriftProposal } = useBoard();
   const { head, view } = card;
-  const [option, setOption] = useState("1");
+  const [option, setOption] = useState(view.merge ? "" : "1");
   const [note, setNote] = useState("");
   const [discarding, setDiscarding] = useState(false);
   const name = nameOf(head);
-  const fixReasons = cardReasons(head.agentFinishing, view.fixReasons);
+  const fixReasons = cardReasons(head.agentFinishing, [...view.fixReasons, option === "" && CHOOSE_AN_OPTION]);
   const attached = view.attached;
   return (
     <section aria-label="Decision" className="space-y-3">
@@ -172,15 +178,18 @@ function DecisionForm({ card }: { card: DriftCardData }) {
           ) : null}
         </div>
       ) : attached ? (
-        <GuardedButton
-          variant="outline"
-          size="sm"
-          reasons={cardReasons(head.agentFinishing, attached.acceptReasons)}
-          onClick={() => void acceptDriftProposal(head.id, name)}
-        >
-          <CheckCheck aria-hidden />
-          Accept Proposal
-        </GuardedButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <GuardedButton
+            variant="outline"
+            size="sm"
+            reasons={cardReasons(head.agentFinishing, attached.acceptReasons)}
+            onClick={() => void acceptDriftProposal(head.id, name)}
+          >
+            <CheckCheck aria-hidden />
+            Accept Proposal
+          </GuardedButton>
+          {view.merge ? <Badge variant="secondary">recommended</Badge> : null}
+        </div>
       ) : null}
     </section>
   );
@@ -221,7 +230,7 @@ function DriftDetails({ card }: { card: DriftCardData }) {
             {view.options.map((option, index) => (
               <li key={option.title}>
                 <span className="font-medium">{option.title}</span>
-                {index === 0 ? <Badge variant="secondary" className="ml-2">recommended</Badge> : null}
+                {index === 0 && !view.merge ? <Badge variant="secondary" className="ml-2">recommended</Badge> : null}
                 <Markdown holderHeadingLevel={3}>{option.text}</Markdown>
               </li>
             ))}

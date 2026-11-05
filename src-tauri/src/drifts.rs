@@ -1183,6 +1183,24 @@ mod tests {
     }
 
     #[test]
+    fn resolve_is_refused_while_a_merge_is_in_progress_even_with_a_valid_prepared_question() {
+        let f = fixture();
+        f.host.facts.lock().unwrap().merge_in_progress = true;
+        assert_eq!(
+            press(&f).err().unwrap(),
+            "Could not resolve D1: A merge is in progress."
+        );
+        assert!(f.rounds.view("p1").is_none(), "no round is asked by Weaver");
+        assert!(f.host.started.lock().unwrap().is_empty());
+        assert!(
+            !f.project.path().join(".weaver/proposals").exists(),
+            "a refusal writes nothing"
+        );
+        f.host.facts.lock().unwrap().merge_in_progress = false;
+        assert!(matches!(press(&f), Ok(Pressed::Asked(_))));
+    }
+
+    #[test]
     fn resolve_is_refused_while_the_job_that_filed_the_drift_works() {
         let f = fixture();
         let path = ProjectImage::load(f.project.path())
@@ -1225,6 +1243,7 @@ mod tests {
             task: None,
             proposal_model: None,
             max_agents: 1,
+            merged: None,
         };
         assert!(PreparedGate
             .refuse(&image, &plan(None))

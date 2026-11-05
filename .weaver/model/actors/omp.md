@@ -20,13 +20,13 @@ omp answers but has no usable model, because no model provider is connected.
 omp says a newer version of itself exists.
 
 ### UPDATE_ENDED
-omp's own update finished well.
+omp's update finished well: omp's own, or, after it failed, the download of omp's newer GitHub release that Weaver put in its place.
 
 ### UPDATE_FAILED
-omp's own update failed or took too long.
+omp's update failed or took too long: omp's own and, when Weaver tried it, the download of omp's GitHub release too.
 
 ### INSTALL_FAILED
-omp's official installer, started by Weaver in the system terminal, ended with an exit code other than 0, and omp is still not found.
+omp's installation, started by Weaver in the system terminal (the official installer and, when it fails, the download from GitHub), ended with an exit code other than 0, and omp is still not found.
 
 ### USAGE_READ
 omp returned the usage limits of the connected providers, each with how much is used and when it resets, or the reason a provider has none.

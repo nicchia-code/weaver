@@ -3,4 +3,4 @@
 /**
  * What a job is for. The serialised form is the one of the registry record.
  */
-export type JobKind = "setup" | "design" | "import" | "scan" | "run" | "resolve" | "rework" | "refinement";
+export type JobKind = "setup" | "design" | "import" | "scan" | "run" | "resolve" | "rework" | "refinement" | "merge";

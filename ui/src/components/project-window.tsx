@@ -90,6 +90,18 @@ export function ProjectWindow({ projectId, views = {}, counts = NO_COUNTS, initi
     };
   }, []);
 
+  // An opening chosen from the File menu of this window failed: it says why, in an error toast.
+  useEffect(() => {
+    let current = true;
+    const unlisten = on("menu-open-failed", ({ name, reason }) => {
+      if (current) toast.error(name === null ? "Could not open the folder." : `Could not open ${name}.`, { description: reason });
+    });
+    return () => {
+      current = false;
+      unlisten.then((stop) => stop()).catch(() => {});
+    };
+  }, []);
+
   const context = useMemo<ProjectContextValue>(
     () => ({ projectId, showView: select, openJob, openedJob }),
     [projectId, select, openJob, openedJob],

@@ -17,10 +17,11 @@ Weaver keeps none of its files out of git for this working copy, and remembers n
 - `developer.CHANGE_SOLO_MODE` → Off: when the folder is not in a git repository, git cannot be found or the block cannot be written; nothing changes and Weaver says why.
 
 ### On
-Weaver's files of this working copy are kept out of git by its block, in the mode the developer chose. Settings lists the files the block excludes that git still tracks and warns that Weaver's files are versioned nowhere.
-- `developer.CHANGE_SOLO_MODE` → Off: when the developer turns it off and the block can be removed; Weaver removes the block of this working copy, leaving every other line as it was, and forgets the mode. Weaver's files show to git again as untracked files.
-- `developer.CHANGE_SOLO_MODE` → Excluded: when the developer chooses the other mode and the block can be written; Weaver rewrites its block for that mode and remembers it.
+Weaver's files of this working copy are kept out of git by its block, in the mode the developer chose. Settings lists the files the block excludes that git still tracks and warns that Weaver's files are versioned nowhere. The Board offers Merge (see `solo-merge`).
+- `developer.CHANGE_SOLO_MODE` → Off: when the developer turns it off, no merge is in progress and the block can be removed; Weaver removes the block of this working copy, leaving every other line as it was, and forgets the mode. Weaver's files show to git again as untracked files.
+- `developer.CHANGE_SOLO_MODE` → Excluded: when the developer chooses the other mode, no merge is in progress and the block can be written; Weaver rewrites its block for that mode and remembers it.
 - `developer.CHANGE_SOLO_MODE` → On: when git cannot be found, the folder is no longer in a git repository, or the block cannot be written or removed; nothing changes and Weaver says why.
+- `developer.CHANGE_SOLO_MODE` → On: while a merge is in progress (see `solo-merge`), whether turning it off or choosing the other mode; nothing changes and Settings says to finish or abort the merge first.
 - `workspace.PROJECT_FOLDER_REMOVED` → Off: the mode went with the `.weaver` folder; Weaver removes the block of this working copy when it can still reach the exclusions. When the folder disappears while Weaver is closed, the block stays.
 
 #### Excluded (initial)

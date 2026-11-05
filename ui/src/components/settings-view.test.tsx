@@ -695,4 +695,32 @@ describe("Solo mode in Settings", () => {
     expect(screen.queryByRole("region", { name: /Git still tracks/ })).not.toBeInTheDocument();
     expect(screen.getByText(VERSIONED_NOWHERE)).toBeInTheDocument();
   });
+
+  it("is disabled for every choice while a merge is in progress, with the reason under the note as its description", async () => {
+    const user = userEvent.setup();
+    const reason = "Finish or abort the merge in progress first.";
+    project = projectStatus({
+      solo: { mode: "folders" },
+      merge: { available: false, reason: "A merge is in progress", inProgress: { branch: "dev", current: "main", conflicts: 2 } },
+    });
+    await showSolo();
+    const control = screen.getByRole("radiogroup", { name: "Solo mode" });
+    for (const radio of within(control).getAllByRole("radio")) expect(radio).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Whole folders" })).toBeChecked();
+    expect(screen.getByText(reason)).toBeInTheDocument();
+    // The note comes first, then the reason, then the usual warning: all of them its description.
+    expect(control).toHaveAccessibleDescription(`${NOTE} ${reason} ${VERSIONED_NOWHERE}`);
+    expect(screen.getByText(reason).closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
+
+    // Neither the other mode nor turning it off is asked of the backend.
+    await user.click(screen.getByRole("radio", { name: "Off" }));
+    await user.click(screen.getByRole("radio", { name: "Weaver's files only" }));
+    expect(call).not.toHaveBeenCalledWith("set_solo_mode", expect.anything());
+
+    // The merge ends: the control is usable again and the reason goes.
+    act(() => pushStatus(projectStatus({ revision: 2, solo: { mode: "folders" }, merge: { available: true, current: "main" } })));
+    await vi.waitFor(() => expect(screen.getByRole("radio", { name: "Off" })).toBeEnabled());
+    expect(screen.queryByText(reason)).not.toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(`${NOTE} ${VERSIONED_NOWHERE}`);
+  });
 });

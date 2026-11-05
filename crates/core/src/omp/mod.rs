@@ -9,6 +9,7 @@
 //! | [`version`]   | `MIN_OMP_VERSION`, semver comparison, reading `omp --version` |
 //! | [`providers`] | The fixed list of providers omp can log in to |
 //! | [`failure`]   | Reasons of a failed command and the explanations of certificate and HTTP errors |
+//! | [`github`]    | omp's GitHub releases: the download script of the installer's terminal and of the background update |
 //! | [`installer`] | The marker where omp's installer leaves its exit code |
 //! | [`run`]       | omp commands with time limits ([`run::Exec`], on `process::timed`) |
 //! | [`path_env`]  | The login PATH, the Windows registry PATH, the PATH of a child |
@@ -19,6 +20,7 @@
 //! | [`machine`]   | The Machine `omp-setup`: events in, effects out, no I/O and no clock |
 
 pub mod failure;
+pub mod github;
 pub mod installer;
 pub mod lookup;
 pub mod machine;

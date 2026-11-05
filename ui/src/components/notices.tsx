@@ -7,6 +7,8 @@ export interface Notice {
   id: string;
   /** What failed and why (`Could not delete T4: the agent that filed it is still working.`). */
   text: string;
+  /** Files the text is about, listed under it in monospace. */
+  paths?: readonly string[];
 }
 
 /**
@@ -21,7 +23,18 @@ export function NoticeStack({ notices, onClose }: { notices: readonly Notice[]; 
       {[...notices].reverse().map((notice) => (
         <Alert key={notice.id} variant="warning">
           <TriangleAlert aria-hidden />
-          <p className="min-w-0 flex-1">{notice.text}</p>
+          <div className="min-w-0 flex-1">
+            <p>{notice.text}</p>
+            {notice.paths && notice.paths.length > 0 ? (
+              <ul className="mt-1 font-mono text-xs">
+                {notice.paths.map((path) => (
+                  <li key={path} className="break-all">
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <GuardedButton variant="ghost" size="icon" className="-my-1.5 size-7" label="Close notice" onClick={() => onClose(notice.id)}>
             <X aria-hidden />
           </GuardedButton>

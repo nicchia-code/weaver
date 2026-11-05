@@ -18,9 +18,9 @@ Every rule here is computed in the Rust core, the same for the app and the `weav
 
 ## Cards and work
 
-Use when implementing identities, short numbers, ordering, scope, staleness, blocking, slots or question checks.
+Use when implementing card identities, short numbers, ordering, Proposal scope, staleness, approval, refinement or question round checks.
 
-Sections: `General`, `proposal`, `task`, `drift`, `work`, `question-round`
+Sections: `General`, `proposal`, `question-round`
 
 File: `cards.md`
 
@@ -50,9 +50,9 @@ File: `skills.md`
 
 ## Solo mode
 
-Use when implementing Solo mode's block in git's local exclusions, its modes and paths, or the list of Weaver's files git still tracks.
+Use when implementing Solo mode's block in git's local exclusions, its modes and paths, the list of Weaver's files git still tracks, or the git steps of Merge.
 
-Sections: `solo-mode`
+Sections: `solo-mode`, `solo-merge`
 
 File: `solo-mode.md`
 
@@ -63,3 +63,11 @@ Use when implementing which certificates go in the System Certificates bundle, w
 Sections: `system-certificates`
 
 File: `system-certificates.md`
+
+## Tasks, Drifts and concerns
+
+Use when implementing Task blocking, slots, groups, forgetting, Drift rules, prepared Drift questions or when two cards concern the same thing.
+
+Sections: `task`, `drift`, `work`
+
+File: `work.md`

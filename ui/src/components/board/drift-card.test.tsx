@@ -105,6 +105,26 @@ describe("the card of a Drift", () => {
     }
   });
 
+  it("shows `merge` after recurring, resolving and prepared, as an outline badge with its tooltip", async () => {
+    const user = userEvent.setup();
+    await show([drift({ previous: { id: "eeeeeeee", shortNumber: "D1", title: "Old" }, resolving: true, prepared: true, merge: true })]);
+    const badges = within(card()).getAllByText(/^(recurring|resolving|prepared|merge)$/);
+    expect(badges.map((badge) => badge.textContent)).toEqual(["recurring", "resolving", "prepared", "merge"]);
+    await user.unhover(badges[0]!);
+    act(() => badges[3]!.focus());
+    expect((await screen.findAllByText("Found by the scan after a merge")).length).toBeGreaterThan(0);
+  });
+
+  it("has no merge badge on a Drift that does not come from a merge", async () => {
+    await show([drift()]);
+    expect(within(card()).queryByText("merge")).not.toBeInTheDocument();
+  });
+
+  it("lists `A merge is in progress` on Resolve third, after `A run is in progress`", async () => {
+    await show([drift({ resolveReasons: ["A run is in progress", "A merge is in progress", "Being refined"] })]);
+    expect(reasonsOf(within(card()).getByRole("button", { name: "Resolve" }))).toEqual(["A run is in progress", "A merge is in progress", "Being refined"]);
+  });
+
   it("lists the reasons Resolve is disabled in order, the agent first, and ignores a click", async () => {
     const user = userEvent.setup();
     const reasons = ["A run is in progress", "This Drift is being resolved", "Another resolution is being written", "Proposal P4 resolving Drifts awaits a decision"];
@@ -194,6 +214,34 @@ describe("the details of a Drift", () => {
     const fix = within(dialog).getByRole("button", { name: "Fix the code" });
     expect(fix).toHaveAttribute("aria-disabled", "true");
     expect(reasonsOf(fix)).toEqual(["The agent is still finishing"]);
+  });
+
+  it("on a Drift from a merge marks Accept Proposal as the recommended one, preselects no option and keeps Fix the code disabled until one is chosen", async () => {
+    const { user, dialog } = await open(drift({ merge: true, attached: attachedProposal() }));
+    const options = within(within(dialog).getByRole("region", { name: "Fix options" })).getAllByRole("listitem");
+    expect(options[0]).toHaveTextContent("Deduplicate");
+    expect(options.map((option) => option.textContent)).toEqual(["DeduplicateKeep one shipment.", "LockLock the order."]);
+    expect(within(within(dialog).getByRole("region", { name: "Fix options" })).queryByText("recommended")).not.toBeInTheDocument();
+    const accept = within(dialog).getByRole("button", { name: "Accept Proposal" });
+    expect(accept.parentElement).toHaveTextContent("recommended");
+    expect(within(dialog).getAllByText("recommended")).toHaveLength(1);
+
+    expect(within(dialog).getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked && radio.getAttribute("aria-checked") !== "true")).toBe(true);
+    const fix = within(dialog).getByRole("button", { name: "Fix the code" });
+    expect(fix).toHaveAttribute("aria-disabled", "true");
+    await user.click(fix);
+    expect(decisions).toEqual([]);
+    await user.click(within(dialog).getByRole("radio", { name: "Lock" }));
+    expect(within(dialog).getByRole("button", { name: "Fix the code" })).not.toHaveAttribute("aria-disabled");
+    await user.click(within(dialog).getByRole("button", { name: "Fix the code" }));
+    expect(decisions).toEqual([{ name: "fix_drift_code", args: { projectId: PROJECT, driftId: "dddddddd", option: 2, note: null } }]);
+  });
+
+  it("shows the merge badge, with its tooltip, in the details of a Drift from a merge", async () => {
+    const { dialog } = await open(drift({ merge: true }));
+    const badge = within(dialog).getByText("merge");
+    act(() => badge.focus());
+    expect((await screen.findAllByText("Found by the scan after a merge")).length).toBeGreaterThan(0);
   });
 
   it("replaces the options by a sentence without Fix the code, and Accept Proposal lists the Proposal's reasons", async () => {

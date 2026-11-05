@@ -4,8 +4,9 @@
 //!
 //! * `recent`: up to [`RECENT_LIMIT`] projects, most recently opened first, each `{path, name,
 //!   opened}`; one entry per canonical path; an entry leaves only when pushed out by newer ones
-//!   (even when its folder no longer exists) or when the developer removes it from the welcome
-//!   window;
+//!   (even when its folder no longer exists), when the developer removes it from the welcome
+//!   window or when `Clear Recent` of the File menu empties the list (which changes neither
+//!   `lastSession` nor the open windows);
 //! * `lastSession`: the canonical paths of the projects whose window was open when Weaver last
 //!   quit, in opening order. It is written at quit and on each window open or close; closing a
 //!   window removes it from the list, quitting does not;
@@ -137,6 +138,12 @@ impl LocalState {
             .retain(|project| !same_path(&project.path, path));
         self.recent.len() != before
     }
+
+    /// `Clear Recent` of the File menu: empties the list of recent projects. The last session is
+    /// not touched.
+    pub fn clear_recent(&mut self) {
+        self.recent.clear();
+    }
 }
 
 /// `state.json` in memory and on disk. Every change is written before the call returns.
@@ -261,6 +268,16 @@ mod tests {
         assert!(state.remove_recent("/gone/project"));
         assert!(!state.remove_recent("/gone/project"));
         assert_eq!(state.recent.len(), 1);
+    }
+
+    #[test]
+    fn clearing_the_recent_projects_leaves_the_last_session_alone() {
+        let mut state = LocalState::default();
+        state.record_open("/work/a", "a", &at(1));
+        state.record_open("/gone/b", "b", &at(2));
+        state.clear_recent();
+        assert!(state.recent.is_empty());
+        assert_eq!(state.last_session, ["/work/a", "/gone/b"]);
     }
 
     #[test]

@@ -22,6 +22,9 @@ import type { Notice } from "@/bindings/Notice";
 import type { OmpStatus } from "@/bindings/OmpStatus";
 import type { InitialiseResult } from "@/bindings/InitialiseResult";
 import type { ProjectChanged } from "@/bindings/ProjectChanged";
+import type { MergeAnswer } from "@/bindings/MergeAnswer";
+import type { MergeBranches } from "@/bindings/MergeBranches";
+import type { MergeStatus } from "@/bindings/MergeStatus";
 import type { ProjectStatus } from "@/bindings/ProjectStatus";
 import type { SoloChange } from "@/bindings/SoloChange";
 import type { SoloMode } from "@/bindings/SoloMode";
@@ -29,6 +32,8 @@ import type { SkillsReport } from "@/bindings/SkillsReport";
 import type { TreeEntry } from "@/bindings/TreeEntry";
 import type { ShowRequest } from "@/bindings/ShowRequest";
 import type { HideFailed } from "@/bindings/HideFailed";
+import type { MenuOpenFailed } from "@/bindings/MenuOpenFailed";
+import type { RecentEntry } from "@/bindings/RecentEntry";
 import type { SettingChange } from "@/bindings/SettingChange";
 import type { SettingsSnapshot } from "@/bindings/SettingsSnapshot";
 import type { ViewSnapshot } from "@/bindings/ViewSnapshot";
@@ -96,6 +101,10 @@ export interface EventPayloads {
   "show-requested": ShowRequest;
   /** This window could not go to the background after `Keep working in background`: it stays as it was; the reason. */
   "window-hide-failed": HideFailed;
+  /** The recent projects changed (an opening, a removal, `Clear Recent` of the File menu): the whole list, sent to the welcome window only. */
+  "recent-changed": RecentEntry[];
+  /** An opening from the File menu failed: sent to the window it was chosen from only (the welcome window when none had the focus). */
+  "menu-open-failed": MenuOpenFailed;
   /** Something to read at the top of the Board: a refused decision, a Proposal sent back to Draft. */
   notice: Notice;
   /** The Jobs list of a project changed: the whole list. */
@@ -208,6 +217,22 @@ export interface Commands {
   set_solo_mode: { args: { projectId: string; mode: SoloMode }; result: SoloChange };
   /** The files git tracks that Solo mode's block excludes, computed now: asked each time Settings is shown. */
   solo_tracked_files: { args: { projectId: string }; result: string[] };
+  /**
+   * The state of **Merge** worked out again (the Board is shown), in the project's background work; `null` while Solo mode is
+   * off. Also arrives with every `project-state` as `ProjectStatus.merge`.
+   */
+  merge_refresh: { args: { projectId: string }; result: MergeStatus | null };
+  /** The branches the Dialog of Merge offers (local, then remote ones git already knows) and Weaver's files git still tracks. */
+  merge_branches: { args: { projectId: string }; result: MergeBranches };
+  /**
+   * **Merge**: merges `branch` into the current branch. A refusal, a branch that brings nothing new or a time limit come back
+   * as the `notice` of the answer; the new state is its `merge`.
+   */
+  merge_start: { args: { projectId: string; branch: string }; result: MergeAnswer };
+  /** **Abort merge**, once confirmed: the new state, with a `notice` when git could not abort. */
+  merge_abort: { args: { projectId: string }; result: MergeAnswer };
+  /** **Resolve with the agent**: starts the job that resolves the conflicts; the new state. */
+  resolve_merge_conflicts: { args: { projectId: string }; result: MergeStatus };
   /** **Update skills**: the structured report the command line prints too. */
   update_skills: { args: { projectId: string }; result: SkillsReport };
   /** The entries of one folder of the project (`path` relative, empty for the project folder) for the import tree. */

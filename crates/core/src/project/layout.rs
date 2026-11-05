@@ -15,6 +15,7 @@
 //!   task-images/<task id>/       local only
 //!   notes/                       local only: the developer's notes, `notes.md` and its images
 //!   solo/solo.json               local only: Solo mode of this working copy
+//!   merge/merge.json             local only: the merge in progress (`crate::solo_merge`)
 //! ```
 //!
 //! Paths in this crate's project API are relative to `.weaver/` and use `/`, whatever the
@@ -70,16 +71,20 @@ pub fn is_notes_rel(rel: &str) -> bool {
 /// Solo mode of this working copy: `solo.json`, local only (`crate::solo_mode`).
 pub const SOLO_DIR: &str = "solo";
 
+/// The merge in progress of Solo mode: `merge.json`, local only (`crate::solo_merge`).
+pub const MERGE_DIR: &str = "merge";
+
 /// Local-only folders: each holds its own `.gitignore` containing `*`.
 pub const REQUESTS_DIR: &str = "requests";
 pub const SHORT_NUMBERS_DIR: &str = "short-numbers";
 pub const TASK_IMAGES_DIR: &str = "task-images";
-pub const LOCAL_ONLY_DIRS: [&str; 5] = [
+pub const LOCAL_ONLY_DIRS: [&str; 6] = [
     REQUESTS_DIR,
     SHORT_NUMBERS_DIR,
     TASK_IMAGES_DIR,
     NOTES_DIR,
     SOLO_DIR,
+    MERGE_DIR,
 ];
 
 /// The versioned entries of `.weaver/` that the project image reads.
@@ -485,6 +490,21 @@ mod tests {
         assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
         std::fs::remove_file(&ignore).unwrap();
         ensure_local_folder(dir.path(), SOLO_DIR).unwrap();
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+    }
+
+    #[test]
+    fn the_merge_folder_is_local_only_and_never_read_as_project_files() {
+        assert!(LOCAL_ONLY_DIRS.contains(&MERGE_DIR));
+        assert!(!VERSIONED_ENTRIES.contains(&MERGE_DIR));
+        assert_eq!(classify("merge/merge.json"), FileClass::Ignored);
+        let dir = tempfile::tempdir().unwrap();
+        let folder = ensure_local_folder(dir.path(), MERGE_DIR).unwrap();
+        assert_eq!(folder, weaver_dir(dir.path()).join("merge"));
+        let ignore = folder.join(".gitignore");
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+        std::fs::remove_file(&ignore).unwrap();
+        ensure_local_folder(dir.path(), MERGE_DIR).unwrap();
         assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
     }
 

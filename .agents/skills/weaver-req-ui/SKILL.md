@@ -190,9 +190,9 @@ File: `setup.md`
 
 ## Solo mode
 
-Use when building the Solo mode control in Settings and Get Started, its notes, warnings and the list of tracked files.
+Use when building the Solo mode control in Settings and Get Started, its notes, warnings and the list of tracked files, or Merge on the Board with its button, Dialog, merge banner and notices.
 
-Sections: `solo-mode`
+Sections: `solo-mode`, `solo-merge`
 
 File: `solo-mode.md`
 

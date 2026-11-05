@@ -74,6 +74,14 @@ File: `files.md`
 
 Use when building anything that must stay fast, reliable, logged, accessible or tested.
 
-Sections: `General`, `system-certificates`, `solo-mode`
+Sections: `General`, `solo-mode`, `solo-merge`
 
 File: `main.md`
+
+## omp setup and System Certificates
+
+Use when testing, logging or securing omp's setup: its installer, the GitHub download, its updates and System Certificates.
+
+Sections: `omp-setup`, `system-certificates`
+
+File: `omp.md`

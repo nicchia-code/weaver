@@ -10,12 +10,13 @@
   | Setup | ``Use the weaver-setup skill on the setup request in `.weaver/requests/<request>.md`.`` |
   | Design | ``Use the weaver-design skill on the design request in `.weaver/requests/<request>.md`.`` |
   | Import | ``Use the weaver-import skill on this repository.`` then ``Do not import these paths and do not ask which folders to import: `a`, `b/c`.`` or `Import every folder and do not ask which folders to import.` |
-  | Scan | `Use the weaver-scan skill on the whole System.` |
+  | Scan | `Use the weaver-scan skill on the whole System.` After a merge: ``Use the weaver-scan skill on the whole System after a merge: read the files the merge brought with `weaver job show`.`` |
   | Run of one Task | `Use the weaver-implement skill on Task <id>.` |
   | Run all | ``Use the weaver-implement skill on the runnable Tasks: take them from `weaver task list --input '{"runnable":true,"max":<N>,"groups":true}'`, one batch at a time, until it says there is none.`` A Run of a model group adds `"proposals":[…]` (the Proposals of its chosen model) or, for the execution-model group, `"notProposals":[…]`, identities in card order. |
   | Resolve | `Use the weaver-resolve-drifts skill on Drift <id>.` With an answer already given: `The developer already answered its prepared question: <answer>.`, the answer as one-line JSON `{"selected":[…],"text":…}`. |
   | Rework | `Use the <skill> skill to rework the rejected Proposal <id> with the developer's feedback.` The skill follows the kind: `weaver-design` for a change, `weaver-setup` for a setup while the Model is empty (`weaver-design` otherwise), `weaver-import`, or `weaver-resolve-drifts` adding ``on the Drifts `<d1>`, `<d2>` `` with its Drifts still open. |
   | Refinement | `Use the <skill> skill to refine the stale Proposal <id> on the current Model and Requirements.` The skill follows the kind as for a Rework; `weaver-resolve-drifts` ends the sentence with ``, on the Drifts `<d1>`, `<d2>`.`` naming its Drifts still open. Every skill has a section for refining a stale Proposal of its kind, with the rules of the design refinement (no code read, no announcement, decisions in the body already taken, at most one round and only on a contradicted decision, `Remove`/`Keep` when the whole change is already in the Model); it adds that an attached Proposal goes back Open, and that the agent asks the developer when something of a requirement dropped by the rebase was needed. |
+  | Merge conflicts | ``Use the weaver-resolve-conflicts skill on the merge in progress recorded in `.weaver/merge/merge.json`.`` |
 
 - Setup and Design: right after the first sentence, on the same line, one ``Read the file `.weaver/assets/<name>`.`` for each asset the request tags when it is sent (`requirements/rules#assets`), before the sentences below.
 

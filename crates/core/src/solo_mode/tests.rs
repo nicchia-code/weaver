@@ -945,3 +945,46 @@ fn placing_a_block_before_initialising_can_be_undone() {
     assert_eq!(read(&exclude_of(&repo)), before);
     assert!(!repo.join(".weaver").exists());
 }
+
+// --- while a merge is in progress ---------------------------------------------------------------
+
+#[test]
+fn solo_mode_cannot_change_while_a_merge_is_in_progress_and_nothing_is_touched() {
+    let sandbox = Sandbox::new();
+    let repo = sandbox.repo("a");
+    let root = project(&repo, "");
+    let git = Git::system();
+    set_mode(&git, &root, Mode::Folders).unwrap();
+    let before = read(&exclude_of(&repo));
+    let state = read(&state_path(&root));
+
+    fs::create_dir_all(root.join(".weaver/merge")).unwrap();
+    fs::write(root.join(".weaver/merge/merge.json"), "{}\n").unwrap();
+    for mode in [Mode::Off, Mode::Files] {
+        assert_eq!(
+            set_mode(&git, &root, mode).unwrap_err(),
+            Reason::MergeInProgress,
+            "{mode:?}"
+        );
+        assert_eq!(read(&exclude_of(&repo)), before, "{mode:?}");
+        assert_eq!(read(&state_path(&root)), state, "{mode:?}");
+    }
+    assert_eq!(
+        Reason::MergeInProgress.to_string(),
+        "Finish or abort the merge in progress first."
+    );
+    // It is checked before git is called: without git the reason is still the merge's.
+    assert_eq!(
+        set_mode(&git.clone().with_search_path(""), &root, Mode::Off).unwrap_err(),
+        Reason::MergeInProgress
+    );
+    // The mode already chosen is no change.
+    assert_eq!(
+        set_mode(&git, &root, Mode::Folders).unwrap().mode,
+        Mode::Folders
+    );
+
+    fs::remove_file(root.join(".weaver/merge/merge.json")).unwrap();
+    assert_eq!(set_mode(&git, &root, Mode::Off).unwrap().mode, Mode::Off);
+    assert!(!read(&exclude_of(&repo)).contains("weaver solo mode"));
+}

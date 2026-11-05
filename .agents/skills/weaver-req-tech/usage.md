@@ -1,0 +1,10 @@
+# omp usage
+
+## usage
+
+- **Reading:** `omp usage --json` (table in `requirements/tech#omp`), run by the Rust backend only while omp is Ready; never with `invalidate`, `reset`, `--history` or any other action that writes omp's state. One reading runs at a time app-wide: an opening or a `Retry` while one runs waits for that one. Weaver never reads usage in the background or on a timer, and relies on omp's own cache of the providers' answers.
+- **Parsing:** from `reports[]`: `provider`, `fetchedAt` and each of `limits[]` with `label`, `window.resetsAt`, `amount` (`used`, `limit`, `usedFraction`, `remainingFraction`, `unit`) and `status`; from `accountsWithoutUsage[]` and `disabledCredentials[]`: `provider`. Unknown fields are ignored; output that is not valid JSON of this shape fails with the reason `omp did not return valid usage`.
+- **Providers:** only the fixed list of `requirements/tech#omp-setup`, and of it only the connected providers; reports of other providers are dropped. A connected provider without a report is `No usage data` when it is in `accountsWithoutUsage`, `Login expired` when it is in `disabledCredentials`, otherwise `Not reported by omp`. Email, account, organisation and other identity fields are never parsed, kept or sent to the interface.
+- **Used fraction**, computed in `weaver-core`: `usedFraction`, else `used / limit` when `limit` is above 0, else `used / 100` when the unit is `percent`, else `1 − remainingFraction`, else unknown; clamped to 0–1 for the bar. **Status:** omp's `status` (`ok`, `warning` = almost used up, `exhausted` = used up); without it, almost used up from 0.8 and used up from 1 of the used fraction.
+- **Last result:** one app-wide value in the backend's memory, tagged with the omp path it was read for, never written to disk; it is replaced only by a successful reading and dropped when the omp path changes. A reading that ends after its dialog closed still replaces it. Every window receives it through the backend's events; the interface keeps no copy of its own.
+- **Waiting for omp:** a dialog in Waiting for omp starts a reading when the app-wide omp state becomes Ready.

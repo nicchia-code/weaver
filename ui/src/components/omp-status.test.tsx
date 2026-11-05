@@ -179,6 +179,19 @@ describe("omp status box", () => {
     expect(box).toHaveTextContent("omp not found at /gone/omp");
   });
 
+  it.each([
+    "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.",
+    "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it.",
+    "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.",
+    "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal.",
+  ])("shows the text of a failed installer by cause: %s", (text) => {
+    renderBox(status("missing", { installerFailure: text }));
+    const box = screen.getByRole("status", { name: "omp status" });
+    expect(box).toHaveTextContent(text);
+    expect(box).not.toHaveTextContent("omp is not installed.");
+    expect(within(box).getByRole("button", { name: "Install omp" })).toBeInTheDocument();
+  });
+
   it("is a polite live region", () => {
     renderBox(status("checking"));
     expect(screen.getByRole("status", { name: "omp status" })).toHaveAttribute("aria-live", "polite");

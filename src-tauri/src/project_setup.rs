@@ -35,6 +35,9 @@ use weaver_core::project_files::{
 };
 use weaver_core::solo_mode::{self, Git, Mode, Opening};
 
+pub mod merge;
+use merge::{AgentWork, MergeStatus};
+
 use crate::blocking;
 use crate::error::{AppError, ErrorCode};
 use crate::events::EventName;
@@ -123,6 +126,10 @@ pub struct ProjectStatus {
     pub folder_has_files: bool,
     pub check: SkillsCheck,
     pub solo: SoloStatus,
+    /// Merge of Solo mode; absent while Solo mode is off (`requirements/tech#solo-merge`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub merge: Option<MergeStatus>,
 }
 
 /// Solo mode of the working copy as the window shows it (`requirements/tech#solo-mode`). The tracked
@@ -186,6 +193,24 @@ pub trait Environment: Send + Sync + 'static {
     /// Reads the project again and tells the windows what changed (after `.weaver/` appeared).
     fn rebuilt(&self, project_id: &str) -> BoxFuture<()>;
     fn emit(&self, status: &ProjectStatus);
+    /// What the project's jobs say now: whether any has not ended, and whether a `merge` job has not.
+    fn agent_work(&self, project_id: &str) -> AgentWork;
+    /// `solo-merge.CONCLUDED`: starts the scan of the whole System with the files the merge brought,
+    /// through the path of Scan System and without its confirmation. Called inside the project's
+    /// queue, after `merge.json` was deleted.
+    fn start_scan_after_merge(
+        &self,
+        project_id: &str,
+        root: &Path,
+        merged: Vec<String>,
+    ) -> Result<(), String>;
+    /// `developer.RESOLVE_MERGE_CONFLICTS`: starts the job `merge`, `conflicts` being the number of
+    /// files git says still have them. Called inside the project's queue.
+    fn start_merge_job(&self, project_id: &str, root: &Path, conflicts: u32) -> Result<(), String>;
+    /// What the Board shows changed without a file changing (`merge.json` appeared or went).
+    fn board_changed(&self, project_id: &str);
+    /// A notice at the top of the Board.
+    fn notice(&self, project_id: &str, text: &str);
 }
 
 /// Runs `work` in the project's queue and returns what it returned.
@@ -214,6 +239,8 @@ struct Entry {
     folder_has_files: bool,
     check: SkillsCheck,
     solo: SoloStatus,
+    /// Merge of Solo mode; absent while Solo mode is off.
+    merge: Option<MergeStatus>,
     runs: Runs,
     /// Requests waiting for the next run, and those the running one serves.
     waiting: Vec<Waiter>,
@@ -232,7 +259,25 @@ impl Entry {
             folder_has_files: self.folder_has_files,
             check: self.check.clone(),
             solo: self.solo.clone(),
+            merge: self.merge.clone(),
         }
+    }
+
+    /// Takes the status of Solo mode; with Solo mode off the project has no Merge.
+    fn set_solo(&mut self, solo: SoloStatus) {
+        if !solo.mode.is_on() {
+            self.merge = None;
+        }
+        self.solo = solo;
+    }
+
+    /// Takes Merge's status; whether it changed.
+    fn set_merge(&mut self, merge: Option<MergeStatus>) -> bool {
+        if self.merge == merge {
+            return false;
+        }
+        self.merge = merge;
+        true
     }
 }
 
@@ -285,17 +330,21 @@ fn read_solo_mode(root: &Path, state: ProjectState) -> Mode {
 struct Worked {
     files: Option<Result<SyncReport, String>>,
     solo: Option<Opening>,
+    /// Merge's state worked out again (`None` when the run does not).
+    merge: Option<merge::MergeWork>,
 }
 
 /// What `run` does to the project at `root`, in the project's queue. The repair of Solo mode never
-/// changes the outcome for the installed files: they are separate results.
-fn run_work(root: &Path, run: Run, git: &Git) -> Worked {
+/// changes the outcome for the installed files: they are separate results. `merge` is the context
+/// of Merge's recomputation, given when the run does it.
+fn run_work(root: &Path, run: Run, git: &Git, merge: Option<&merge::Ctx>) -> Worked {
     if !has_weaver(root) {
         return Worked {
             files: Some(Err(
                 "the folder is not a project yet: initialise it first".to_owned()
             )),
             solo: None,
+            merge: None,
         };
     }
     let options = match run.want {
@@ -306,7 +355,9 @@ fn run_work(root: &Path, run: Run, git: &Git) -> Worked {
     };
     let files = options.map(|options| project_files::sync(root, options).map_err(|error| error.0));
     let solo = run.solo.then(|| solo_mode::open(git, root));
-    Worked { files, solo }
+    // After the repair: the block is what Solo mode's availability reads.
+    let merge = merge.map(merge::Ctx::recompute);
+    Worked { files, solo, merge }
 }
 
 /// The record of each open project.
@@ -379,6 +430,7 @@ impl ProjectSetup {
             waiting: Vec::new(),
             serving: Vec::new(),
             regeneration: 0,
+            merge: None,
         };
         Ok(entry.status(project_id))
     }
@@ -393,7 +445,7 @@ impl ProjectSetup {
         let Ok(measured) = blocking::disk(move || measure(&root, &image)).await else {
             return;
         };
-        let status = {
+        let (status, solo_turned_on) = {
             let mut entries = self.entries();
             let Some(entry) = entries.get_mut(project_id) else {
                 return;
@@ -406,16 +458,22 @@ impl ProjectSetup {
             }
             entry.state = measured.state;
             entry.folder_has_files = measured.folder_has_files;
+            let mut turned_on = false;
             if entry.solo.mode != measured.solo {
-                entry.solo = SoloStatus {
+                turned_on = measured.solo.is_on();
+                entry.set_solo(SoloStatus {
                     mode: measured.solo,
                     ..SoloStatus::default()
-                };
+                });
             }
             entry.revision += 1;
-            entry.status(project_id)
+            (entry.status(project_id), turned_on)
         };
         self.env.emit(&status);
+        // Merge appears with Solo mode: its state is worked out in the background work.
+        if solo_turned_on {
+            self.merge_may_have_changed(project_id);
+        }
     }
 
     /// Asks for a run. The returned receiver hears the report of the run that serves the request
@@ -450,16 +508,23 @@ impl ProjectSetup {
     async fn serve(self: Arc<Self>, project_id: String, first: Run) {
         let mut current = Some(first);
         while let Some(run) = current.take() {
-            let Some(root) = self
+            let Some((root, previous)) = self
                 .entries()
                 .get(&project_id)
-                .map(|entry| entry.root.clone())
+                .map(|entry| (entry.root.clone(), entry.merge.clone()))
             else {
                 return;
             };
             let git = self.git.clone();
+            let merge = run.merge.then(|| merge::Ctx {
+                env: self.env.clone(),
+                git: git.clone(),
+                project_id: project_id.clone(),
+                root: root.clone(),
+                previous,
+            });
             let worked = match locked(self.env.as_ref(), &project_id, move || {
-                run_work(&root, run, &git)
+                run_work(&root, run, &git, merge.as_ref())
             })
             .await
             {
@@ -467,6 +532,7 @@ impl ProjectSetup {
                 Err(reason) => Worked {
                     files: (run.want != Want::NoFiles).then_some(Err(reason)),
                     solo: None,
+                    merge: None,
                 },
             };
             match &worked.files {
@@ -503,6 +569,9 @@ impl ProjectSetup {
                 }
                 if let Some(opening) = &worked.solo {
                     changed |= entry.solo.follow(opening);
+                }
+                if let Some(merge) = &worked.merge {
+                    changed |= entry.set_merge(merge.status.clone());
                 }
                 let status = changed.then(|| {
                     entry.revision += 1;
@@ -611,6 +680,8 @@ impl ProjectSetup {
                     problem: inspection.problem.as_ref().map(ToString::to_string),
                 };
                 self.follow_solo(project_id, &solo);
+                // Merge appears with Solo mode and goes with it.
+                self.merge_may_have_changed(project_id);
                 log_info!("Solo mode is now {}", inspection.mode.as_str());
                 Ok(SoloChange {
                     solo,
@@ -655,7 +726,7 @@ impl ProjectSetup {
             if &entry.solo == solo {
                 return;
             }
-            entry.solo = solo.clone();
+            entry.set_solo(solo.clone());
             entry.revision += 1;
             entry.status(project_id)
         };
@@ -709,6 +780,7 @@ impl ProjectSetup {
                 waiting: Vec::new(),
                 serving: Vec::new(),
                 regeneration: 0,
+                merge: None,
             };
             let status = entry.status(&project_id);
             entries.insert(project_id.clone(), entry);
@@ -718,11 +790,19 @@ impl ProjectSetup {
         match measured.state {
             // The check of the installed files and the repair of Solo mode's block, in one run.
             ProjectState::HasModel => {
-                self.request(&project_id, Run::new(Want::OpeningCheck, true), false);
+                self.request(
+                    &project_id,
+                    Run::new(Want::OpeningCheck, true).with_merge(),
+                    false,
+                );
             }
             // An Empty Model is not checked, but its block is repaired all the same.
             ProjectState::EmptyModel => {
-                self.request(&project_id, Run::new(Want::NoFiles, true), false);
+                self.request(
+                    &project_id,
+                    Run::new(Want::NoFiles, true).with_merge(),
+                    false,
+                );
             }
             // No project yet: only whether Solo mode can be chosen, for Get Started.
             ProjectState::NotInitialised => {
@@ -770,6 +850,10 @@ impl ProjectHooks for ProjectSetup {
             let id = project_id.to_owned();
             tauri::async_runtime::spawn(async move { me.batch(id, requirements).await });
         }
+    }
+
+    fn window_focused(&self, project_id: &str) {
+        self.merge_may_have_changed(project_id);
     }
 
     fn window_closed(&self, project_id: &str) {
@@ -843,6 +927,76 @@ impl Environment for TauriEnvironment {
             log_warn!("the windows were not told about a project: {error}");
         }
     }
+
+    fn agent_work(&self, project_id: &str) -> AgentWork {
+        let facts = self.app.state::<Arc<Jobs>>().facts_of(project_id);
+        AgentWork {
+            busy: !facts.working_jobs.is_empty(),
+            merge_job_unended: facts.merge_job_unended,
+        }
+    }
+
+    fn start_scan_after_merge(
+        &self,
+        project_id: &str,
+        root: &Path,
+        merged: Vec<String>,
+    ) -> Result<(), String> {
+        let image = ProjectImage::load(root);
+        self.app
+            .state::<Arc<Jobs>>()
+            .start_scan_after_merge(
+                &Ctx {
+                    project_id,
+                    root,
+                    image: &image,
+                },
+                merged,
+            )
+            .map(|_| ())
+            .map_err(|refusal| refusal.to_string())
+    }
+
+    fn start_merge_job(&self, project_id: &str, root: &Path, conflicts: u32) -> Result<(), String> {
+        let image = ProjectImage::load(root);
+        self.app
+            .state::<Arc<Jobs>>()
+            .start_merge(
+                &Ctx {
+                    project_id,
+                    root,
+                    image: &image,
+                },
+                conflicts,
+            )
+            .map(|_| ())
+            .map_err(|refusal| refusal.to_string())
+    }
+
+    fn board_changed(&self, project_id: &str) {
+        // A project whose window is closed has no picture: nothing to tell.
+        let _ = crate::board::publish_agent_change(
+            &self.app,
+            &self.app.state::<AppState>().pictures,
+            project_id,
+        );
+    }
+
+    fn notice(&self, project_id: &str, text: &str) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = format!(
+            "merge-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let notice = crate::events::Notice {
+            project_id: project_id.to_owned(),
+            id,
+            text: text.to_owned(),
+        };
+        if let Err(error) = crate::events::emit_notice(&self.app, &notice) {
+            log_warn!("a notice about a merge was not sent: {error}");
+        }
+    }
 }
 
 /// Creates the record keeper and manages it, for the commands.
@@ -853,10 +1007,15 @@ pub fn install(app: &AppHandle) -> Arc<ProjectSetup> {
 }
 
 /// Creates the record keeper and hooks it to the windows: it hears of every window that opens or
-/// closes and of every batch of changes, from the first window. Call right after
-/// [`crate::jobs::install_windows`], before the projects are restored.
+/// closes, of every window that comes back to the foreground and of every batch of changes, from
+/// the first window, and of every job that ends. Call right after [`crate::jobs::install_windows`],
+/// before the projects are restored.
 pub fn install_windows(app: &AppHandle, manager: &Arc<WindowManager>) {
-    manager.set_project(install(app));
+    let setup = install(app);
+    if let Some(jobs) = app.try_state::<Arc<Jobs>>() {
+        jobs.observe(Arc::new(merge::JobEnded(setup.clone())));
+    }
+    manager.set_project(setup);
 }
 
 // --- commands ----------------------------------------------------------------------------------------
@@ -972,25 +1131,44 @@ mod tests {
 
     use super::*;
 
-    const ID: &str = "0123456789abcdef";
+    pub(super) const ID: &str = "0123456789abcdef";
 
     /// A folder with its picture read from disk at each question, and the statuses it announced.
-    struct FakeEnvironment {
+    /// The jobs are told by hand: what they say, and what was started in them.
+    pub(super) struct FakeEnvironment {
         root: PathBuf,
-        emitted: Mutex<Vec<ProjectStatus>>,
-        changed: Arc<Notify>,
+        pub(super) emitted: Mutex<Vec<ProjectStatus>>,
+        pub(super) changed: Arc<Notify>,
+        /// What the jobs say now.
+        pub(super) work: Mutex<AgentWork>,
+        /// The merged files of each scan started after a merge.
+        pub(super) scans: Mutex<Vec<Vec<String>>>,
+        /// The number of conflicts of each `merge` job started.
+        pub(super) merge_jobs: Mutex<Vec<u32>>,
+        /// How many times the Board was told it changed.
+        pub(super) boards: Mutex<u32>,
+        /// The notices sent to the Board.
+        pub(super) notices: Mutex<Vec<String>>,
+        /// The reason the jobs refuse the scan after a merge, when set.
+        pub(super) scan_refusal: Mutex<Option<String>>,
     }
 
     impl FakeEnvironment {
-        fn new(root: &Path) -> Arc<Self> {
+        pub(super) fn new(root: &Path) -> Arc<Self> {
             Arc::new(Self {
                 root: root.to_path_buf(),
                 emitted: Mutex::new(Vec::new()),
                 changed: Arc::new(Notify::new()),
+                work: Mutex::new(AgentWork::default()),
+                scans: Mutex::new(Vec::new()),
+                merge_jobs: Mutex::new(Vec::new()),
+                boards: Mutex::new(0),
+                notices: Mutex::new(Vec::new()),
+                scan_refusal: Mutex::new(None),
             })
         }
 
-        fn last(&self) -> Option<ProjectStatus> {
+        pub(super) fn last(&self) -> Option<ProjectStatus> {
             self.emitted.lock().unwrap().last().cloned()
         }
     }
@@ -1022,10 +1200,54 @@ mod tests {
             self.emitted.lock().unwrap().push(status.clone());
             self.changed.notify_waiters();
         }
+
+        fn agent_work(&self, _project_id: &str) -> AgentWork {
+            *self.work.lock().unwrap()
+        }
+
+        fn start_scan_after_merge(
+            &self,
+            _project_id: &str,
+            _root: &Path,
+            merged: Vec<String>,
+        ) -> Result<(), String> {
+            if let Some(reason) = self.scan_refusal.lock().unwrap().clone() {
+                return Err(reason);
+            }
+            self.scans.lock().unwrap().push(merged);
+            self.work.lock().unwrap().busy = true;
+            Ok(())
+        }
+
+        fn start_merge_job(
+            &self,
+            _project_id: &str,
+            _root: &Path,
+            conflicts: u32,
+        ) -> Result<(), String> {
+            let mut work = self.work.lock().unwrap();
+            if work.merge_job_unended {
+                return Err("A merge conflicts job has not ended".to_owned());
+            }
+            self.merge_jobs.lock().unwrap().push(conflicts);
+            *work = AgentWork {
+                busy: true,
+                merge_job_unended: true,
+            };
+            Ok(())
+        }
+
+        fn board_changed(&self, _project_id: &str) {
+            *self.boards.lock().unwrap() += 1;
+        }
+
+        fn notice(&self, _project_id: &str, text: &str) {
+            self.notices.lock().unwrap().push(text.to_owned());
+        }
     }
 
     /// Waits, without a timer of its own, until `condition` holds for what was announced.
-    async fn until(env: &FakeEnvironment, condition: impl Fn(&[ProjectStatus]) -> bool) {
+    pub(super) async fn until(env: &FakeEnvironment, condition: impl Fn(&[ProjectStatus]) -> bool) {
         let waiting = async {
             loop {
                 let notified = env.changed.notified();
@@ -1053,11 +1275,11 @@ mod tests {
         feature(root);
     }
 
-    fn setup(env: &Arc<FakeEnvironment>) -> Arc<ProjectSetup> {
+    pub(super) fn setup(env: &Arc<FakeEnvironment>) -> Arc<ProjectSetup> {
         ProjectSetup::with_delay(env.clone(), Duration::from_millis(20))
     }
 
-    fn open(setup: &ProjectSetup, root: &Path) {
+    pub(super) fn open(setup: &ProjectSetup, root: &Path) {
         setup.window_opened(ID, root);
     }
 

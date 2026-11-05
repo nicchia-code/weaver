@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
+### Added
+
+- When omp's own download channel is blocked by a corporate proxy, Weaver downloads omp from its GitHub releases by itself, on macOS, Windows and Linux: in the installer's terminal after the official installer fails, and in the background after `omp update` fails (only for an omp in the folder of its installer). The file is installed only when its size and SHA-256 are the ones GitHub publishes and it answers `--version`.
+- The File menu of every window, project and welcome, opens a folder (`Open Folder…`, `Cmd+O` on macOS and `Ctrl+O` on Windows and Linux) or one of the recent projects (`Open Recent`) without touching the window it is chosen from, on macOS, Windows and Linux; a project already open only comes to the front, a failed opening says why in the window it was chosen from, and `Clear Recent` empties the list of recent projects.
+- `Merge` in the Board header, while Solo mode is on, brings another branch (local, or a remote one git already knows) into the current branch with git: a banner shows the merge in progress with the number of files with conflicts, which you resolve by hand or with the agent before committing the merge in git, or abort. Weaver never commits a merge with conflicts and never fetches. When the merge is concluded Weaver starts by itself a scan of the whole System that reads the files the merge brought, and its Drifts from the merge recommend adapting the Model.
+
+### Changed
+
+- A failed omp installer is explained by its cause, with its exit code: a blocked download, a certificate that could not be verified, a file from GitHub that is incomplete or altered and was not installed, or an omp from GitHub that does not start.
+- A failed download of an omp update, in the background, says its cause in the same plain words: a blocked download, a certificate that could not be verified, an incomplete or altered file, an omp that does not start, a failed download with its exit code, or a download that timed out.
+
+### Fixed
+
+- In Chat and in Ask more the agent no longer tries to design a change itself with the design skill, which only works inside a job, and no longer gets stuck between that skill and `weaver job new`: it says that a change of the Model or the Requirements starts from a design request written with `+ Work Item` on the Board, and sends one already written when the developer asks.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

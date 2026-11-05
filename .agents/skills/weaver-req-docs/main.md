@@ -20,6 +20,17 @@
 - `README.md` `### Where Weaver keeps files` names the bundle `system-certificates.pem` and the installer markers `omp-install/` in the local data folder.
 - `CHANGELOG.md` is created with this change; its first `## [Unreleased]` entries describe System Certificates, the Zscaler turn-on, the new error explanations and the installer that now reports its failure.
 
+## omp-setup
+
+- `README.md` `## Behind a corporate proxy` also has a subsection `### When the proxy blocks omp's download`, saying:
+  - that some proxies block the site omp's official installer and `omp update` download from, whatever the certificates, so System Certificates does not help there;
+  - that Weaver then downloads the same omp from its GitHub releases, by itself, on macOS, Windows and Linux: in the installer's terminal after the official installer fails, and in the background after `omp update` fails, only for an omp in its installer's folder and not for one installed with a package manager or set in `omp path`;
+  - where it puts omp (`PI_INSTALL_DIR`, else `%LOCALAPPDATA%\omp` or `~/.local/bin`), that on Windows it adds that folder to the user `Path` when missing, and that on macOS and Linux it only prints how to add it;
+  - that the file is installed only when its size and SHA-256 match those GitHub publishes and it answers `--version`;
+  - the causes shown when that download fails too, with their exit codes `90` to `93`.
+- `README.md` `### Where Weaver keeps files` says that the GitHub download writes omp in its installer's folder, outside Weaver's folders, with a temporary `.omp.download` file and, on Windows, the `omp.exe.*.old` files of a replaced omp.
+- `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing the GitHub fallback for installing and updating omp, and under `Changed` one line for the installer's failure messages by cause.
+
 ## solo-mode
 
 - `README.md` has a section `## Solo mode`, after `## Install` and `## Behind a corporate proxy`, saying:
@@ -29,3 +40,12 @@
   - that files git already tracks are not hidden and Settings lists them;
   - that it needs git and that, with it on, losing the working copy loses Weaver's files.
 - `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing Solo mode.
+
+## solo-merge
+
+- `README.md` has, inside `## Solo mode`, a subsection `### Merge` saying:
+  - what it is for: bringing the others' work into the current branch and finding, through a scan, what it changed against the Model;
+  - where it is (the Board, only with Solo mode on) and when it is available;
+  - that Weaver runs `git merge` itself but never fetches and never commits a merge with conflicts: the developer resolves them by hand or with the agent, then commits;
+  - that the scan after the merge starts by itself and that its Drifts from the merge recommend adapting the Model.
+- `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing Merge in Solo mode.

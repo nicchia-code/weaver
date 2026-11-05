@@ -32,6 +32,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::watch;
+use weaver_core::omp::github::{self, DownloadOutcome, DownloadRun};
 use weaver_core::omp::installer;
 use weaver_core::omp::lookup::{LookupEnv, Os};
 use weaver_core::omp::machine::{
@@ -71,8 +72,11 @@ pub trait Ops: Send + Sync + 'static {
     fn probe(&self, setting: &str) -> ProbeResult;
     /// The same questions to an omp already found.
     fn probe_found(&self, omp: &Path) -> ProbeResult;
-    /// `omp update` (5 min); on failure, its reason, explained for a proxy problem.
-    fn update(&self, omp: &Path) -> Result<(), String>;
+    /// `omp update` (5 min) for the omp at `omp`, found with the `ompPath` setting `setting`
+    /// (trimmed); when it fails and the omp is in a folder of its installer, then the download of
+    /// the latest GitHub release in its place. On failure, the reason: the one of `omp update`,
+    /// explained for a proxy problem, or the one of the download from GitHub when it ran.
+    fn update(&self, omp: &Path, setting: &str) -> Result<(), String>;
     /// `omp update --check` (30 s): the newer version, if any.
     fn update_check(&self, omp: &Path) -> Result<Option<String>, Failure>;
     /// `omp auth-broker logout <provider>` (30 s); on failure, its reason, explained for a proxy
@@ -407,7 +411,7 @@ impl Shared {
                 self.dispatch(Event::Probed { ticket, result });
             }
             Effect::RunUpdate { omp_path, omp } => {
-                match guard(|| ops.update(&omp))
+                match guard(|| ops.update(&omp, &omp_path))
                     .unwrap_or_else(|| Err(Failure::NotStarted.reason()))
                 {
                     Ok(()) => self.dispatch(Event::UpdateEnded { omp_path }),
@@ -497,6 +501,28 @@ impl Shared {
         if let Some(status) = self.usage.finish(&started, &current, result) {
             (runtime.emit_usage)(&status);
         }
+    }
+}
+
+/// Logs a background download from GitHub: at `info` its tag, asset, outcome with exit code and
+/// duration; a failure also at `warn` with its reason. Never the user `Path`.
+fn log_download(download: &DownloadRun) {
+    let tag = download.tag.as_deref().unwrap_or("unknown");
+    let asset = download.asset.as_deref().unwrap_or("unknown");
+    let outcome = match download.outcome {
+        DownloadOutcome::Installed => "installed",
+        DownloadOutcome::NotNewer => "not newer",
+        DownloadOutcome::Failed(_) => "failed",
+    };
+    let code = download
+        .exit_code
+        .map_or_else(|| "timed out".to_owned(), |code| code.to_string());
+    log_info!(
+        "omp update from GitHub: tag {tag}, asset {asset}, {outcome} (exit code {code}), {} ms",
+        download.elapsed.as_millis()
+    );
+    if let (DownloadOutcome::Failed(_), Some(reason)) = (download.outcome, &download.reason) {
+        log_warn!("omp update from GitHub failed: {reason}");
     }
 }
 
@@ -593,8 +619,13 @@ impl Ops for SystemOps {
         probe::probe_found(omp, &self.environment().1)
     }
 
-    fn update(&self, omp: &Path) -> Result<(), String> {
-        probe::run_update(omp, &self.environment().1)
+    fn update(&self, omp: &Path, setting: &str) -> Result<(), String> {
+        let (lookup, exec) = self.environment();
+        let run = github::update(omp, setting, &lookup, &exec);
+        if let Some(download) = &run.download {
+            log_download(download);
+        }
+        run.result
     }
 
     fn update_check(&self, omp: &Path) -> Result<Option<String>, Failure> {
@@ -904,6 +935,8 @@ mod tests {
     struct FakeOps {
         probes: Mutex<VecDeque<ProbeResult>>,
         updates: Mutex<VecDeque<Result<(), String>>>,
+        /// The `ompPath` settings the updates were run for.
+        updated_for: Mutex<Vec<String>>,
         update_checks: Mutex<VecDeque<Result<Option<String>, Failure>>>,
         terminal_fails: AtomicBool,
         probed_paths: Mutex<Vec<String>>,
@@ -952,7 +985,8 @@ mod tests {
                 .pop_front()
                 .expect("a scripted probe")
         }
-        fn update(&self, _omp: &Path) -> Result<(), String> {
+        fn update(&self, _omp: &Path, setting: &str) -> Result<(), String> {
+            self.updated_for.lock().unwrap().push(setting.to_owned());
             self.updates
                 .lock()
                 .unwrap()
@@ -1246,6 +1280,22 @@ mod tests {
         rig.start("");
         rig.scheduler.drain();
         assert_eq!(rig.phase(), Phase::Ready);
+    }
+
+    #[test]
+    fn the_update_runs_for_the_omp_path_setting_the_machine_has() {
+        let rig = rig();
+        rig.script_probe(ProbeResult::Outdated {
+            omp: omp(),
+            version: Some("18.0.0".into()),
+        });
+        rig.ops.updates.lock().unwrap().push_back(Ok(()));
+        rig.script_probe(ready());
+        rig.start("/custom/omp");
+        rig.scheduler.drain();
+        // The download from GitHub is never tried for an omp the settings chose: the runner
+        // decides it from the setting it is given here.
+        assert_eq!(*rig.ops.updated_for.lock().unwrap(), ["/custom/omp"]);
     }
 
     #[test]

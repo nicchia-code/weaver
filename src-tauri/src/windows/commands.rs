@@ -11,14 +11,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use ts_rs::TS;
 
 use super::editor::{self, ProgramSearch};
 use super::jobs::OpenReason;
 use super::local_state::LocalState;
-use super::manager::WindowManager;
+use super::manager::{MenuOpenFailed, WindowManager};
 use crate::blocking;
 use crate::error::{AppError, ErrorCode};
 use crate::state::AppState;
@@ -45,6 +45,9 @@ pub struct WelcomeState {
     pub version: String,
     /// At most 10, the most recently opened first.
     pub recent: Vec<RecentEntry>,
+    /// An opening from the File menu that failed while no window had the focus: the welcome window
+    /// shows it in its `Alert`. Handed over once, by `welcome_state` only.
+    pub failure: Option<MenuOpenFailed>,
 }
 
 /// The welcome state of `state`; `exists` says whether a folder is there (blocking).
@@ -52,17 +55,23 @@ pub fn welcome_state_of(state: &LocalState, exists: impl Fn(&Path) -> bool) -> W
     WelcomeState {
         name: "Weaver".to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
-        recent: state
-            .recent
-            .iter()
-            .map(|project| RecentEntry {
-                path: project.path.clone(),
-                name: project.name.clone(),
-                opened: project.opened.clone(),
-                exists: exists(Path::new(&project.path)),
-            })
-            .collect(),
+        recent: recent_entries_of(state, exists),
+        failure: None,
     }
+}
+
+/// The recent projects of `state`, each with whether its folder is still there (blocking).
+pub fn recent_entries_of(state: &LocalState, exists: impl Fn(&Path) -> bool) -> Vec<RecentEntry> {
+    state
+        .recent
+        .iter()
+        .map(|project| RecentEntry {
+            path: project.path.clone(),
+            name: project.name.clone(),
+            opened: project.opened.clone(),
+            exists: exists(Path::new(&project.path)),
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -71,7 +80,10 @@ pub async fn welcome_state(
 ) -> Result<WelcomeState, AppError> {
     let manager = manager.inner().clone();
     blocking::disk_named("welcome_state", None, move || {
-        welcome_state_of(&manager.recent(), Path::is_dir)
+        let mut state = welcome_state_of(&manager.recent(), Path::is_dir);
+        // A File menu opening that failed with no window to say so, waiting for this window.
+        state.failure = manager.take_welcome_failure();
+        state
     })
     .await
 }
@@ -87,25 +99,38 @@ pub async fn open_project(
         .map(|_| ())
 }
 
+/// Shows the system folder picker, modal to `parent` when there is one (a sheet on macOS). `None`
+/// when the developer chose no folder.
+pub async fn pick_folder(
+    app: &AppHandle,
+    parent: Option<&WebviewWindow>,
+) -> Result<Option<PathBuf>, AppError> {
+    let (answer, receiver) = tokio::sync::oneshot::channel();
+    let mut dialog = app.dialog().file().set_title("Open Folder");
+    if let Some(parent) = parent {
+        dialog = dialog.set_parent(parent);
+    }
+    dialog.pick_folder(move |chosen| {
+        let _ = answer.send(chosen);
+    });
+    let Some(chosen) = receiver.await.map_err(AppError::internal)? else {
+        return Ok(None);
+    };
+    chosen
+        .into_path()
+        .map(Some)
+        .map_err(|error| AppError::new(ErrorCode::InvalidInput, error.to_string()))
+}
+
 /// Shows the system folder picker. `false` when the developer chose none.
 #[tauri::command]
 pub async fn open_folder(
     app: AppHandle,
     manager: State<'_, Arc<WindowManager>>,
 ) -> Result<bool, AppError> {
-    let (answer, receiver) = tokio::sync::oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title("Open Folder")
-        .pick_folder(move |chosen| {
-            let _ = answer.send(chosen);
-        });
-    let Some(chosen) = receiver.await.map_err(AppError::internal)? else {
+    let Some(folder) = pick_folder(&app, None).await? else {
         return Ok(false);
     };
-    let folder = chosen
-        .into_path()
-        .map_err(|error| AppError::new(ErrorCode::InvalidInput, error.to_string()))?;
     manager.open_project(folder, OpenReason::Developer).await?;
     Ok(true)
 }

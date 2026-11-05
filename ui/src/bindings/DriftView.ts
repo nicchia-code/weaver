@@ -46,6 +46,11 @@ resolving: boolean,
  */
 prepared: boolean, 
 /**
+ * The Drift comes from a merge (`merge` badge, tooltip `Found by the scan after a merge`):
+ * `recommended` marks `Accept Proposal`, not the first fix option.
+ */
+merge: boolean, 
+/**
  * Why `Resolve` is disabled, one per line in the fixed order; empty = it works.
  */
 resolveReasons: Array<string>, 

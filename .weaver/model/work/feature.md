@@ -8,4 +8,4 @@ A Drift is a difference the developer must decide: fix the code, accept a Propos
 
 Two things concern the same thing when they name the same element of the Model, or one names an element inside the other; a Requirement section concerns the element it is titled with, and a General section only concerns itself. The same rule decides blocking, which Tasks a Run may carry out together, and which Drifts touch a Task.
 
-A scan compares the Model and the Requirements with the code: the developer asks for it on the whole System, and the agent compares every Machine, each one with a sub-agent, filing Tasks for what is missing and Drifts for what disagrees. A Machine with no differences files nothing.
+A scan compares the Model and the Requirements with the code: the developer asks for it on the whole System, or Weaver starts it by itself once a merge in Solo mode is concluded, telling the agent which files the merge brought; the agent compares every Machine, each one with a sub-agent, filing Tasks for what is missing and Drifts for what disagrees. A Machine with no differences files nothing.

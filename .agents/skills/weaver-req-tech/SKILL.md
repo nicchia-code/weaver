@@ -95,17 +95,17 @@ File: `notes.md`
 
 ## omp
 
-Use when finding, checking, installing, updating or logging in omp, reading its usage limits, or opening the system terminal for its installer and logins.
+Use when finding, checking, installing, updating or logging in omp, downloading it from GitHub, or opening the system terminal for its installer and logins.
 
-Sections: `omp`, `omp-setup`, `usage`
+Sections: `omp`, `omp-setup`
 
 File: `omp.md`
 
 ## Solo mode
 
-Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, and the File view's listing.
+Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, the File view's listing, and Merge: its git steps, commands, state and jobs.
 
-Sections: `solo-mode`
+Sections: `solo-mode`, `solo-merge`
 
 File: `solo-mode.md`
 
@@ -116,6 +116,14 @@ Use when building System Certificates: exporting the system's certificate author
 Sections: `system-certificates`
 
 File: `system-certificates.md`
+
+## omp usage
+
+Use when reading, parsing or keeping omp's usage limits of the connected providers.
+
+Sections: `usage`
+
+File: `usage.md`
 
 ## Windows and notifications
 

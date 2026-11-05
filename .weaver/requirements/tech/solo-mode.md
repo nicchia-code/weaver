@@ -1,5 +1,5 @@
 ---
-description: "Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, and the File view's listing."
+description: "Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, the File view's listing, and Merge: its git steps, commands, state and jobs."
 ---
 # Solo mode
 
@@ -16,3 +16,13 @@ description: "Use when building Solo mode: git calls, the exclusions block at in
 - **Command line:** `solo` in `project new` and `project edit` input, values `off`, `folders`, `files`; output `solo` as `{mode, unavailable?, problem?, tracked}`, `tracked` being the list of tracked files, empty when Solo mode is off. `project show` and `project edit {solo}` compute it at the call: `problem` says why, while Solo mode is on, the block is not in place as expected; the command line never repairs it.
 - **File view listing:** `git check-ignore -v -z --stdin` reports, for each ignored path, the file, line and pattern that decided it. A path decided by a line inside a Solo mode block of the exclusions file (of any working copy) is listed; the exclusions file is read once per listing to find those lines.
 - **Installed texts:** the generated command reference mentions `solo`; the check of words that installed texts must not contain no longer lists `solo`.
+
+## solo-merge
+
+- **Where:** one module of `weaver-core`, beside Solo mode's, runs every git step of Merge (`requirements/rules#solo-merge`) and reads and writes `merge/merge.json` (`requirements/data#solo-merge`). Only the Tauri backend calls it; the UI never runs git and the command line has no merge command.
+- **git:** the same runner as Solo mode (`requirements/tech#solo-mode`, **git**): no shell, cwd the project root, `GIT_OPTIONAL_LOCKS=0` for the calls that only read, the time-limited runner with 10 s per call and 2 minutes for `git merge`. `GIT_EDITOR=true` and `GIT_MERGE_AUTOEDIT=no` keep git from opening an editor. No git call runs on the UI or IPC thread.
+- **Commands:** Tauri commands `merge_refresh {projectId}` (computes availability and the merge in progress), `merge_branches {projectId}` (branches and tracked files, called when the Dialog opens), `merge_start {projectId, branch}`, `merge_abort {projectId}` and `resolve_merge_conflicts {projectId}`, each run in the project's mutation queue under the project lock; every one returns the new state or the error with its reason.
+- **State in the app:** `ProjectStatus` carries `merge`, absent while Solo mode is off: `available` (boolean), `reason` (when not available), `inProgress` (`{branch, current, conflicts}`, `conflicts` the number of files with conflicts, while `merge.json` exists), sent with `project-state`. It is computed again when the Board view is shown (`merge_refresh`), on `WindowEvent::Focused(true)` of the project window, when a job of the project ends, after every merge command and at the window's opening, in the project's background work, coalesced so that one computation runs at a time.
+- **Conclusion:** the step that finds the merge concluded deletes `merge.json` and starts the scan job through the same start path as Scan System, without its confirmation; its registry record gets `merged`. A forgotten merge and every refusal reach the Board as notices.
+- **Jobs:** a job kind `merge`, named `Merge conflicts`, with the analysis model's role, no `--slow`, no `--advisor` and the environment of every job; it is not among the kinds of `job new` or of `agent.START_JOB`. Admission refuses, with the reason `A merge is in progress`, Runs, Run all, resolves, scans and imports while `merge.json` exists, and `merge` when no merge with conflicts is in progress or a `merge` job of the project has not ended.
+- **Solo mode:** `set_solo_mode` is refused while `merge.json` exists, for `off` and for the other mode, with the reason of `requirements/ui#solo-mode`.

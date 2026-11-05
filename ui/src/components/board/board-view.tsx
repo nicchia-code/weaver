@@ -12,7 +12,11 @@ import { GhostCard } from "@/components/board/ghost-card";
 import { CardId } from "@/components/card-id";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { GuardedButton } from "@/components/guarded-button";
+import { MergeBanner } from "@/components/merge/merge-banner";
+import { MergeButton } from "@/components/merge/merge-button";
+import { useMerge } from "@/components/merge/use-merge";
 import { NoticeStack } from "@/components/notices";
+import { useViewShown } from "@/components/view-shown";
 import { ViewHeader } from "@/components/view-header";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -119,6 +123,8 @@ function BoardFooterButtons({ runAllReasons }: { runAllReasons: readonly string[
 export function BoardView() {
   const { snapshot, loadError, notices, closeNotice, reload } = useBoard();
   const actions = useBoardActions();
+  const merge = useMerge();
+  const shown = useViewShown();
   const [opened, setOpened] = useState<OpenCard | null>(null);
   const [scanning, setScanning] = useState(false);
   // The History warnings the developer closed, by text: they stay hidden while the window is
@@ -127,6 +133,13 @@ export function BoardView() {
   const backlogRef = useRef<HTMLElement>(null);
   const activeRef = useRef<HTMLElement>(null);
   const focusTarget = useRef<HTMLElement | null>(null);
+
+  // Merge is asked again each time the Board is shown (`merge_refresh`), never on a timer.
+  const refreshMerge = useRef(merge?.refresh);
+  refreshMerge.current = merge?.refresh;
+  useEffect(() => {
+    if (shown) refreshMerge.current?.();
+  }, [shown]);
 
   const cards = useMemo(() => {
     const all = new Map<string, BoardCard>();
@@ -185,7 +198,8 @@ export function BoardView() {
     <BoardUiContext.Provider value={ui}>
       <div className="flex h-full min-h-0 flex-col">
         <ViewHeader view="board">
-          <GuardedButton variant="outline" size="sm" onClick={() => setScanning(true)}>
+          <MergeButton />
+          <GuardedButton variant="outline" size="sm" reasons={[merge?.merge?.inProgress && "A merge is in progress"]} onClick={() => setScanning(true)}>
             <ScanSearch aria-hidden />
             Scan System
           </GuardedButton>
@@ -193,6 +207,7 @@ export function BoardView() {
             <span className="text-muted-foreground">· {snapshot.doneSinceLastScan} done since last scan</span>
           ) : null}
         </ViewHeader>
+        <MergeBanner />
         <NoticeStack notices={notices} onClose={closeNotice} />
         {visibleWarnings.length > 0 ? (
           <div className="flex flex-col gap-2 px-4 pt-4">

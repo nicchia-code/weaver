@@ -1,6 +1,7 @@
 import { Blocks, FolderOpen, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import type { MenuOpenFailed } from "@/bindings/MenuOpenFailed";
 import type { RecentEntry } from "@/bindings/RecentEntry";
 import type { WelcomeState } from "@/bindings/WelcomeState";
 import { OmpSetup } from "@/components/omp-status";
@@ -9,10 +10,15 @@ import { SystemCertificatesBanners } from "@/components/system-certificates-bann
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { UpdateBanner } from "@/components/update-banner";
-import { call, isAppError } from "@/lib/backend";
+import { call, isAppError, on } from "@/lib/backend";
 
 function failureText(action: string, error: unknown): string {
   return `${action}: ${isAppError(error) ? error.message : "unknown error"}`;
+}
+
+/** The text of an opening from the File menu that failed: the same ones the window's own actions use. */
+function menuFailureText({ name, reason }: MenuOpenFailed): string {
+  return name === null ? `The folder could not be opened: ${reason}` : `${name} could not open: ${reason}`;
 }
 
 function RecentProject({
@@ -66,7 +72,11 @@ export function WelcomeWindow() {
 
   const load = useCallback(() => {
     call("welcome_state")
-      .then(setState)
+      .then((loaded) => {
+        setState(loaded);
+        // An opening from the File menu that failed while no window had the focus.
+        if (loaded.failure) setFailure(menuFailureText(loaded.failure));
+      })
       .catch((error: unknown) => setFailure(failureText("The recent projects could not be read", error)));
   }, []);
 
@@ -76,6 +86,24 @@ export function WelcomeWindow() {
     window.addEventListener("focus", load);
     return () => window.removeEventListener("focus", load);
   }, [load]);
+
+  // The list follows every change at once, also those made from the File menu (`Clear Recent`, an
+  // opening from `Open Recent`), and an opening from the File menu that failed says why.
+  useEffect(() => {
+    let current = true;
+    const stops = [
+      on("recent-changed", (recent) => {
+        if (current) setState((previous) => (previous ? { ...previous, recent } : previous));
+      }),
+      on("menu-open-failed", (failed) => {
+        if (current) setFailure(menuFailureText(failed));
+      }),
+    ];
+    return () => {
+      current = false;
+      for (const stop of stops) stop.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
 
   const open = (entry: RecentEntry) => {
     setFailure(null);

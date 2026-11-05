@@ -53,7 +53,7 @@ question      new
 
 ## drift
 
-- `new {title, refs, happens, should, where, options?, task?, proposal?, previous?, announcement?}`: `options` 2–5 `{title, text}`, recommended first, absent only with `proposal` (a Draft or Open Proposal no other Drift holds); `task` is the origin; `previous` is set automatically when the origin is a fix Task.
+- `new {title, refs, happens, should, where, options?, task?, proposal?, previous?, merge?, announcement?}`: `options` 2–5 `{title, text}`, recommended first, absent only with `proposal` (a Draft or Open Proposal no other Drift holds); `task` is the origin; `previous` is set automatically when the origin is a fix Task; `merge` only `true`, from a scan after a merge (`requirements/rules#drift`). `show` and `list` print `merge`.
 - `list {all?, refs?, job?, currentJob?, unprepared?}`: open only unless `all`; `refs` as Task blocking; `currentJob` uses `WEAVER_JOB` (nothing outside a job); `unprepared`: open, no valid prepared question, in no resolution being written or open.
 - `edit <id> {prepared?, proposal?}`: `prepared: {question, decisions}` is a `question new` question (`id` the Drift identity, `multi: false`) with one decision per option: every fix option once as `fix-code` + `option`, plus one `proposal` or `dismissed` (both when there are no fix options). Weaver adds fingerprint and instant. `proposal` attaches a Proposal to a Drift that has none.
 - `move <id> code-to-be-fixed {option?, note?}` (option from 1, required when options exist), `proposal-accepted`, `dismissed`: decisions.
@@ -87,7 +87,7 @@ failed:      {error: {code: "invalid-input" | "interrupted" | "cancelled", messa
 
 - `announcement new {kind, title}`: `kind` `proposal`, `task` or `drift`; `title` one line, ≤ 60 characters. Prints the `id` to pass as `announcement` when creating the card; an unknown or foreign one still creates the card, with a `note`.
 - `job edit {note}`: line breaks become spaces, ends trimmed; empty → exit 2; over 120 characters cut to 119 plus `…`, said in the output. The last 6 notes are kept with their instants; a repeat of the last only renews its instant.
-- `job show` without id reads only the environment and the job's registry record (`id`, `kind`, `target`, `run` from `WEAVER_RUN`, `task` from `WEAVER_TASK`); outside a job it says so, exit 0. `job show <id>` and `job list {all?}` ask the app.
+- `job show` without id reads only the environment and the job's registry record (`id`, `kind`, `target`, `merged` for a scan after a merge, `run` from `WEAVER_RUN`, `task` from `WEAVER_TASK`); outside a job it says so, exit 0. `job show <id>` and `job list {all?}` ask the app. No command starts, aborts or shows a merge.
 - `job new {kind, request?, task?, drift?}`: `design` with `request` (written, unsent, not empty), `scan` (whole System), `run` (one `task`, or Run all), `resolve` with `drift`. Accepted only from General's agent (`WEAVER_GENERAL`, recognised by the app as this project's working General) or from an Ask more agent (`WEAVER_ASK`, recognised by the app as a working Ask more conversation of this project), with the developer's refusals; its `--help` says: only when the developer explicitly asked for that job.
 
 ## agent

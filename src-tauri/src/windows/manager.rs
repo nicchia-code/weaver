@@ -237,6 +237,9 @@ pub trait Shell: Send + Sync + 'static {
     /// Tells a window why it could not be hidden after `Keep working in background`.
     fn emit_hide_failed(&self, label: &str, failure: &HideFailed);
     fn publish(&self, change: ProjectChanged);
+    /// The recent projects changed (an opening, a removal, `Clear Recent`): the File menu's
+    /// `Open Recent` and the welcome window, when it is open, follow the new list.
+    fn recent_changed(&self) {}
     /// Writes the size and position of the open windows now.
     fn save_window_state(&self);
     /// A batch of file changes of a project, before its picture is rebuilt (the request editor
@@ -283,6 +286,17 @@ pub enum OpenOutcome {
 #[serde(rename_all = "camelCase")]
 pub struct HideFailed {
     /// What the system said when the window could not be hidden.
+    pub reason: String,
+}
+
+/// Why an opening started from the File menu failed: the UI of the window it was chosen from shows
+/// it (an error toast in a project window, the red `Alert` of the welcome window).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuOpenFailed {
+    /// The folder's name; `None` when the folder picker itself failed.
+    pub name: Option<String>,
+    /// The reason the developer reads.
     pub reason: String,
 }
 
@@ -335,6 +349,8 @@ pub struct WindowManager {
     /// Per project, the `Save all` waiting for the File view's texts.
     flushing: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<TabText>>>>,
     flush_limit: Mutex<Duration>,
+    /// The File menu opening that failed with no window to say so, until the welcome window asks.
+    welcome_failure: Mutex<Option<MenuOpenFailed>>,
     me: Weak<WindowManager>,
 }
 
@@ -387,6 +403,7 @@ impl WindowManager {
             flushing: Mutex::new(HashMap::new()),
             flush_limit: Mutex::new(crate::requests::FLUSH_LIMIT),
             me: me.clone(),
+            welcome_failure: Mutex::new(None),
         })
     }
 
@@ -432,9 +449,13 @@ impl WindowManager {
             .sum()
     }
 
-    /// A window got the focus (the most recent one comes forward for a second launch).
+    /// A window got the focus (the most recent one comes forward for a second launch); a project
+    /// window that came back to the foreground is `desktop.WINDOW_FOCUSED`.
     pub fn on_focused(&self, label: &str) {
         self.registry().focused(label);
+        if let Some(project_id) = crate::pictures::project_of_label(label) {
+            self.project().window_focused(project_id);
+        }
     }
 
     fn report(&self, failure: OpenFailure) {
@@ -527,6 +548,8 @@ impl WindowManager {
             }
             Err(error) => log_warn!("the recent projects were not stored: {error}"),
         }
+        // The File menu's `Open Recent` and the welcome window follow the new list.
+        self.shell.recent_changed();
         log_info!("opened {}", folder_name(canonical));
         self.jobs().window_opened(&WindowOpened {
             project_id: id.to_owned(),
@@ -1160,10 +1183,38 @@ impl WindowManager {
 
     /// Removes a project from the recent list; returns the list that remains.
     pub fn remove_recent(&self, path: &str) -> Result<LocalState, AppError> {
-        self.store
-            .update(|state| state.remove_recent(path))
-            .map_err(AppError::internal)?;
+        let stored = self.store.update(|state| state.remove_recent(path));
+        // What is in memory is what the menu and the welcome window show, written or not.
+        self.shell.recent_changed();
+        stored.map_err(AppError::internal)?;
         Ok(self.store.snapshot())
+    }
+
+    /// `Clear Recent` of the File menu: empties the list of recent projects, without touching the
+    /// last session or the open windows; returns the list that remains (blocking: call from the
+    /// blocking pool).
+    pub fn clear_recent(&self) -> Result<LocalState, AppError> {
+        let stored = self.store.update(LocalState::clear_recent);
+        self.shell.recent_changed();
+        stored.map_err(AppError::internal)?;
+        Ok(self.store.snapshot())
+    }
+
+    /// A File menu opening failed with no window to say so: the welcome window, which may still be
+    /// loading, shows it as soon as it asks for its state ([`WindowManager::take_welcome_failure`]).
+    pub fn set_welcome_failure(&self, failure: MenuOpenFailed) {
+        *self
+            .welcome_failure
+            .lock()
+            .expect("welcome failure poisoned") = Some(failure);
+    }
+
+    /// The failure waiting for the welcome window, handed over once.
+    pub fn take_welcome_failure(&self) -> Option<MenuOpenFailed> {
+        self.welcome_failure
+            .lock()
+            .expect("welcome failure poisoned")
+            .take()
     }
 }
 
@@ -1199,6 +1250,8 @@ mod tests {
         assets: Mutex<Vec<String>>,
         /// The batches under the notes folder the manager handed to the shell, in order.
         notes: Mutex<Vec<(String, NotesBatch)>>,
+        /// How many times the manager announced a change of the recent projects.
+        recent_changes: AtomicUsize,
     }
 
     impl FakeShell {
@@ -1354,6 +1407,9 @@ mod tests {
         }
         fn publish(&self, change: ProjectChanged) {
             self.published.lock().unwrap().push(change);
+        }
+        fn recent_changed(&self) {
+            self.recent_changes.fetch_add(1, Ordering::SeqCst);
         }
         fn save_window_state(&self) {
             self.note("save window state");
@@ -1566,6 +1622,74 @@ mod tests {
         assert_eq!(state.recent[0].opened, "2026-11-02T07:00:00.000Z");
         assert_eq!(state.last_session, [path]);
         assert!(f.data.path().join("state.json").exists());
+    }
+
+    #[tokio::test]
+    async fn every_change_of_the_recent_projects_is_announced_to_the_shell() {
+        let f = fixture();
+        let (_keep, root, _id) = project("alpha");
+        f.manager
+            .open_project(root.clone(), OpenReason::Developer)
+            .await
+            .unwrap();
+        assert_eq!(
+            f.shell.recent_changes.load(Ordering::SeqCst),
+            1,
+            "an opening"
+        );
+        f.manager.remove_recent(&root.to_string_lossy()).unwrap();
+        assert_eq!(
+            f.shell.recent_changes.load(Ordering::SeqCst),
+            2,
+            "a removal"
+        );
+        f.manager.clear_recent().unwrap();
+        assert_eq!(
+            f.shell.recent_changes.load(Ordering::SeqCst),
+            3,
+            "Clear Recent"
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_recent_empties_the_list_and_keeps_the_session_and_the_windows() {
+        let f = fixture();
+        let (_a, root_a, id_a) = project("alpha");
+        let (_b, root_b, _id_b) = project("beta");
+        f.manager
+            .open_project(root_a.clone(), OpenReason::Developer)
+            .await
+            .unwrap();
+        f.manager
+            .open_project(root_b.clone(), OpenReason::Developer)
+            .await
+            .unwrap();
+        let session = f.store.snapshot().last_session;
+        assert_eq!(f.store.snapshot().recent.len(), 2);
+
+        let remaining = f.manager.clear_recent().unwrap();
+
+        assert!(remaining.recent.is_empty());
+        assert!(f.store.snapshot().recent.is_empty());
+        assert_eq!(f.store.snapshot().last_session, session);
+        assert_eq!(f.manager.open_projects().len(), 2);
+        assert!(f.shell.windows().contains(&label_of(&id_a)));
+        let on_disk = StateStore::in_dir(f.data.path()).snapshot();
+        assert!(on_disk.recent.is_empty());
+        assert_eq!(on_disk.last_session, session);
+    }
+
+    #[test]
+    fn a_failure_waiting_for_the_welcome_window_is_handed_over_once() {
+        let f = fixture();
+        assert_eq!(f.manager.take_welcome_failure(), None);
+        let failure = MenuOpenFailed {
+            name: Some("alpha".to_owned()),
+            reason: "the folder does not exist".to_owned(),
+        };
+        f.manager.set_welcome_failure(failure.clone());
+        assert_eq!(f.manager.take_welcome_failure(), Some(failure));
+        assert_eq!(f.manager.take_welcome_failure(), None);
     }
 
     #[tokio::test]
@@ -1839,6 +1963,37 @@ mod tests {
             !f.manager.focus_project("0000000000000000", None),
             "a project without a window cannot come forward"
         );
+    }
+
+    /// What the project hooks heard of the focus.
+    #[derive(Default)]
+    struct HeardFocus(Mutex<Vec<String>>);
+
+    impl ProjectHooks for HeardFocus {
+        fn window_opened(&self, _project_id: &str, _root: &Path) {}
+        fn batch_applied(&self, _project_id: &str, _revision: Option<&crate::pictures::Revision>) {}
+        fn window_focused(&self, project_id: &str) {
+            self.0.lock().unwrap().push(project_id.to_owned());
+        }
+        fn window_closed(&self, _project_id: &str) {}
+    }
+
+    /// `desktop.WINDOW_FOCUSED`: a project window that comes back to the foreground is told to the
+    /// project's hooks, with its project; the welcome window is not a project.
+    #[tokio::test]
+    async fn a_project_window_coming_back_to_the_foreground_is_told_to_the_project_hooks() {
+        let f = fixture();
+        let heard = Arc::new(HeardFocus::default());
+        f.manager.set_project(heard.clone());
+        let (_a, root_a, id_a) = project("alpha");
+        f.manager
+            .open_project(root_a, OpenReason::Developer)
+            .await
+            .unwrap();
+        f.manager.on_focused(&label_of(&id_a));
+        f.manager.on_focused("welcome");
+        f.manager.on_focused(&label_of(&id_a));
+        assert_eq!(*heard.0.lock().unwrap(), [id_a.clone(), id_a]);
     }
 
     #[tokio::test]

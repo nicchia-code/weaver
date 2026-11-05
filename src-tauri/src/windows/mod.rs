@@ -17,7 +17,8 @@
 //! | [`tauri_shell`]  | The real windows, native confirmation and exit |
 //! | [`fullscreen`]   | A fullscreen window sent to the background leaves fullscreen first (macOS) |
 //! | [`tray`]         | The tray icon of Windows and Linux: `Show Weaver` and `Quit` |
-//! | [`menu`]         | The application menu (`Cmd+Q` / `Ctrl+Q` / File › Quit) |
+//! | [`menu`]         | The application menu (`Cmd+Q` / `Ctrl+Q` / File › Quit, File › Open Folder… / Open Recent) |
+//! | [`menu_open`]    | What the File menu opens: `Open Folder…`, `Open Recent`, `Clear Recent`, and a failed opening |
 //! | [`commands`]     | Tauri commands: the welcome window and `open_in_editor` |
 //!
 //! # What other Tasks plug into
@@ -37,7 +38,8 @@
 //!   notification of the app (System Certificates turned on), routed by
 //!   [`crate::notifications::route_click`]: the project window used most recently shows Settings,
 //!   else the welcome window comes forward.
-//! * **Open a project from elsewhere**: [`WindowManager::open_project`].
+//! * **Open a project from elsewhere**: [`WindowManager::open_project`]; the File menu of every window
+//!   does it through [`menu_open`].
 //! * **Background** (`developer.CLOSE_WINDOW` → In background, `developer.REOPEN_APP`):
 //!   [`WindowManager::send_to_background`] hides a project window without suspending anything,
 //!   when the developer chose `Keep working in background` on closing it; it
@@ -52,6 +54,7 @@ pub mod launch;
 pub mod local_state;
 pub mod manager;
 pub mod menu;
+pub mod menu_open;
 pub mod project;
 pub mod registry;
 pub mod tauri_shell;
@@ -119,6 +122,10 @@ pub fn start(app: &AppHandle) {
         Arc::new(move |failure| report_failure(&failure_app, failure)),
     );
     app.manage(manager.clone());
+    // At most one folder picker from the File menu at a time.
+    app.manage(Arc::new(menu_open::PickerLatch::default()));
+    // `Open Recent` of the File menu starts from the recent projects of the last session.
+    menu::refresh(app);
     // Where Weaver stays reachable while its windows are in the background (Windows and Linux).
     tray::install(app);
     // The jobs of the agent hear of every window that opens or closes, from the first one.
@@ -169,7 +176,11 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
                         manager.close_requested(project_id);
                     }
                 }
-                WindowEvent::Focused(true) => manager.on_focused(label),
+                WindowEvent::Focused(true) => {
+                    manager.on_focused(label);
+                    // `Open Recent` checks the folders again whenever a window gets the focus.
+                    menu::refresh(app);
+                }
                 WindowEvent::Destroyed => manager.on_destroyed(label),
                 _ => {}
             }

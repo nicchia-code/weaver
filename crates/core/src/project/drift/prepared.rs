@@ -26,7 +26,9 @@ use crate::project::proposal::data::{self, Status};
 use crate::question::{self, Question};
 
 use super::fingerprint;
-use super::{drift_options, refs_of, section_text, status_of, FixOption, PREPARED_QUESTION};
+use super::{
+    drift_options, is_merge, refs_of, section_text, status_of, FixOption, PREPARED_QUESTION,
+};
 
 pub const FIX_CODE: &str = "fix-code";
 pub const PROPOSAL: &str = "proposal";
@@ -175,10 +177,13 @@ pub fn body_with(body: &str, prepared: &Prepared) -> String {
 // ---------------------------------------------------------------------------------------------
 
 /// What a question and its decisions must look like for a Drift with `options` fix options.
-/// Every problem is listed with the path of the input it comes from.
+/// `merge` is a Drift from a merge: its question always has the `proposal` decision for the
+/// behaviour the code has, and recommends it (`requirements/rules#drift`). Every problem is listed
+/// with the path of the input it comes from.
 pub fn shape_problems(
     drift_id: &str,
     options: usize,
+    merge: bool,
     question: &Question,
     decisions: &[PreparedDecision],
 ) -> Vec<(String, String)> {
@@ -255,6 +260,12 @@ pub fn shape_problems(
             || decision.option.is_some()
         {
             problem(at, want("`{\"decision\":\"proposal\"}` or `{\"decision\":\"dismissed\"}`: the behaviour the code has"));
+        } else if merge {
+            if decision.decision != PROPOSAL {
+                problem(at, want("`{\"decision\":\"proposal\"}`: a Drift from a merge always offers keeping the code as it is and adapting the Model"));
+            } else if question.recommended != index {
+                problem("prepared.question.recommended".to_owned(), format!("must be {index}: a Drift from a merge recommends keeping the code as it is and adapting the Model"));
+            }
         }
     }
     problems
@@ -266,6 +277,7 @@ pub fn shape_problems(
 pub fn validate_input(
     drift_id: &str,
     options: usize,
+    merge: bool,
     attached: bool,
     question: &serde_json::Value,
     decisions: &[PreparedDecision],
@@ -285,7 +297,7 @@ pub fn validate_input(
     }
     let question: Question = serde_json::from_value(question.clone())
         .map_err(|e| vec![("prepared.question".to_owned(), e.to_string())])?;
-    let mut problems = shape_problems(drift_id, options, &question, decisions);
+    let mut problems = shape_problems(drift_id, options, merge, &question, decisions);
     if !attached && decisions.iter().any(|d| d.decision == PROPOSAL) {
         problems.push((
             "prepared.decisions".to_owned(),
@@ -352,6 +364,14 @@ pub fn check(image: &ProjectImage, drift: &Card) -> Preparation {
             DISMISSED => {}
             other => return invalid(format!("`{other}` is not a decision")),
         }
+    }
+    if is_merge(drift)
+        && !prepared
+            .decisions
+            .get(prepared.question.recommended)
+            .is_some_and(|decision| decision.decision == PROPOSAL)
+    {
+        return invalid("a Drift from a merge recommends keeping the code as it is and adapting the Model, with an attached Proposal".to_owned());
     }
     Preparation::Valid(Box::new(prepared))
 }

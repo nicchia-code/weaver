@@ -1,7 +1,9 @@
 //! The exit code of omp's installer (`requirements/tech#omp-setup`, "Installer", "Re-checks").
 //!
-//! The installer runs in the system terminal. When it ends it writes the exit code of its first
-//! failed step, else `0`, as decimal text to `<app local data>/omp-install/<nonce>.code`. Each
+//! The installer runs in the system terminal. When it ends it writes the exit code of the last step
+//! that ran (the official installer, or after its failure the GitHub download of
+//! [`super::github`]; `0` when the official installer succeeded) as decimal text to
+//! `<app local data>/omp-install/<nonce>.code`. Each
 //! `INSTALL_OMP` has a new nonce and deletes the markers of the earlier ones; a terminal closed
 //! before the end leaves none. While Installing, a check that finds no omp reads the marker of
 //! the current nonce: a code other than `0` is `omp.INSTALL_FAILED`; `0`, no marker or an

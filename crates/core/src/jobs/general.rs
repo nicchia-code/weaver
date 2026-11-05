@@ -539,9 +539,10 @@ const INSTRUCTION: &str = "\
 
 This is General, the free conversation of a developer with the agent in a project that Weaver manages. The project keeps its Model, Requirements, Proposals, Tasks and Drifts in `.weaver/`.
 
-- Do what the developer asks, directly in this conversation. No skill and no written request is attached to it.
+- Do what the developer asks, directly in this conversation. No skill and no written request is attached to it. Weaver's job skills (`weaver-setup`, `weaver-design`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-drifts`) work only inside a job: never load or follow them here. The Requirement skills `weaver-req-*` apply here as everywhere.
 - Ask the developer in the reply, in plain text, and wait for the answer. A form or a question tool is declined here, and `weaver question new` does not work here.
 - General is not a job. The commands that belong to a job (`weaver task move`, `weaver announcement new`, `weaver job edit`, `weaver question new`) are refused here.
+- A change of the Model or the Requirements is never designed in this conversation and no Proposal is written here. The developer writes a design request with `+ Work Item` on the Board and sends it, or asks here to send one already written; Weaver's design job then interviews the developer and writes the Proposal.
 - Start a job of Weaver with `weaver job new` only when the developer explicitly asks for that job in this conversation:
   - `weaver job new --input '{\"kind\":\"scan\"}'` scans the whole System;
   - `weaver job new --input '{\"kind\":\"run\",\"task\":\"<task>\"}'` runs one Task, and without `task` runs every runnable Task;

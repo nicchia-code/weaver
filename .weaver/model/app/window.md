@@ -1,17 +1,18 @@
 # Window
 
-The window of one project. A project has at most one window; when no project window is open, Weaver shows a welcome window with the recent projects and a way to open a folder. A click on the System Certificates notification with no project window open brings the welcome window to the front. When the developer closes a project window while its agent jobs are working, he can send it to the background instead: it leaves the screen while Weaver keeps working in it, and it still counts as open.
+The window of one project. A project has at most one window; when no project window is open, Weaver shows a welcome window with the recent projects and a way to open a folder. The File menu of every window, the welcome window's too, also opens a folder or one of the recent projects, leaving the window it was chosen from as it was, and can empty the list of recent projects. A click on the System Certificates notification with no project window open brings the welcome window to the front. When the developer closes a project window while its agent jobs are working, he can send it to the background instead: it leaves the screen while Weaver keeps working in it, and it still counts as open.
 
 ## States
 
 ### Closed (initial)
 The project is not open.
-- `developer.OPEN_PROJECT` → Open
+- `developer.OPEN_PROJECT` → Open: the window the developer chose the folder from stays as it was, with its jobs.
+- `developer.OPEN_PROJECT` → Closed: when the folder no longer exists or the project cannot be opened; the window the developer chose the folder from says why; when no window had the focus, the welcome window opens and says why.
 - `desktop.APP_STARTED` → Open: only the projects whose window was open when Weaver last quit, also those whose window was in the background; their jobs that were working resume.
 
 ### Open
 The project is open; its jobs, General and question rounds live in it, whether its window is on the screen or in the background.
-- `developer.OPEN_PROJECT` → Shown: the window comes to the front, back from the background when it was there.
+- `developer.OPEN_PROJECT` → Shown: the window comes to the front, back from the background when it was there; the window the developer chose the folder from stays as it was.
 - `notification.CLICKED` → Shown: the window comes to the front, back from the background when it was there, showing what the notification was about; for the System Certificates notification, only the project window used most recently comes to the front, showing Settings.
 - `developer.CLOSE_WINDOW` → Closed: the unsaved changes of its File view are saved or discarded as the developer chose; its working jobs are suspended; the project will not reopen at the next start.
 - `developer.CLOSE_WINDOW` → Shown: when the developer chose to save all the File view's changes and a file could not be saved; the other files are saved, nothing is suspended, and the window stays on the tab of that file, which says why.

@@ -256,10 +256,11 @@ fn job_show(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
         record.kind.as_str(),
         record.state.as_str()
     );
-    Ok(reply(
-        markdown,
-        json!({ "job": { "id": record.id, "kind": record.kind.as_str(), "target": record.target, "run": record.is_run(), "task": task } }),
-    ))
+    let mut job = json!({ "id": record.id, "kind": record.kind.as_str(), "target": record.target, "run": record.is_run(), "task": task });
+    if let Some(merged) = &record.merged {
+        job["merged"] = json!(merged);
+    }
+    Ok(reply(markdown, json!({ "job": job })))
 }
 
 /// `job new`: only from the working General or a working Ask more conversation, with the

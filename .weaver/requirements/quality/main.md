@@ -62,22 +62,6 @@ description: "Use when building anything that must stay fast, reliable, logged, 
 - Texts Weaver writes for the agent (instructions, skills, sub-agent definitions, CLI help and errors) and for the developer (UI, notifications, errors) use no first person (`I`, `we`, `my`, `our`). They name `Weaver` and `the agent`.
 - The UI is always in English; only texts the agent writes follow the language setting.
 
-## system-certificates
-
-- **Security:** Weaver never turns TLS checking off: no `NODE_TLS_REJECT_UNAUTHORIZED`, `GIT_SSL_NO_VERIFY`, `PYTHONHTTPSVERIFY=0`, `-k`/`--insecure` or `strict-ssl=false`, ever. Only the machine's and the current user's stores are read, never another user's. No file of a project, no environment variable and no message from the UI chooses the sources, the bundle path, the variables or the processes that get them; the UI can only ask for an export while the setting is on.
-- **Privacy:** no network call for the export or the Zscaler check. The bundle holds public certificates only, no keys. Error output is tested in memory only.
-- **Reliability:** an export never blocks the start, a window, the UI or a job, and ends within 30 s; a failed or late export leaves the earlier bundle whole. With the setting off, every process Weaver starts gets exactly the environment it got before System Certificates existed. A failure of the Zscaler check changes nothing and shows nothing.
-- **Logs:** each export at `info`: automatic or asked, outcome, certificate count, duration and, on failure, the reason; the Zscaler turn-on at `info` and a failure of its writes at `warn`. Never the bundle's content, certificate subjects or the variables' values.
-- **Tests:**
-  - bundle building: duplicates, non-CA and unreadable certificates, no system authority, public roots added after the system's, PEM shape;
-  - the atomic write with a failing rename leaving the earlier bundle, and the 30 s limit with an injected slow reader;
-  - the 24 h rule at start and the daily timer, with an injected clock;
-  - the variables with the setting on, off and without a bundle, their precedence over inherited ones, and their presence at every spawn site: the omp commands, jobs, General, resumes, and the installer and login terminals of each system (in the environment on Windows and Linux, in the command on macOS and in the Linux script), never in the job registry;
-  - Zscaler detection per system with an injected file system, and the turn-on: flag absent or present, setting already on, Zscaler absent, failed setting write, notification and banners sent once;
-  - the installer command per system and its marker: a code, `0`, no marker, a stale nonce, forgotten at the next install and when omp is found;
-  - each certificate marker and HTTP form and code, other codes, bare numbers, certificate precedence, the explanation with the setting on and off, and that no error text names a product;
-  - the switch, status line, `Refresh` and banners in Vitest with their keyboard paths and accessible names.
-
 ## solo-mode
 
 - **Reliability:** Weaver never changes a line of the exclusions file outside its own block of this working copy, never touches git's index, and never leaves a block behind a failed initialisation.
@@ -92,3 +76,17 @@ description: "Use when building anything that must stay fast, reliable, logged, 
   - the File view listing what a Solo mode block ignores and still leaving out what other rules ignore;
   - the CLI `solo` field of `project new`, `project edit` and `project show`;
   - the control, notes, warnings and list in Settings and Get Started in Vitest, with their keyboard paths and accessible names.
+
+## solo-merge
+
+- **Reliability:** Weaver itself never commits a merge with conflicts, never stages a file (only the agent of the merge conflicts job marks the files it resolved), never runs `git fetch`, never overwrites a file Solo mode keeps out of git, and never leaves `merge/merge.json` behind an ended merge; a merge stopped by the time limit leaves the branch as it was. A git call that fails while checking a merge in progress leaves it in progress.
+- **Performance:** Merge starts git only at the moments of `requirements/rules#solo-merge` (**Check of a merge in progress**) and `requirements/tech#solo-merge` (**State in the app**), never on a timer, never on the UI or IPC thread; one computation of its state runs at a time per project.
+- **Tests,** against temporary git repositories with real git, a local branch and a remote-tracking one:
+  - every availability reason in its order, Weaver's files excepted from uncommitted changes in both Solo mode modes, and the reminder of tracked Weaver files;
+  - nothing to merge; a fast-forward and a merge commit concluded at once; conflicts leading to Merging with their count; git's refusal for local changes; the refusal for files Solo mode keeps out of git; the time limit (injected) aborting the merge;
+  - the check of a merge in progress: still in progress, committed outside Weaver (also with later commits on top), aborted outside Weaver, another branch, a reset, an unreadable `merge.json`, a crash after `merge.json` was written;
+  - abort, and its refusal while the merge conflicts job has not ended; Solo mode refused while merging;
+  - the merged files of a fast-forward, a merge commit and a merge with resolved conflicts, in a project at the repository's root and in a subfolder;
+  - the scan after a merge: started without confirmation, `merged` in its record and in `job show`, the count reset; admission refusing Runs, Run all, resolves, scans and imports during a merge;
+  - `drift new` with `merge` refused outside a scan after a merge, and a prepared question of a merge Drift refused without `proposal` recommended;
+  - the button, Dialog, banner, notices, badge and details in Vitest, with their keyboard paths and accessible names.

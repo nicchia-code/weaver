@@ -27,6 +27,9 @@ use super::tasks::{Blocking, BlockingIndex};
 /// `Run all` is disabled while a resolve works or a resolution is being written.
 pub const REASON_DRIFTS_RESOLVING: &str = "Drifts are being resolved";
 pub const REASON_RUN_IN_PROGRESS: &str = "A run is in progress";
+/// A merge of Solo mode is in progress (`merge/merge.json` exists): Runs, Run all, resolves, scans
+/// and imports are refused.
+pub const REASON_MERGE_IN_PROGRESS: &str = "A merge is in progress";
 pub const REASON_NO_TODO: &str = "No Task is in To do";
 pub const REASON_ALL_BLOCKED: &str = "All the Tasks in To do are blocked";
 /// First reason on every control of a card whose job still works.
@@ -46,6 +49,13 @@ pub struct AgentFacts {
     /// Tasks that reached Done by `FINISHED` since the last Scan System job started, the deleted
     /// and forgotten ones included.
     pub done_since_last_scan: u32,
+    /// A merge of Solo mode is in progress (`.weaver/merge/merge.json` exists).
+    pub merge_in_progress: bool,
+    /// Some file of the merge in progress still has conflicts. Git tells it, so the caller that
+    /// has just asked git sets it; the registry never does.
+    pub merge_conflicts: bool,
+    /// A `merge` job of the project has not ended.
+    pub merge_job_unended: bool,
 }
 
 impl AgentFacts {
@@ -301,6 +311,9 @@ pub fn compute(image: &ProjectImage, facts: &AgentFacts) -> Board {
     let todo = active.iter().filter(|t| !t.doing).count();
     let runnable = active.iter().filter(|t| t.runnable()).count();
     let mut run_all_reasons = Vec::new();
+    if facts.merge_in_progress {
+        run_all_reasons.push(REASON_MERGE_IN_PROGRESS);
+    }
     if resolving {
         run_all_reasons.push(REASON_DRIFTS_RESOLVING);
     }

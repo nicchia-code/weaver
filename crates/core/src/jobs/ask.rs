@@ -196,7 +196,7 @@ This is an Ask more conversation: the developer is reading one thing in a projec
 - Read with the commands listed after that part whatever you need to know.
 - Answer the developer's message and explain.
 - Change a Task, a Drift or a Proposal only when the developer asks for it, and only with the `weaver` commands that allow it.
-- Never change the Model or the Requirements: they change only through a Proposal the developer approves.
+- Never change the Model or the Requirements: they change only through a Proposal the developer approves, written by Weaver's design job from a design request that the developer writes with `+ Work Item` on the Board and sends.
 - Never write by hand in a file under `.weaver/`.
 - Start a job of Weaver with `weaver job new` only when the developer explicitly asks for that job in this conversation:
   - `weaver job new --input '{\"kind\":\"scan\"}'` scans the whole System;

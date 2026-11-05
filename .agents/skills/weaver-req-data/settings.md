@@ -34,17 +34,18 @@
 
 - Local state that is not a setting lives in Tauri's local data folder (`app_local_data_dir`), never in a project. `<project hash>` is the first 16 hex characters of the SHA-256 of the canonical project root path.
 - `state.json`:
-  - `recent`: up to 10 projects, most recently opened first, each `{path, name, opened}`; one entry per canonical path; an entry leaves only when pushed out by newer ones, even if its folder no longer exists.
+  - `recent`: up to 10 projects, most recently opened first, each `{path, name, opened}`; one entry per canonical path; an entry leaves only when pushed out by newer ones, even if its folder no longer exists, when the developer removes it from the welcome window, or when `Clear Recent` of the File menu empties the list. Emptying the list changes neither `lastSession` nor the open windows.
   - `lastSession`: the canonical paths of the projects whose window was open when Weaver last quit, in opening order. It is written at quit and on each window open or close; closing a window removes it from the list, quitting does not.
 - Window size and position are kept by Tauri's window-state plugin in its own file, keyed by project hash.
 
 ## job
 
 - Each job has a registry record `jobs/<job id>.json` in the local data folder, written when the job is created and at each change of its state. It holds what Weaver needs to show the Jobs list and resume a Suspended job:
-  - `id`, `kind` (`setup`, `design`, `import`, `scan`, `run`, `resolve`, `rework`, `refinement`), `name`, `project` (canonical root path), `target` (the request id, Task, Drift or Proposal identity it works on, when any);
+  - `id`, `kind` (`setup`, `design`, `import`, `scan`, `run`, `resolve`, `rework`, `refinement`, `merge`), `name`, `project` (canonical root path), `target` (the request id, Task, Drift or Proposal identity it works on, when any);
+  - `merged`: only for a scan after a merge, the merged files (`requirements/rules#solo-merge`), relative paths with `/`, sorted;
   - `state`, `reason` (for Failed), `created`, `ended`;
   - `sessionId` (omp's ACP session), `omp` (program path), `args` and `env` (the arguments and the Weaver-set environment variables it was started with; never inherited variables, and never the System Certificates variables, which are computed again at every start and resume);
-  - `announcements`: `{id, kind, title}` of each card it announced and still waiting;
+  - `announcements`: `{id, kind, title}` of each card it announced, plus `card` (`{kind, id}`) once the card was filed with that announcement, so that after a restart Weaver still knows which announced cards already arrived; an announcement waits until its card is on the Board, and all are withdrawn when the job ends;
   - `notes`: its last notes with their instants.
 - No conversation text is stored by Weaver: omp keeps it in its own session files, and Weaver reloads it from there.
 - Records of ended jobs are kept for the Jobs list: the 50 most recent per project; older ones are deleted.
@@ -68,3 +69,9 @@
 - Solo mode is not a setting: it is never in `settings.json` and never in the settings schema. Its state is `.weaver/solo/solo.json` in the working copy, `{"mode": "folders"}` or `{"mode": "files"}`, UTF-8, LF, written atomically like every project file, in the local-only folder `solo/` with its `.gitignore` containing `*` (`requirements/data#General`).
 - No file means Solo mode is off. Turning it off deletes the whole `solo/` folder. A file that cannot be read or holds another value counts as off and is reported as a diagnostic with its path and reason (`requirements/data#General`); it is rewritten only by the next change of Solo mode.
 - At initialisation with Solo mode chosen, `solo/solo.json` is written with the rest of `.weaver/`, after the block (`requirements/rules#solo-mode`); a failure removes both.
+
+## solo-merge
+
+- The merge in progress is `.weaver/merge/merge.json` in the working copy, in the local-only folder `merge/` with its `.gitignore` containing `*` (`requirements/data#General`): `{"branch", "current", "start", "incoming", "started"}`, the chosen branch as shown, the current branch's short name, the full hashes of the starting and incoming commits, and the instant it was written. UTF-8, LF, written atomically like every project file. It is never in `settings.json`, in the job registry or in the repository.
+- No file means no merge in progress. The file is deleted at every end of the merge (`requirements/rules#solo-merge`); the `merge/` folder stays with its `.gitignore`.
+- A file that cannot be read or lacks a field counts as a merge in progress that Weaver cannot follow: it is reported as a diagnostic with its path and reason, the check of the merge treats it as forgotten, and it is deleted.

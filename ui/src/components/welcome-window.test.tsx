@@ -20,7 +20,7 @@ vi.mock("@/lib/backend", () => ({
 const alpha = { path: "/work/alpha", name: "alpha", opened: "2026-11-02T07:00:00.000Z", exists: true };
 const gone = { path: "/work/gone", name: "gone", opened: "2026-11-01T07:00:00.000Z", exists: false };
 
-const state = (recent: WelcomeState["recent"]): WelcomeState => ({ name: "Weaver", version: "0.1.0", recent });
+const state = (recent: WelcomeState["recent"]): WelcomeState => ({ name: "Weaver", version: "0.1.0", recent, failure: null });
 
 const settings: SettingsSnapshot = {
   revision: 1,
@@ -176,6 +176,47 @@ describe("welcome window", () => {
       window.dispatchEvent(new Event("focus"));
     });
     expect(await screen.findByText("No recent projects. Open a folder to start.")).toBeInTheDocument();
+  });
+
+  it("follows a change of the recent projects made from the File menu at once", async () => {
+    let changed: ((recent: WelcomeState["recent"]) => void) | undefined;
+    vi.mocked(on).mockImplementation(((name: string, listener: (recent: WelcomeState["recent"]) => void) => {
+      if (name === "recent-changed") changed = listener;
+      return Promise.resolve(() => {});
+    }) as never);
+    render_();
+    expect(await screen.findByText("gone")).toBeInTheDocument();
+    expect(changed).toBeDefined();
+
+    act(() => changed?.([]));
+    expect(await screen.findByText("No recent projects. Open a folder to start.")).toBeInTheDocument();
+
+    act(() => changed?.([alpha]));
+    expect(await screen.findByRole("button", { name: /alpha/ })).toBeInTheDocument();
+  });
+
+  it("says why an opening chosen from the File menu failed, with the texts of its own actions", async () => {
+    type Failed = { name: string | null; reason: string };
+    let failed: ((failure: Failed) => void) | undefined;
+    vi.mocked(on).mockImplementation(((name: string, listener: (failure: Failed) => void) => {
+      if (name === "menu-open-failed") failed = listener;
+      return Promise.resolve(() => {});
+    }) as never);
+    render_();
+    await screen.findByText("Version 0.1.0");
+    expect(failed).toBeDefined();
+
+    act(() => failed?.({ name: "alpha", reason: "the folder does not exist" }));
+    expect(await screen.findByText("alpha could not open: the folder does not exist")).toBeInTheDocument();
+
+    act(() => failed?.({ name: null, reason: "no display" }));
+    expect(await screen.findByText("The folder could not be opened: no display")).toBeInTheDocument();
+  });
+
+  it("shows an opening that failed while no window had the focus, handed over with the state", async () => {
+    answers.welcome_state = () => ({ ...state([alpha]), failure: { name: "gone", reason: "the folder does not exist" } });
+    render_();
+    expect(await screen.findByText("gone could not open: the folder does not exist")).toBeInTheDocument();
   });
 
   it("shows the status of omp", async () => {

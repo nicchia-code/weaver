@@ -609,6 +609,223 @@ fn a_drift_without_fix_options_has_exactly_proposal_then_dismissed() {
 }
 
 #[test]
+fn merge_is_written_by_drift_new_before_created_and_kept_by_every_later_write() {
+    let dir = project();
+    let root = dir.path();
+    let (image, _, _) = state(root);
+    let mut input = new_input();
+    input.job = Some("jjjjjjjj".into());
+    input.merge = true;
+    let filed = create::plan_new(&image, &input, NOW, &mut rng()).unwrap();
+    let Some(Change::Write(text)) = filed.changes.get(&filed.path) else {
+        panic!()
+    };
+    let keys: Vec<&str> = text
+        .lines()
+        .skip(1)
+        .take_while(|l| *l != "---")
+        .filter(|l| !l.starts_with(' ') && !l.starts_with('-'))
+        .map(|l| l.split(':').next().unwrap())
+        .collect();
+    assert_eq!(keys, ["status", "refs", "job", "merge", "created"]);
+    assert!(text.contains("\nmerge: true\n"), "{text}");
+    apply(root, &filed.changes);
+    let (image, _, _) = state(root);
+    assert!(super::is_merge(drift_of(&image, &filed.id)));
+
+    // A Drift that is not asked to come from a merge never has the key.
+    let plain = create::plan_new(&image, &new_input(), NOW, &mut rng()).unwrap();
+    let Some(Change::Write(text)) = plain.changes.get(&plain.path) else {
+        panic!()
+    };
+    assert!(!text.contains("merge"), "{text}");
+
+    // Preparing its question and dismissing it leave the key as it was.
+    put_drift(root, DRIFT, "open", "merge: true\nproposal: pppppppp\n");
+    attached_proposal(root, "pppppppp", "draft");
+    let (image, _, _) = state(root);
+    let edited = create::plan_edit(
+        &image,
+        DRIFT,
+        &EditDrift {
+            prepared: Some(merge_question()),
+            proposal: None,
+        },
+        NOW,
+    )
+    .unwrap();
+    apply(root, &edited.changes);
+    assert!(super::is_merge(drift_of(&state(root).0, DRIFT)));
+    let (image, _) = decide_at(root, &AgentFacts::default(), &Decision::Dismiss).unwrap();
+    assert!(super::is_merge(drift_of(&image, DRIFT)));
+}
+
+/// The question of a merge Drift with two fix options: adapting the Model is the third, the one
+/// recommended.
+fn merge_question() -> PreparedInput {
+    PreparedInput {
+        question: question(DRIFT, &["Deduplicate", "Lock", "Adapt the Model"], 2),
+        decisions: decisions(&[
+            ("fix-code", Some(1)),
+            ("fix-code", Some(2)),
+            ("proposal", None),
+        ]),
+    }
+}
+
+#[test]
+fn the_prepared_question_of_a_merge_drift_always_recommends_adapting_the_model() {
+    let dir = project();
+    let root = dir.path();
+    put_drift(root, DRIFT, "open", "merge: true\nproposal: pppppppp\n");
+    attached_proposal(root, "pppppppp", "draft");
+    let ask = |input: PreparedInput| {
+        edit_problems(
+            root,
+            &EditDrift {
+                prepared: Some(input),
+                proposal: None,
+            },
+        )
+    };
+    let (image, _, _) = state(root);
+    let edited = create::plan_edit(
+        &image,
+        DRIFT,
+        &EditDrift {
+            prepared: Some(merge_question()),
+            proposal: None,
+        },
+        NOW,
+    )
+    .unwrap();
+    apply(root, &edited.changes);
+    let (image, _, _) = state(root);
+    let drift = drift_of(&image, DRIFT);
+    assert!(prepared::check(&image, drift).is_valid());
+    // The fix options keep their order, the first one still listed first.
+    let stored = prepared::read_block(drift).unwrap().unwrap();
+    assert_eq!(
+        stored
+            .question
+            .options
+            .iter()
+            .map(|o| o.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Deduplicate", "Lock", "Adapt the Model"]
+    );
+
+    // The usual recommendation of the first fix option is refused for a merge Drift.
+    let first = ask(PreparedInput {
+        question: question(DRIFT, &["Deduplicate", "Lock", "Adapt the Model"], 0),
+        decisions: merge_question().decisions,
+    });
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(first[0].0, "prepared.question.recommended");
+    assert!(first[0].1.contains("must be 2"), "{first:?}");
+
+    // Closing the Drift is not what the code's behaviour is: `proposal` is always offered.
+    let dismissed = ask(PreparedInput {
+        question: question(DRIFT, &["Deduplicate", "Lock", "Close it"], 2),
+        decisions: decisions(&[
+            ("fix-code", Some(1)),
+            ("fix-code", Some(2)),
+            ("dismissed", None),
+        ]),
+    });
+    assert!(
+        dismissed
+            .iter()
+            .any(|(path, why)| path == "prepared.decisions[2]" && why.contains("proposal")),
+        "{dismissed:?}"
+    );
+
+    // The same questions are fine for a Drift that does not come from a merge.
+    put_drift(root, DRIFT, "open", "proposal: pppppppp\n");
+    assert!(create::plan_edit(
+        &state(root).0,
+        DRIFT,
+        &EditDrift {
+            prepared: Some(PreparedInput {
+                question: question(DRIFT, &["Deduplicate", "Lock", "Close it"], 0),
+                decisions: decisions(&[
+                    ("fix-code", Some(1)),
+                    ("fix-code", Some(2)),
+                    ("dismissed", None),
+                ]),
+            }),
+            proposal: None,
+        },
+        NOW,
+    )
+    .is_ok());
+}
+
+#[test]
+fn a_merge_drift_without_fix_options_recommends_adopting_the_attached_proposal() {
+    let dir = project();
+    let root = dir.path();
+    let bare = drift_text("open", "proposal: pppppppp\nmerge: true\n").replace("## Fix options\n\n### Deduplicate\n\nKeep one shipment.\n\n### Lock\n\nLock the order.\n\n", "");
+    put(root, "drifts/dddddddd-d.md", &bare);
+    attached_proposal(root, "pppppppp", "open");
+    let good = EditDrift {
+        prepared: Some(PreparedInput {
+            question: question(DRIFT, &["Adopt it", "Close it"], 0),
+            decisions: decisions(&[("proposal", None), ("dismissed", None)]),
+        }),
+        proposal: None,
+    };
+    let edited = create::plan_edit(&state(root).0, DRIFT, &good, NOW).unwrap();
+    apply(root, &edited.changes);
+    let (image, _, _) = state(root);
+    assert!(prepared::check(&image, drift_of(&image, DRIFT)).is_valid());
+}
+
+#[test]
+fn a_question_prepared_before_without_the_merge_rule_is_not_valid_for_a_merge_drift() {
+    let dir = project();
+    let root = dir.path();
+    put_drift(root, DRIFT, "open", "proposal: pppppppp\n");
+    attached_proposal(root, "pppppppp", "draft");
+    // Prepared as for any Drift: the first fix option recommended, `proposal` third.
+    prepare(root, "proposal");
+    let (image, _, _) = state(root);
+    assert!(prepared::check(&image, drift_of(&image, DRIFT)).is_valid());
+
+    // The Drift is a merge Drift: the same question no longer holds.
+    let file = fs::read_dir(root.join(".weaver/drifts"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = fs::read_to_string(&file).unwrap();
+    fs::write(
+        &file,
+        text.replacen("\ncreated:", "\nmerge: true\ncreated:", 1),
+    )
+    .unwrap();
+    let (image, _, _) = state(root);
+    let drift = drift_of(&image, DRIFT);
+    assert!(
+        matches!(prepared::check(&image, drift), prepared::Preparation::Invalid(_, why) if why.contains("a Drift from a merge")),
+        "{:?}",
+        prepared::check(&image, drift)
+    );
+
+    // Unless its recommended option is the `proposal` decision.
+    let mut text = fs::read_to_string(&file).unwrap();
+    text = text.replace("\"recommended\": 0", "\"recommended\": 2");
+    fs::write(&file, text).unwrap();
+    let (image, _, _) = state(root);
+    assert!(
+        prepared::check(&image, drift_of(&image, DRIFT)).is_valid(),
+        "{:?}",
+        prepared::check(&image, drift_of(&image, DRIFT))
+    );
+}
+
+#[test]
 fn edit_attaches_a_proposal_to_a_drift_that_has_none_and_only_to_an_open_drift() {
     let dir = project();
     let root = dir.path();

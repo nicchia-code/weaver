@@ -13,6 +13,7 @@ export function driftView(patch: Partial<DriftView> = {}): DriftView {
     previous: null,
     resolving: false,
     prepared: false,
+    merge: false,
     resolveReasons: [],
     dismissReasons: [],
     fixReasons: [],

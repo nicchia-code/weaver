@@ -321,6 +321,10 @@ impl Shell for TauriShell {
         }
     }
 
+    fn recent_changed(&self) {
+        super::menu::refresh(&self.app);
+    }
+
     fn save_window_state(&self) {
         if let Err(error) = self.app.save_window_state(STATE_FLAGS) {
             log_warn!("the size and position of the windows were not saved: {error}");

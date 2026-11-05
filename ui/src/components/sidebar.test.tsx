@@ -300,3 +300,37 @@ describe("the error toast of a window that cannot go to the background", () => {
     vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as never);
   });
 });
+
+describe("the error toast of an opening chosen from the File menu of a project window", () => {
+  type Failure = { name: string | null; reason: string };
+  function renderListening() {
+    let failed: ((failure: Failure) => void) | undefined;
+    vi.mocked(on).mockImplementation(((name: string, listener: (failure: Failure) => void) => {
+      if (name === "menu-open-failed") failed = listener;
+      return Promise.resolve(() => {});
+    }) as never);
+    vi.mocked(toast.error).mockClear();
+    render(
+      <TooltipProvider>
+        <ProjectWindow projectId="0123456789abcdef" views={{ board: <Counter />, settings: <p>settings content</p> }} />
+      </TooltipProvider>,
+    );
+    expect(failed).toBeDefined();
+    return failed!;
+  }
+
+  it("names the project that could not open, with the reason as its description", () => {
+    const failed = renderListening();
+    act(() => failed({ name: "alpha", reason: "the folder does not exist" }));
+    expect(toast.error).toHaveBeenCalledWith("Could not open alpha.", { description: "the folder does not exist" });
+    expect(screen.getByRole("button", { name: "Board" })).toHaveAttribute("aria-current", "page");
+    vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as never);
+  });
+
+  it("says the folder could not be opened when the picker itself failed", () => {
+    const failed = renderListening();
+    act(() => failed({ name: null, reason: "no display" }));
+    expect(toast.error).toHaveBeenCalledWith("Could not open the folder.", { description: "no display" });
+    vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as never);
+  });
+});

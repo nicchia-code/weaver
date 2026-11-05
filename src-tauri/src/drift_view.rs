@@ -99,6 +99,9 @@ pub struct DriftView {
     pub resolving: bool,
     /// A valid prepared question: `Resolve` asks it at once (`prepared`).
     pub prepared: bool,
+    /// The Drift comes from a merge (`merge` badge, tooltip `Found by the scan after a merge`):
+    /// `recommended` marks `Accept Proposal`, not the first fix option.
+    pub merge: bool,
     /// Why `Resolve` is disabled, one per line in the fixed order; empty = it works.
     pub resolve_reasons: Vec<String>,
     /// Why `Dismiss Drift` is disabled, one per line in the fixed order; empty = it works.
@@ -247,6 +250,7 @@ pub fn view(
             .map(|id| titled(image, numbers, CardKind::Drift, id)),
         resolving: reasons::is_resolving(image, facts, drift),
         prepared: prepared::check(image, drift).is_valid(),
+        merge: drift::is_merge(drift),
         resolve_reasons: reasons::resolve_reasons(image, facts, &name, drift),
         dismiss_reasons: reasons::dismiss_reasons(image, facts, drift),
         fix_reasons: reasons::fix_reasons(image, drift),

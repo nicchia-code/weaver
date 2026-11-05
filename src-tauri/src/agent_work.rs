@@ -9,7 +9,11 @@
 //! Contract for the implementor, so that the Board stays right:
 //! * `ghosts` lists the announcements of the project in announcement order, and a ghost leaves
 //!   the list in the same step in which the card it announced is filed (the Board shows the ghost
-//!   and the card of one snapshot together, never both and never neither);
+//!   and the card of one snapshot together, never both and never neither). A setup or import job
+//!   that has no announced ghost on the Board has one ghost of its own, made by Weaver, with the
+//!   identity `job:<job id>`; it is listed in the place it would have if it had been announced
+//!   when the job was created, and it leaves in the same step in which the first announced ghost
+//!   of the job comes;
 //! * after any change of what these methods answer, the jobs call
 //!   [`crate::board::publish_agent_change`] so that the Board is sent again.
 

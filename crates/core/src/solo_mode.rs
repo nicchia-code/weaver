@@ -9,8 +9,10 @@
 //!
 //! Git is started through [`crate::process::command`] and the time-limited runner shared with omp
 //! ([`crate::process::timed`]), with `GIT_OPTIONAL_LOCKS=0`, the project root as working folder, and
-//! only two kinds of calls: `git rev-parse --show-prefix --git-path info/exclude` (once per
-//! operation) and `git ls-files -z --cached --ignored --exclude=<line>` for each line of the block.
+//! only two kinds of calls of its own: `git rev-parse --show-prefix --git-path info/exclude` (once
+//! per operation) and `git ls-files -z --cached --ignored --exclude=<line>` for each line of the
+//! block. [`Git`] is also the runner of Merge (`crate::solo_merge`), which has its own calls, the
+//! longer limit of `git merge` and no `GIT_OPTIONAL_LOCKS` for the calls that write.
 
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
@@ -38,6 +40,9 @@ pub const STATE_FILE: &str = "solo.json";
 
 /// How long a git call may take before it is killed.
 pub const GIT_LIMIT: Duration = Duration::from_secs(10);
+
+/// How long `git merge` may take before it is killed (`requirements/rules#solo-merge`).
+pub const MERGE_LIMIT: Duration = Duration::from_secs(120);
 
 /// The modes: the same three values in the app, the command line and `solo.json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
@@ -136,6 +141,9 @@ pub enum Reason {
     NotAProject,
     /// The block is not in the exclusions file as the mode expects it.
     BlockMissing { path: String },
+    /// A merge of Weaver is in progress (`merge/merge.json` exists): Solo mode cannot change
+    /// (`requirements/tech#solo-merge`, **Solo mode**).
+    MergeInProgress,
 }
 
 impl Reason {
@@ -152,7 +160,7 @@ impl Reason {
         )
     }
 
-    fn write_failed(path: &Path, error: &io::Error) -> Reason {
+    pub(crate) fn write_failed(path: &Path, error: &io::Error) -> Reason {
         Reason::CouldNotWrite {
             path: path.display().to_string(),
             error: error.to_string(),
@@ -176,25 +184,39 @@ impl fmt::Display for Reason {
                 f,
                 "the block of this working copy is missing from {path} or differs from the expected one"
             ),
+            Reason::MergeInProgress => f.write_str("Finish or abort the merge in progress first."),
         }
     }
 }
 
 impl std::error::Error for Reason {}
 
-/// How git is started: the time limit of each call, and optionally the `PATH` it is looked up in
-/// (the system's, unless given).
+/// How a git call is started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Call {
+    /// Only reads: `GIT_OPTIONAL_LOCKS=0`, the limit of every call.
+    Read,
+    /// Changes the working copy or the repository (`git merge --abort`): no editor may open.
+    Write,
+    /// `git merge`: no editor may open, and the longer limit.
+    Merge,
+}
+
+/// How git is started: the time limit of each call, the one of `git merge`, and optionally the
+/// `PATH` it is looked up in (the system's, unless given).
 #[derive(Debug, Clone)]
 pub struct Git {
     limit: Duration,
+    merge_limit: Duration,
     search_path: Option<OsString>,
 }
 
 impl Git {
-    /// Git on the `PATH`, with the limit of 10 s per call.
+    /// Git on the `PATH`, with the limit of 10 s per call and 2 minutes for `git merge`.
     pub fn system() -> Self {
         Self {
             limit: GIT_LIMIT,
+            merge_limit: MERGE_LIMIT,
             search_path: None,
         }
     }
@@ -202,6 +224,12 @@ impl Git {
     /// The same with another limit per call (tests).
     pub fn with_limit(mut self, limit: Duration) -> Self {
         self.limit = limit;
+        self
+    }
+
+    /// The same with another limit for `git merge` (tests).
+    pub fn with_merge_limit(mut self, limit: Duration) -> Self {
+        self.merge_limit = limit;
         self
     }
 
@@ -215,16 +243,39 @@ impl Git {
     }
 
     fn run(&self, folder: &Path, args: &[&str]) -> Result<timed::Output, Failure> {
+        self.exec(folder, args, Call::Read)
+    }
+
+    pub(crate) fn exec(
+        &self,
+        folder: &Path,
+        args: &[&str],
+        call: Call,
+    ) -> Result<timed::Output, Failure> {
         let program = match &self.search_path {
             Some(path) => find_program("git", path).ok_or(Failure::NotStarted)?,
             None => PathBuf::from("git"),
         };
         let mut command = process::command(program, args);
-        command.current_dir(folder).env("GIT_OPTIONAL_LOCKS", "0");
+        command.current_dir(folder);
+        match call {
+            Call::Read => {
+                command.env("GIT_OPTIONAL_LOCKS", "0");
+            }
+            Call::Write | Call::Merge => {
+                command
+                    .env("GIT_EDITOR", "true")
+                    .env("GIT_MERGE_AUTOEDIT", "no");
+            }
+        }
         if let Some(path) = &self.search_path {
             command.env("PATH", path);
         }
-        timed::run_command(command, self.limit)
+        let limit = match call {
+            Call::Merge => self.merge_limit,
+            Call::Read | Call::Write => self.limit,
+        };
+        timed::run_command(command, limit)
     }
 }
 
@@ -256,7 +307,7 @@ fn find_program(name: &str, search_path: &OsStr) -> Option<PathBuf> {
 }
 
 /// The first line of git's error output (or its exit code).
-fn git_failure(code: Option<i32>, stderr: &str) -> Reason {
+pub(crate) fn git_failure(code: Option<i32>, stderr: &str) -> Reason {
     let line = stderr
         .lines()
         .map(str::trim)
@@ -269,7 +320,7 @@ fn git_failure(code: Option<i32>, stderr: &str) -> Reason {
     Reason::GitFailed(line)
 }
 
-fn reason_of(failure: Failure, rev_parse: bool) -> Reason {
+pub(crate) fn reason_of(failure: Failure, rev_parse: bool) -> Reason {
     match failure {
         Failure::NotStarted => Reason::NoGit,
         Failure::TimedOut { limit } => Reason::TimedOut(limit),
@@ -543,13 +594,25 @@ impl Location {
     /// The files git tracks that the lines of `mode`'s block match, relative to the project root,
     /// with `/`, sorted. Never other ignored tracked files. Empty when `mode` is off.
     pub fn tracked_files(&self, git: &Git, mode: Mode) -> Result<Vec<String>, Reason> {
+        self.block_files(git, mode, "--cached")
+    }
+
+    /// The files of the working tree that the lines of `mode`'s block match and that git does not
+    /// track, relative to the project root, with `/`, sorted. Empty when `mode` is off.
+    pub(crate) fn kept_out_files(&self, git: &Git, mode: Mode) -> Result<Vec<String>, Reason> {
+        self.block_files(git, mode, "--others")
+    }
+
+    /// `git ls-files -z <selection> --ignored --exclude=<line>` for each line of the block, run in
+    /// the repository's root.
+    fn block_files(&self, git: &Git, mode: Mode, selection: &str) -> Result<Vec<String>, Reason> {
         let mut found: BTreeSet<String> = BTreeSet::new();
         for line in mode.lines(&self.prefix) {
             let exclude = format!("--exclude={line}");
             let output = git
                 .run(
                     &self.repository,
-                    &["ls-files", "-z", "--cached", "--ignored", &exclude],
+                    &["ls-files", "-z", selection, "--ignored", &exclude],
                 )
                 .map_err(|failure| reason_of(failure, false))?;
             for path in output.stdout.split('\0').filter(|path| !path.is_empty()) {
@@ -698,12 +761,17 @@ pub fn tracked_files(git: &Git, root: &Path) -> Result<Vec<String>, Reason> {
 /// `developer.CHANGE_SOLO_MODE`: turns Solo mode on, off or to its other mode (`requirements/rules#solo-mode`,
 /// "Changes"). Turning on writes the block, then `solo.json`; turning off removes the block, then the
 /// `solo/` folder; changing mode rewrites the block, then `solo.json`. A change that fails changes
-/// nothing and says why. The caller holds the project's lock.
+/// nothing and says why; so does any change while a merge of Weaver is in progress (`merge.json`
+/// exists), whether it turns Solo mode off or chooses the other mode: that is checked before git is
+/// called or anything is written. The caller holds the project's lock.
 pub fn set_mode(git: &Git, root: &Path, mode: Mode) -> Result<Inspection, Reason> {
     if !has_weaver(root) {
         return Err(Reason::NotAProject);
     }
     let before = read_state(root);
+    if mode != before.mode && crate::solo_merge::in_progress(root) {
+        return Err(Reason::MergeInProgress);
+    }
     if mode == Mode::Off && before.mode == Mode::Off && before.diagnostic.is_none() {
         return Ok(inspect(git, root));
     }

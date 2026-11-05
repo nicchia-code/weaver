@@ -30,4 +30,4 @@ pub mod record;
 pub mod subagents;
 
 pub use kinds::{JobKind, JobState, Role};
-pub use record::{AnnouncementRecord, JobRecord, JobStore};
+pub use record::{AnnouncementRecord, FiledCard, JobRecord, JobStore};

@@ -19,6 +19,9 @@ pub trait ProjectHooks: Send + Sync {
     /// and `PROJECT_FOLDER_REMOVED` all arrive here.
     fn batch_applied(&self, project_id: &str, revision: Option<&Revision>);
 
+    /// `desktop.WINDOW_FOCUSED`: the project's window came back to the foreground.
+    fn window_focused(&self, _project_id: &str) {}
+
     /// `window.CLOSED`: nothing is kept for the project.
     fn window_closed(&self, project_id: &str);
 }

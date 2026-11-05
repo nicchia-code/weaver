@@ -1,6 +1,6 @@
 //! The fixed names of the jobs (`requirements/ui#job`), set at creation: `Setup`, `Design`,
 //! `Import`, `Scan`, `Run T3` (short number, else permanent identity), `All tasks`,
-//! `All tasks · <model>`, `Resolve D3`, `Rework P3`, `Refine P3`.
+//! `All tasks · <model>`, `Resolve D3`, `Rework P3`, `Refine P3`, `Merge conflicts`.
 
 use crate::project::cards::CardKind;
 use crate::project::shortnum::ShortNumbers;
@@ -14,6 +14,11 @@ pub const SETUP: &str = "Setup";
 pub const DESIGN: &str = "Design";
 pub const IMPORT: &str = "Import";
 pub const SCAN: &str = "Scan";
+pub const MERGE: &str = "Merge conflicts";
+
+/// The title of Weaver's own ghost of an import job (`requirements/ui#work`); the job's name stays
+/// `Import`. The title of the ghost of a setup job is the job's name, `Setup`.
+pub const IMPORT_GHOST_TITLE: &str = "Import from Code";
 
 pub fn run_task(numbers: &ShortNumbers, task: &str) -> String {
     format!("Run {}", card_label(numbers, CardKind::Task, task))

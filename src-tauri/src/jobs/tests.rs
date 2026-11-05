@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use weaver_core::jobs::machine::RESUME_PROMPT;
 use weaver_core::jobs::subagents::SubAgentState;
-use weaver_core::jobs::{JobState, JobStore};
+use weaver_core::jobs::{FiledCard, JobState, JobStore};
 use weaver_core::project::image::ProjectImage;
 use weaver_core::settings::Permissions;
 
@@ -691,6 +691,128 @@ async fn only_one_run_works_at_a_time_and_a_resolve_waits_for_it() {
     assert!(!jobs.facts_of(&project.id).run_in_progress);
 }
 
+/// The merge of Solo mode as `.weaver/merge/merge.json` records it.
+fn start_merge_file(project: &Project) {
+    let dir = project.root.join(".weaver/merge");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("merge.json"),
+        r#"{"branch":"feature","current":"main","start":"a","incoming":"b","started":"2026-11-05T10:00:00.000Z"}"#,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_merge_in_progress_refuses_runs_scans_and_imports() {
+    let (_host, jobs, _dir, project) = one_task().await;
+    start_merge_file(&project);
+    assert!(jobs.facts_of(&project.id).merge_in_progress);
+    let refusal = run_task(&jobs, &project, "aaaaaaaa").unwrap_err();
+    assert!(refusal.contains("A merge is in progress"), "{refusal}");
+    let image = ProjectImage::load(&project.root);
+    let ctx = ctx(&project, &image);
+    assert_eq!(
+        jobs.start_run_all(&ctx).unwrap_err().0,
+        "A merge is in progress"
+    );
+    assert_eq!(
+        jobs.start_scan(&ctx).unwrap_err().0,
+        "A merge is in progress"
+    );
+    assert_eq!(
+        jobs.start_import(&ctx, Vec::new()).unwrap_err().0,
+        "A merge is in progress"
+    );
+}
+
+#[tokio::test]
+async fn the_merge_job_starts_only_on_a_merge_with_conflicts_and_one_at_a_time() {
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "log": host.received_log(), "logEnv": ["WEAVER_JOB", "WEAVER_RUN"], "prompts": [[{ "hold": true }]] }));
+    let image = ProjectImage::load(&project.root);
+    let ctx = ctx(&project, &image);
+    assert_eq!(
+        jobs.start_merge(&ctx, 2).unwrap_err().0,
+        "No merge is in progress"
+    );
+    start_merge_file(&project);
+    assert_eq!(
+        jobs.start_merge(&ctx, 0).unwrap_err().0,
+        "No file has conflicts"
+    );
+
+    let id = jobs.start_merge(&ctx, 2).unwrap();
+    let row = row(&host, &project.id, &id).unwrap();
+    assert_eq!(row.name, "Merge conflicts");
+    assert_eq!(row.kind.as_str(), "merge");
+    state_of(&host, &project, &id, JobState::Running).await;
+    assert_eq!(
+        jobs.start_merge(&ctx, 2).unwrap_err().0,
+        "The agent is resolving the conflicts"
+    );
+    assert!(jobs.facts_of(&project.id).merge_job_unended);
+
+    let conversation = entries(&jobs, &project, &id);
+    assert!(
+        matches!(&conversation[0], Entry::Instruction { text } if text.starts_with("Use the weaver-resolve-conflicts skill on the merge in progress recorded in `.weaver/merge/merge.json`. Run at most ")),
+        "{:?}",
+        conversation[0]
+    );
+    let received = host.received();
+    let start = &received[0];
+    let args: Vec<&str> = start["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        !args.contains(&"--advisor") && !args.contains(&"--slow"),
+        "{args:?}"
+    );
+    assert!(start["env"]["WEAVER_RUN"].is_null());
+    assert_eq!(start["env"]["WEAVER_JOB"], json!(id));
+
+    // It leaves the merge in progress when it ends: only a new job may start.
+    jobs.stop(&project.id, &id).unwrap();
+    state_of(&host, &project, &id, JobState::Stopped).await;
+    assert!(!jobs.facts_of(&project.id).merge_job_unended);
+    assert!(jobs.start_merge(&ctx, 1).is_ok());
+}
+
+#[tokio::test]
+async fn the_scan_after_a_merge_is_a_scan_with_the_merged_files_that_resets_the_count() {
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "hold": true }]] }));
+    let id = run_task(&jobs, &project, "aaaaaaaa").unwrap();
+    state_of(&host, &project, &id, JobState::Running).await;
+    jobs.task_finished(&project.root);
+    assert_eq!(jobs.facts_of(&project.id).done_since_last_scan, 1);
+    jobs.stop(&project.id, &id).unwrap();
+    state_of(&host, &project, &id, JobState::Stopped).await;
+
+    let image = ProjectImage::load(&project.root);
+    let merged = vec!["src/a.rs".to_owned(), "src/b/c.rs".to_owned()];
+    let scan = jobs
+        .start_scan_after_merge(&ctx(&project, &image), merged.clone())
+        .unwrap();
+    let record = jobs.record(&scan).unwrap();
+    assert_eq!(record.kind.as_str(), "scan");
+    assert_eq!(record.name, "Scan");
+    assert_eq!(record.merged, Some(merged));
+    assert_eq!(jobs.facts_of(&project.id).done_since_last_scan, 0);
+    state_of(&host, &project, &scan, JobState::Running).await;
+    let conversation = entries(&jobs, &project, &scan);
+    assert!(
+        matches!(&conversation[0], Entry::Instruction { text } if text.starts_with("Use the weaver-scan skill on the whole System after a merge: read the files the merge brought with `weaver job show`. Run at most ")),
+        "{:?}",
+        conversation[0]
+    );
+
+    let plain = jobs.start_scan(&ctx(&project, &image)).unwrap();
+    assert_eq!(jobs.record(&plain).unwrap().merged, None);
+}
+
 #[tokio::test]
 async fn closing_the_window_suspends_the_job_and_opening_it_reloads_the_session() {
     let (host, jobs, _dir, project) = one_task().await;
@@ -930,6 +1052,235 @@ async fn notes_announcements_and_ghosts_follow_the_job_until_the_card_arrives_or
         jobs.declare_note(&id, "too late").is_err() && jobs.announce(&id, "task", "Late").is_err(),
         "a finished job declares nothing"
     );
+}
+
+fn ghost_ids(jobs: &Jobs, project: &Project) -> Vec<String> {
+    jobs.ghosts_of(&project.id)
+        .into_iter()
+        .map(|ghost| ghost.id)
+        .collect()
+}
+
+/// The file of a Task card arrives on the Board.
+async fn task_arrives(host: &TestHost, project: &Project, id: &str, title: &str) {
+    std::fs::write(
+        project.root.join(format!(".weaver/tasks/{id}-card.md")),
+        TASK.replace("First task", title),
+    )
+    .unwrap();
+    host.pictures
+        .rebuild(&project.id, crate::pictures::Rebuild::All)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn weavers_own_ghost_of_an_import_comes_with_the_job_swaps_with_announced_ghosts_and_goes_with_the_job(
+) {
+    use crate::agent_work::{GhostKind, GhostPhase};
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "wait_steer": 1 }]] }));
+    let image = ProjectImage::load(&project.root);
+    let id = jobs
+        .start_import(&ctx(&project, &image), Vec::new())
+        .unwrap();
+    let own = format!("job:{id}");
+
+    // From the creation, before omp opens its session: no announcement of the agent needed.
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(
+        (
+            ghosts[0].id.as_str(),
+            ghosts[0].job_id.as_str(),
+            ghosts[0].kind,
+            ghosts[0].title.as_str(),
+            ghosts[0].phase,
+            ghosts[0].note.as_deref()
+        ),
+        (
+            own.as_str(),
+            id.as_str(),
+            GhostKind::Proposal,
+            "Import from Code",
+            GhostPhase::Preparing,
+            None
+        )
+    );
+    state_of(&host, &project, &id, JobState::Running).await;
+    jobs.declare_note(&id, "Reading the code").unwrap();
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(ghosts[0].id, own, "the identity stays across pictures");
+    assert_eq!(ghosts[0].note.as_deref(), Some("Reading the code"));
+    assert_eq!(
+        row(&host, &project.id, &id).unwrap().name,
+        "Import",
+        "the name of the job does not change"
+    );
+
+    // The first announced ghost replaces it in the same list, and nothing is stored for it.
+    let first = jobs.announce(&id, "task", "Cancel an order").unwrap();
+    assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&first));
+    let second = jobs.announce(&id, "task", "Change an order").unwrap();
+    assert_eq!(ghost_ids(&jobs, &project), [first.clone(), second.clone()]);
+    jobs.flush();
+    let stored = JobStore::new(&host.dirs).read(&id).unwrap().unwrap();
+    assert_eq!(
+        stored
+            .announcements
+            .iter()
+            .map(|a| (a.id.clone(), a.card.clone()))
+            .collect::<Vec<_>>(),
+        [(first.clone(), None), (second.clone(), None)]
+    );
+
+    // The card is filed: the record keeps it, and the ghost stays until the card is on the Board.
+    assert_eq!(jobs.card_filed(Some(&id), "task", "bbbbbbbb", &first), None);
+    assert_eq!(jobs.ghosts_of(&project.id).len(), 2);
+    jobs.flush();
+    let stored = JobStore::new(&host.dirs).read(&id).unwrap().unwrap();
+    assert_eq!(
+        stored.announcements[0].card,
+        Some(FiledCard {
+            kind: "task".into(),
+            id: "bbbbbbbb".into()
+        })
+    );
+    assert_eq!(stored.announcements[1].card, None);
+    task_arrives(&host, &project, "bbbbbbbb", "Cancel an order").await;
+    assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&second));
+
+    // The last announced ghost leaves: Weaver's own comes back in the same list.
+    assert_eq!(
+        jobs.card_filed(Some(&id), "task", "cccccccc", &second),
+        None
+    );
+    task_arrives(&host, &project, "cccccccc", "Change an order").await;
+    assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&own));
+
+    // The job ends: it goes with the job.
+    jobs.send_message(&project.id, &id, "Wrap up").unwrap();
+    state_of(&host, &project, &id, JobState::Done).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+    jobs.flush();
+    assert!(JobStore::new(&host.dirs)
+        .read(&id)
+        .unwrap()
+        .unwrap()
+        .announcements
+        .is_empty());
+}
+
+#[tokio::test]
+async fn weavers_own_ghost_waits_for_the_answers_and_keeps_the_place_of_its_job_creation() {
+    use crate::agent_work::GhostPhase;
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.permissions(Permissions::Ask);
+    host.script(json!({ "prompts": [[{ "permission": {
+        "toolCall": { "toolCallId": "t1", "title": "$ ls", "kind": "execute", "rawInput": { "command": "ls" } },
+        "options": [{ "optionId": "allow", "name": "Allow once", "kind": "allow_once" }] } }]] }));
+    let image = ProjectImage::load(&project.root);
+    let import = jobs
+        .start_import(&ctx(&project, &image), Vec::new())
+        .unwrap();
+    let setup = jobs
+        .start_setup(&ctx(&project, &image), "2026-11-02T07-00-00", Vec::new())
+        .unwrap();
+
+    // A job created earlier sits above, also while both are queued.
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(
+        ghosts
+            .iter()
+            .map(|g| (g.id.clone(), g.title.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (format!("job:{import}"), "Import from Code"),
+            (format!("job:{setup}"), "Setup")
+        ]
+    );
+    assert!(ghosts.iter().all(|g| g.phase == GhostPhase::Preparing));
+
+    state_of(&host, &project, &import, JobState::Waiting).await;
+    state_of(&host, &project, &setup, JobState::Waiting).await;
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 2);
+    assert!(ghosts
+        .iter()
+        .all(|g| g.phase == GhostPhase::WaitingForAnswers));
+
+    // An announcement made later comes after the ghost of a job created before it.
+    let announced = jobs.announce(&import, "task", "Cancel an order").unwrap();
+    assert_eq!(
+        ghost_ids(&jobs, &project),
+        [format!("job:{setup}"), announced]
+    );
+
+    // The other kinds of job get none.
+    jobs.stop(&project.id, &import).unwrap();
+    jobs.stop(&project.id, &setup).unwrap();
+    state_of(&host, &project, &import, JobState::Stopped).await;
+    state_of(&host, &project, &setup, JobState::Stopped).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+    let task_run = run_task(&jobs, &project, "aaaaaaaa").unwrap();
+    assert!(ghost_ids(&jobs, &project).is_empty(), "{task_run}");
+    jobs.stop(&project.id, &task_run).unwrap();
+}
+
+#[tokio::test]
+async fn after_a_restart_the_record_tells_which_announced_cards_arrived_and_the_own_ghost_comes_back(
+) {
+    let (host, first, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "hold": true }]] }));
+    let image = ProjectImage::load(&project.root);
+    let id = first
+        .start_setup(&ctx(&project, &image), "2026-11-02T07-00-00", Vec::new())
+        .unwrap();
+    state_of(&host, &project, &id, JobState::Running).await;
+    let announced = first.announce(&id, "task", "Cancel an order").unwrap();
+    assert_eq!(
+        first.card_filed(Some(&id), "task", "bbbbbbbb", &announced),
+        None
+    );
+    task_arrives(&host, &project, "bbbbbbbb", "Cancel an order").await;
+    assert_eq!(ghost_ids(&first, &project), [format!("job:{id}")]);
+    first.window_closed(&project.id).await;
+    assert_eq!(
+        row(&host, &project.id, &id).unwrap().state,
+        JobState::Suspended
+    );
+    assert_eq!(
+        ghost_ids(&first, &project),
+        [format!("job:{id}")],
+        "suspended, it keeps the ghost of Weaver"
+    );
+
+    // A new run of the app: only the registry knows that the card arrived.
+    let second = Jobs::new(host.clone());
+    host.script(json!({ "replay": [], "prompts": [[{ "hold": true }]] }));
+    second.window_opened(&project.id, &project.root);
+    until("the job to be resumed", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Running)
+    })
+    .await;
+    assert_eq!(
+        ghost_ids(&second, &project),
+        [format!("job:{id}")],
+        "no ghost of the card that already arrived"
+    );
+    second.stop(&project.id, &id).unwrap();
+    until("the job to be stopped", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Stopped)
+    })
+    .await;
+    assert!(ghost_ids(&second, &project).is_empty());
 }
 
 #[tokio::test]

@@ -5,7 +5,7 @@ The person who owns the project, looks at it in Weaver and decides. Every decisi
 ## Events
 
 ### OPEN_PROJECT
-The developer opens a folder in Weaver, from the welcome window or from a window already open. A folder already open only comes to the front.
+The developer opens a folder in Weaver, from the welcome window or from the File menu of any window, choosing a folder or one of the recent projects. A folder already open only comes to the front.
 
 ### CLOSE_WINDOW
 The developer closes the window of a project. When agent jobs of that project are working, or files of its File view have unsaved changes, he confirms first; with unsaved changes he chooses to save them all or to discard them all. When only agent jobs are working, he can also choose to keep them working with the window in the background.
@@ -26,7 +26,7 @@ The developer asks Weaver to write again every file it installs for the agent.
 The developer asks the agent to describe the code already in the project, optionally leaving out some folders for this import only.
 
 ### INSTALL_OMP
-The developer asks Weaver to install omp with its official installer.
+The developer asks Weaver to install omp with its official installer or, when that fails, from omp's GitHub releases.
 
 ### LOG_IN_PROVIDER
 The developer asks to connect omp to a model provider, or to connect it again.
@@ -42,6 +42,15 @@ The developer asks Weaver to export the certificate authorities his system trust
 
 ### CHANGE_SOLO_MODE
 The developer turns Solo mode of this working copy on, off, or to its other mode, in Settings or from the command line.
+
+### MERGE_BRANCH
+The developer chooses, on the Board, a branch to bring into the current branch and confirms the merge, while Solo mode is on and Merge is available.
+
+### RESOLVE_MERGE_CONFLICTS
+The developer asks the agent to resolve the conflicts of the merge in progress.
+
+### ABORT_MERGE
+The developer aborts the merge in progress, after a confirmation.
 
 ### OPEN_USAGE
 The developer opens Usage from the window of a project, to see how much is left of the usage limits of the connected providers.

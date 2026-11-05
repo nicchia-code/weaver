@@ -4,7 +4,8 @@
 //! launches do pass through a shell, so [`quote`] is the one place text is quoted for a target
 //! shell; the only text inserted into a command is the absolute path of omp, the id of a provider
 //! of the fixed list ([`Provider`]), the path of the System Certificates bundle and the path of
-//! the installer marker.
+//! the installer marker (the folder and version of the background GitHub download are inserted by
+//! [`super::github`], quoted with [`quote`]).
 //!
 //! | System  | Launch |
 //! |---------|--------|
@@ -23,13 +24,17 @@
 //! # The installer
 //!
 //! It downloads the official installer to a temporary file and runs it, never piping it into a
-//! shell, so that a failed download counts as a failure; then it writes the exit code of the first
-//! step that failed, else `0`, to the marker (`super::installer`) and deletes the temporary file.
+//! shell, so that a failed download counts as a failure. When that step ends with a code other than
+//! `0` it prints `The official installer failed (exit code <N>). Downloading omp from GitHub
+//! instead…` and runs the GitHub download of [`super::github`] in the same shell. Then it writes
+//! the code of the last step that ran, else `0`, to the marker (`super::installer`) and deletes
+//! the temporary files.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use super::github::{self, Config, Target};
 use super::lookup::Os;
 use super::providers::Provider;
 use crate::system_certificates::Variables;
@@ -223,7 +228,7 @@ fn is_unsafe(os: Os, text: &str) -> bool {
 }
 
 /// `path` as text: absolute on `os` and safe to pass.
-fn absolute_text(os: Os, path: &Path) -> Result<&str, TerminalError> {
+pub(super) fn absolute_text(os: Os, path: &Path) -> Result<&str, TerminalError> {
     let text = path.to_str().ok_or(TerminalError::UnsafePath)?;
     if !is_absolute_on(os, text) {
         return Err(TerminalError::NotAbsolute);
@@ -243,13 +248,19 @@ fn posix_body(os: Os, task: Task) -> Result<String, TerminalError> {
             provider.id
         ),
         Task::Installer { marker } => format!(
-            "t=$(mktemp \"${{TMPDIR:-/tmp}}/omp-install.XXXXXX\"); c=$?; \
+            "{} t=$(mktemp \"${{TMPDIR:-/tmp}}/omp-install.XXXXXX\"); c=$?; \
              if [ \"$c\" -eq 0 ]; then \
              curl -fsSL {INSTALLER_UNIX_URL} -o \"$t\"; c=$?; \
              if [ \"$c\" -eq 0 ]; then sh \"$t\"; c=$?; fi; \
              rm -f \"$t\"; \
              fi; \
+             if [ \"$c\" -ne 0 ]; then \
+             printf '%s\\n' \"The official installer failed (exit code $c). Downloading omp from GitHub instead…\"; \
+             {}; c=$?; \
+             fi; \
              printf '%s\\n' \"$c\" > {}",
+            github::definitions(Shell::Posix, Target::Install, &Config::default()),
+            github::call(Shell::Posix),
             quote(Shell::Posix, absolute_text(os, marker)?)
         ),
     })
@@ -266,12 +277,16 @@ fn windows_body(os: Os, task: Task) -> Result<String, TerminalError> {
         // The child `powershell.exe` takes the `exit` of the installer; its `$LASTEXITCODE` is the
         // code, and a terminating error of the download is `1`.
         Task::Installer { marker } => format!(
-            "$b = [IO.Path]::GetTempFileName(); $t = $b + '.ps1'; $c = 0; \
+            "{} $b = [IO.Path]::GetTempFileName(); $t = $b + '.ps1'; $c = 0; \
              try {{ Invoke-RestMethod {INSTALLER_WINDOWS_URL} -OutFile $t -ErrorAction Stop }} catch {{ $c = 1 }}; \
              if ($c -eq 0) {{ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $t; \
              $c = $LASTEXITCODE; if ($null -eq $c) {{ $c = 1 }} }}; \
              Remove-Item -LiteralPath $b, $t -ErrorAction SilentlyContinue; \
+             if ($c -ne 0) {{ Write-Host ('The official installer failed (exit code ' + $c + '). Downloading omp from GitHub instead…'); \
+             {}; $c = $global:OmpCode }}; \
              Set-Content -LiteralPath {} -Value $c -Encoding ASCII",
+            github::definitions(Shell::PowerShell, Target::Install, &Config::default()),
+            github::call(Shell::PowerShell),
             quote(Shell::PowerShell, absolute_text(os, marker)?)
         ),
     })
@@ -625,10 +640,21 @@ mod tests {
             "sh \"$t\"",
             "rm -f \"$t\"",
             "> '/data/omp-install/ab12.code'",
+            // The GitHub download only after a code other than 0, then the code of the last step.
+            "if [ \"$c\" -ne 0 ]; then printf '%s\\n' \"The official installer failed (exit code $c). Downloading omp from GitHub instead…\"; omp_github; c=$?; fi; printf '%s\\n' \"$c\" > '/data/omp-install/ab12.code'",
         ] {
             assert!(posix.terminal.contains(needle), "{needle}");
         }
-        assert!(!posix.terminal.contains('|'), "never piped into a shell");
+        // The official installer comes first, and is never piped into a shell.
+        let official = posix
+            .terminal
+            .find("curl -fsSL https://omp.sh/install")
+            .unwrap();
+        let github = posix.terminal.find("omp_github; c=$?").unwrap();
+        assert!(official < github);
+        for piped in ["| sh", "| bash", "|sh"] {
+            assert!(!posix.terminal.contains(piped), "{piped}");
+        }
         // The developer's shell is not assumed: the copy runs it under `/bin/sh`.
         assert!(posix.copy.starts_with("/bin/sh -c "), "{}", posix.copy);
         assert_eq!(
@@ -647,9 +673,15 @@ mod tests {
             "$c = $LASTEXITCODE",
             "Remove-Item -LiteralPath $b, $t",
             "Set-Content -LiteralPath 'C:\\d\\omp-install\\ab12.code' -Value $c",
+            "if ($c -ne 0) { Write-Host ('The official installer failed (exit code ' + $c + '). Downloading omp from GitHub instead…'); Invoke-OmpGithub; $c = $global:OmpCode }; Set-Content",
         ] {
             assert!(windows.terminal.contains(needle), "{needle}");
         }
+        // The GitHub download runs in the parent PowerShell, after the child that ran the official
+        // installer.
+        let official = windows.terminal.find("-File $t").unwrap();
+        let github = windows.terminal.find("; Invoke-OmpGithub;").unwrap();
+        assert!(official < github);
         assert!(!windows.terminal.contains("iex"));
         assert!(!windows.terminal.contains('"'));
     }
@@ -801,16 +833,19 @@ mod tests {
                 std::fs::create_dir_all(base.join("omp-install")).unwrap();
                 let curl_args = base.join("curl-args");
                 let curl = fake_bin.join("curl");
-                // Fails with FAKE_CURL_EXIT when it is not 0, else writes FAKE_INSTALLER (a shell
-                // script) where `-o` says.
+                // Every call is recorded. A call for the official installer fails with
+                // FAKE_CURL_EXIT when it is not 0, else writes FAKE_INSTALLER (a shell script)
+                // where `-o` says; a call for GitHub is blocked (curl exit 6, no host).
                 std::fs::write(
                     &curl,
                     format!(
-                        "#!/bin/sh\nprintf '%s ' \"$@\" > '{}'\n\
+                        "#!/bin/sh\nprintf '%s ' \"$@\" >> '{}'\nprintf '\\n' >> '{}'\n\
+                         case \"$*\" in *omp.sh*) ;; *) exit 6;; esac\n\
                          [ \"${{FAKE_CURL_EXIT:-0}}\" -ne 0 ] && exit \"$FAKE_CURL_EXIT\"\n\
                          while [ $# -gt 0 ]; do\n\
                          if [ \"$1\" = -o ]; then printf '%s\\n' \"$FAKE_INSTALLER\" > \"$2\"; fi\n\
                          shift\ndone\n",
+                        curl_args.display(),
                         curl_args.display()
                     ),
                 )
@@ -833,11 +868,25 @@ mod tests {
                     .args(["-c", text])
                     .env("PATH", path)
                     .env("TMPDIR", &self.tmp)
+                    // GitHub's default folder is made under HOME, never the real one.
+                    .env("HOME", self._root.path().join("home"))
+                    .env_remove("PI_INSTALL_DIR")
                     .env("FAKE_CURL_EXIT", curl_exit)
                     .env("FAKE_INSTALLER", installer)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
                     .status()
                     .unwrap();
                 assert!(status.success());
+            }
+
+            /// The URLs curl was called with, one call per line.
+            fn curl_calls(&self) -> Vec<String> {
+                std::fs::read_to_string(&self.curl_args)
+                    .unwrap()
+                    .lines()
+                    .map(str::to_owned)
+                    .collect()
             }
 
             fn code(&self) -> String {
@@ -854,36 +903,49 @@ mod tests {
         }
 
         #[test]
-        fn a_good_installer_leaves_zero_and_no_temporary_file() {
+        fn a_good_installer_leaves_zero_and_never_asks_github() {
             let rig = Rig::new();
             rig.run(&installer_text(&rig), "0", "exit 0");
             assert_eq!(rig.code(), "0\n");
             assert_eq!(rig.leftovers(), 0);
-            let args = std::fs::read_to_string(&rig.curl_args).unwrap();
+            let calls = rig.curl_calls();
+            assert_eq!(calls.len(), 1, "{calls:?}");
             assert!(
-                args.starts_with("-fsSL https://omp.sh/install -o "),
-                "{args}"
+                calls[0].starts_with("-fsSL https://omp.sh/install -o "),
+                "{calls:?}"
             );
         }
 
         #[test]
-        fn a_failed_download_is_the_code_of_curl_and_the_installer_never_runs() {
+        fn a_failed_download_of_the_installer_falls_back_on_github_and_leaves_its_code() {
             let rig = Rig::new();
             rig.run(
                 &installer_text(&rig),
                 "22",
                 &format!("touch '{}'", rig.seen.display()),
             );
-            assert_eq!(rig.code(), "22\n");
+            // The official installer never ran; GitHub was asked and blocked (`90`).
+            assert_eq!(rig.code(), "90\n");
             assert!(!rig.seen.exists());
             assert_eq!(rig.leftovers(), 0);
+            let calls = rig.curl_calls();
+            assert_eq!(calls.len(), 2, "{calls:?}");
+            assert!(
+                calls[1].contains("https://api.github.com/repos/can1357/oh-my-pi/releases/latest")
+            );
+            // The default folder of the official installer was made and holds no temporary file.
+            let folder = rig._root.path().join("home").join(".local").join("bin");
+            assert!(folder.is_dir());
+            assert_eq!(std::fs::read_dir(folder).unwrap().count(), 0);
         }
 
         #[test]
-        fn a_failed_installer_leaves_its_own_code() {
+        fn a_failed_installer_is_followed_by_github_and_the_marker_holds_the_last_code() {
             let rig = Rig::new();
             rig.run(&installer_text(&rig), "0", "exit 7");
-            assert_eq!(rig.code(), "7\n");
+            // The installer ran and failed with 7; GitHub was blocked, and its code is the last.
+            assert_eq!(rig.code(), "90\n");
+            assert_eq!(rig.curl_calls().len(), 2);
             assert_eq!(rig.leftovers(), 0);
         }
 

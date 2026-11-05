@@ -19,6 +19,7 @@ export const SOLO_CHOICES: readonly { value: SoloMode; label: string }[] = [
 export const SOLO_NOTE = "Applies only to this working copy: other clones start with it off.";
 export const SOLO_VERSIONED_NOWHERE = "Weaver's files are not versioned anywhere: losing this working copy loses them.";
 export const SOLO_CHOOSE_AT_INITIALISE = "Choose Solo mode when you initialise the project.";
+export const SOLO_FINISH_MERGE = "Finish or abort the merge in progress first.";
 
 /** The reasons that say git, or the repository around the folder, is not there (`requirements/rules#solo-mode`). */
 const GIT_MISSING = ["git was not found", "this folder is not in a git repository"];
@@ -188,7 +189,9 @@ export function SoloModeSetting() {
 
   const notInitialised = status.state === "not-initialised";
   const noGit = mode === "off" && solo.unavailable !== undefined;
-  const disabled = notInitialised || noGit || pending !== null;
+  // While a merge is in progress Solo mode cannot change in any way (`requirements/ui#solo-mode`, **During a merge**).
+  const merging = status.merge?.inProgress !== undefined;
+  const disabled = notInitialised || noGit || merging || pending !== null;
 
   const choose = (next: SoloMode) => {
     if (busy.current || next === mode) return;
@@ -212,6 +215,7 @@ export function SoloModeSetting() {
   };
 
   const messages: SoloMessage[] = [];
+  if (merging) messages.push({ key: "merge", tone: "info", text: SOLO_FINISH_MERGE });
   if (notInitialised) messages.push({ key: "uninitialised", tone: "info", text: SOLO_CHOOSE_AT_INITIALISE });
   else if (noGit && solo.unavailable) messages.push({ key: "git", tone: "info", text: soloNeedsGit(solo.unavailable) });
   const shownMode = pending ?? mode;

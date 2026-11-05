@@ -31,7 +31,7 @@ pub fn commands() -> Vec<Command> {
             .example(r#"weaver job new --input '{"kind":"scan"}'"#),
         Command::new("job", "show", "Prints the job of the caller, or the job `<id>`.", show)
             .notes(&[
-                "Without `<id>` it reads only the environment and the registry record of the job of the caller: `id`, `kind`, `target`, whether the session is a Run (`WEAVER_RUN`) and its `task` (`WEAVER_TASK`); outside a job it says so, with exit 0. `<id>` asks Weaver.",
+                "Without `<id>` it reads only the environment and the registry record of the job of the caller: `id`, `kind`, `target`, `merged` (only for a scan after a merge: the files the merge brought, relative to the project root, sorted), whether the session is a Run (`WEAVER_RUN`) and its `task` (`WEAVER_TASK`); outside a job it says so, with exit 0. `<id>` asks Weaver.",
             ])
             .arg(Arg::Job)
             .output(vec![
@@ -41,6 +41,7 @@ pub fn commands() -> Vec<Command> {
                     req("target", nullable(line()), "What it works on."),
                     req("run", boolean(), "Whether the session is a Run."),
                     req("task", nullable(line()), "The Task of a Run of one Task."),
+                    opt("merged", list(line()), "The files a merge brought; only for a scan after a merge."),
                 ])), "The job, or null outside a job."),
             ])
             .place(|_, arg| if arg.is_some() { Place::App } else { Place::Local })
@@ -110,14 +111,21 @@ pub fn job_view(record: &JobRecord, run: bool, task: Option<&str>) -> CommandRep
     if let Some(target) = target {
         text.push_str(&format!("- target: `{target}`\n"));
     }
+    if let Some(merged) = &record.merged {
+        text.push_str("- merged:\n");
+        for path in merged {
+            text.push_str(&format!("  - `{path}`\n"));
+        }
+    }
     text.push_str(&format!("- run: {}\n", if run { "yes" } else { "no" }));
     if let Some(task) = task {
         text.push_str(&format!("- task: `{task}`\n"));
     }
-    reply(
-        text,
-        json!({ "job": { "id": record.id, "kind": record.kind.as_str(), "target": target, "run": run, "task": task } }),
-    )
+    let mut job = json!({ "id": record.id, "kind": record.kind.as_str(), "target": target, "run": run, "task": task });
+    if let Some(merged) = &record.merged {
+        job["merged"] = json!(merged);
+    }
+    reply(text, json!({ "job": job }))
 }
 
 /// `job show` without an `<id>` reads the environment and the registry record of the job.
@@ -176,6 +184,7 @@ mod tests {
             name: "Run T1".into(),
             project: "/p".into(),
             target: Some("aaaaaaaa".into()),
+            merged: None,
             state: JobState::Running,
             reason: None,
             created: "2026-11-02T07:00:00.000Z".into(),
@@ -234,6 +243,28 @@ mod tests {
             run(&design, None).unwrap().json,
             json!({ "job": { "id": "jjjjjjjj", "kind": "design", "target": null, "run": false, "task": null } })
         );
+    }
+
+    #[test]
+    fn a_scan_after_a_merge_shows_the_files_the_merge_brought() {
+        let caller = Caller {
+            job: Some("jjjjjjjj".into()),
+            job_record: Some(JobRecord {
+                kind: JobKind::Scan,
+                target: None,
+                merged: Some(vec!["src/a.rs".into(), "src/b/c.rs".into()]),
+                ..record()
+            }),
+            ..Caller::default()
+        };
+        let reply = run(&caller, None).unwrap();
+        assert_eq!(
+            reply.json,
+            json!({ "job": { "id": "jjjjjjjj", "kind": "scan", "target": null, "run": false, "task": null, "merged": ["src/a.rs", "src/b/c.rs"] } })
+        );
+        assert!(reply
+            .markdown
+            .contains("- merged:\n  - `src/a.rs`\n  - `src/b/c.rs`\n"));
     }
 
     #[test]

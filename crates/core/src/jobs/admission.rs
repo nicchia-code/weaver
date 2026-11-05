@@ -1,7 +1,9 @@
 //! Which job may start (`requirements/rules#job`, the state Not started of the Machine `job`).
 //!
-//! Only one Run works in a project (Run all counts as one Run even when it starts one Run per
-//! model), a Run and a resolve exclude each other, and scans, designs and imports always start.
+//! Only one Run works in a project (Run all counts as one Run even when it starts one per
+//! model), a Run and a resolve exclude each other, and designs, reworks and refinements always
+//! start. While a merge of Solo mode is in progress, Runs, Run all, resolves, scans and imports
+//! are refused, and the `merge` job starts only on a merge with files in conflict, one at a time.
 //! The functions are pure: they read the picture of the project and the facts about the agent's
 //! work, and answer with the jobs to create or with the reasons for the refusal. The decision is
 //! made again, with fresh facts, when it is applied.
@@ -41,15 +43,28 @@ pub struct StartPlan {
     pub proposal_model: Option<String>,
     /// The sub-agent limit of the job: the setting, or its share of a Run all.
     pub max_agents: u32,
+    /// Only for a scan after a merge: the files the merge brought (`JobRecord::merged`).
+    pub merged: Option<Vec<String>>,
 }
 
-/// Whether a job of `kind` may start now, given the facts about the work of the agent. Scans,
-/// designs, imports, reworks and refinements always may; a Run and a resolve exclude each other
-/// and a second Run is refused.
+/// Reason of the `merge` job when no merge of Solo mode is in progress.
+pub const REASON_NO_MERGE: &str = "No merge is in progress";
+/// Reason of the `merge` job when no file of the merge has conflicts left.
+pub const REASON_NO_CONFLICTS: &str = "No file has conflicts";
+/// Reason of the `merge` job while another one has not ended.
+pub const REASON_MERGE_JOB_UNENDED: &str = "The agent is resolving the conflicts";
+
+/// Whether a job of `kind` may start now, given the facts about the work of the agent. Designs,
+/// setups, reworks and refinements always may; scans and imports only while no merge is in
+/// progress; a Run also excludes a resolve and a second Run, and a resolve a Run; the `merge` job
+/// needs a merge with conflicts and no other `merge` job unended.
 pub fn check_start(kind: JobKind, image: &ProjectImage, facts: &AgentFacts) -> Result<(), Refusal> {
     let mut reasons = Vec::new();
     match kind {
         JobKind::Run => {
+            if facts.merge_in_progress {
+                reasons.push(board::REASON_MERGE_IN_PROGRESS);
+            }
             if board::drifts_resolving(image, facts) {
                 reasons.push(board::REASON_DRIFTS_RESOLVING);
             }
@@ -57,7 +72,27 @@ pub fn check_start(kind: JobKind, image: &ProjectImage, facts: &AgentFacts) -> R
                 reasons.push(board::REASON_RUN_IN_PROGRESS);
             }
         }
-        JobKind::Resolve if facts.run_in_progress => reasons.push(board::REASON_RUN_IN_PROGRESS),
+        JobKind::Resolve => {
+            if facts.run_in_progress {
+                reasons.push(board::REASON_RUN_IN_PROGRESS);
+            }
+            if facts.merge_in_progress {
+                reasons.push(board::REASON_MERGE_IN_PROGRESS);
+            }
+        }
+        JobKind::Scan | JobKind::Import if facts.merge_in_progress => {
+            reasons.push(board::REASON_MERGE_IN_PROGRESS);
+        }
+        JobKind::Merge => {
+            if !facts.merge_in_progress {
+                reasons.push(REASON_NO_MERGE);
+            } else if !facts.merge_conflicts {
+                reasons.push(REASON_NO_CONFLICTS);
+            }
+            if facts.merge_job_unended {
+                reasons.push(REASON_MERGE_JOB_UNENDED);
+            }
+        }
         _ => {}
     }
     refusal(&reasons)
@@ -114,6 +149,7 @@ pub fn plan_run_task(
             .str_key("proposal")
             .and_then(|p| chosen(chosen_model, p)),
         max_agents,
+        merged: None,
     })
 }
 
@@ -186,6 +222,7 @@ pub fn plan_run_all(
                 task: None,
                 proposal_model: (!is_execution).then(|| group.model.clone()),
                 max_agents: u32::try_from(share).unwrap_or(u32::MAX).max(1),
+                merged: None,
             }
         })
         .collect())
@@ -297,6 +334,80 @@ mod tests {
         assert_eq!(
             check_start(JobKind::Run, &image, &both).unwrap_err().0,
             "Drifts are being resolved; A run is in progress"
+        );
+    }
+
+    #[test]
+    fn a_merge_in_progress_refuses_runs_resolves_scans_and_imports_but_not_designs() {
+        let (_dir, image, _) = setup(|_| {});
+        let merging = AgentFacts {
+            merge_in_progress: true,
+            merge_conflicts: true,
+            ..facts()
+        };
+        for kind in [
+            JobKind::Run,
+            JobKind::Resolve,
+            JobKind::Scan,
+            JobKind::Import,
+        ] {
+            assert_eq!(
+                check_start(kind, &image, &merging),
+                Err(Refusal("A merge is in progress".into())),
+                "{kind:?}"
+            );
+        }
+        for kind in [
+            JobKind::Design,
+            JobKind::Setup,
+            JobKind::Rework,
+            JobKind::Refinement,
+        ] {
+            assert_eq!(check_start(kind, &image, &merging), Ok(()), "{kind:?}");
+        }
+        let run = AgentFacts {
+            run_in_progress: true,
+            ..merging.clone()
+        };
+        assert_eq!(
+            check_start(JobKind::Run, &image, &run).unwrap_err().0,
+            "A merge is in progress; A run is in progress"
+        );
+        assert_eq!(
+            check_start(JobKind::Resolve, &image, &run).unwrap_err().0,
+            "A run is in progress; A merge is in progress",
+            "the order of the Resolve control"
+        );
+    }
+
+    #[test]
+    fn the_merge_job_needs_a_merge_with_conflicts_and_no_other_merge_job_unended() {
+        let (_dir, image, _) = setup(|_| {});
+        let conflicts = AgentFacts {
+            merge_in_progress: true,
+            merge_conflicts: true,
+            ..facts()
+        };
+        assert_eq!(check_start(JobKind::Merge, &image, &conflicts), Ok(()));
+        assert_eq!(
+            check_start(JobKind::Merge, &image, &facts()),
+            Err(Refusal("No merge is in progress".into()))
+        );
+        let resolved = AgentFacts {
+            merge_conflicts: false,
+            ..conflicts.clone()
+        };
+        assert_eq!(
+            check_start(JobKind::Merge, &image, &resolved),
+            Err(Refusal("No file has conflicts".into()))
+        );
+        let working = AgentFacts {
+            merge_job_unended: true,
+            ..conflicts
+        };
+        assert_eq!(
+            check_start(JobKind::Merge, &image, &working),
+            Err(Refusal("The agent is resolving the conflicts".into()))
         );
     }
 

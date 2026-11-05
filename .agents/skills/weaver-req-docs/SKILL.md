@@ -14,8 +14,8 @@ The project's documentation is `README.md` and `CHANGELOG.md` at the repository 
 
 ## README and CHANGELOG
 
-Use when writing or updating README.md or CHANGELOG.md, including what they say about System Certificates.
+Use when writing or updating README.md or CHANGELOG.md, including what they say about System Certificates, installing omp behind a proxy, Solo mode and Merge.
 
-Sections: `General`, `system-certificates`, `solo-mode`
+Sections: `General`, `system-certificates`, `omp-setup`, `solo-mode`, `solo-merge`
 
 File: `main.md`

@@ -19,7 +19,18 @@ use crate::paths::AppDirs;
 /// How many finished records the registry keeps per project.
 pub const KEPT_FINISHED: usize = 50;
 
-/// A card the job announced and that has not arrived yet.
+/// The card a job filed with an announcement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FiledCard {
+    /// `proposal`, `task` or `drift`.
+    pub kind: String,
+    /// The permanent identity of the card.
+    pub id: String,
+}
+
+/// A card the job announced. It waits until its card is on the Board and is withdrawn, with the
+/// others, when the job ends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnnouncementRecord {
@@ -27,6 +38,10 @@ pub struct AnnouncementRecord {
     /// `proposal`, `task` or `drift`.
     pub kind: String,
     pub title: String,
+    /// The card filed with this announcement, written when it is created, so that after a
+    /// restart Weaver still knows which announced cards already arrived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<FiledCard>,
 }
 
 /// One job, as the registry keeps it.
@@ -43,6 +58,10 @@ pub struct JobRecord {
     /// identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// Only for a scan after a merge: the files the merge brought (`requirements/rules#solo-merge`),
+    /// relative to the project root with `/`, sorted. `weaver job show` reads them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged: Option<Vec<String>>,
     pub state: JobState,
     /// Why a Failed job failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,6 +270,7 @@ mod tests {
             name: "Scan".to_owned(),
             project: project.to_owned(),
             target: None,
+            merged: None,
             state,
             reason: None,
             created: "2026-11-02T07:00:00.000Z".to_owned(),
@@ -267,6 +287,10 @@ mod tests {
                 id: "aaaaaaaa".into(),
                 kind: "task".into(),
                 title: "A task".into(),
+                card: Some(FiledCard {
+                    kind: "task".into(),
+                    id: "bbbbbbbb".into(),
+                }),
             }],
             notes: vec![Note {
                 text: "Reading".into(),
@@ -289,6 +313,7 @@ mod tests {
         assert!(record.is_run() && record.run_task().is_none());
         let text = std::fs::read_to_string(store.file("jjjjjjjj")).unwrap();
         assert!(text.contains("\"sessionId\": \"s1\"") && text.contains("\"pidStarted\""));
+        assert!(text.contains("\"card\"") && text.contains("\"bbbbbbbb\""));
         assert!(!text.contains("conversation"));
         store.delete("jjjjjjjj").unwrap();
         assert_eq!(store.read("jjjjjjjj").unwrap(), None);

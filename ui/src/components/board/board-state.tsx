@@ -12,6 +12,8 @@ export interface BoardState {
   /** Notices in arrival order. */
   notices: readonly Notice[];
   closeNotice: (id: string) => void;
+  /** Shows a notice (`paths` listed under it in monospace); one with an id already shown changes nothing. */
+  notify: (id: string, text: string, paths?: readonly string[]) => void;
   /** Asks again after a failed load. */
   reload: () => void;
   /**
@@ -87,8 +89,8 @@ export function BoardProvider({ projectId, children }: { projectId: string; chil
       });
   }, [projectId]);
 
-  const addNotice = useCallback((id: string, text: string) => {
-    setNotices((previous) => (previous.some((n) => n.id === id) ? previous : [...previous, { id, text }]));
+  const addNotice = useCallback((id: string, text: string, paths?: readonly string[]) => {
+    setNotices((previous) => (previous.some((n) => n.id === id) ? previous : [...previous, { id, text, ...(paths ? { paths } : {}) }]));
   }, []);
 
   useEffect(() => {
@@ -189,6 +191,7 @@ export function BoardProvider({ projectId, children }: { projectId: string; chil
       loadError,
       notices,
       closeNotice,
+      notify: addNotice,
       reload,
       deleteTask,
       approveProposal,
@@ -202,7 +205,7 @@ export function BoardProvider({ projectId, children }: { projectId: string; chil
       discardDriftProposal,
       dismissDrift,
     }),
-    [snapshot, loadError, notices, closeNotice, reload, deleteTask, approveProposal, rejectProposal, discardProposal, chooseProposalModel, resolveDrift, fixDriftCode, acceptDriftProposal, refineDriftProposal, discardDriftProposal, dismissDrift],
+    [snapshot, loadError, notices, closeNotice, addNotice, reload, deleteTask, approveProposal, rejectProposal, discardProposal, chooseProposalModel, resolveDrift, fixDriftCode, acceptDriftProposal, refineDriftProposal, discardDriftProposal, dismissDrift],
   );
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;
 }

@@ -74,16 +74,21 @@ impl LookupEnv {
 
     /// The folders of the official installer, in the order they are searched.
     pub fn installer_dirs(&self) -> Vec<PathBuf> {
+        let mut folders = self.install_dirs();
+        folders.extend(self.bun_bin());
+        folders
+    }
+
+    /// Where the official installer puts omp: `PI_INSTALL_DIR`, then its default folder
+    /// (`%LOCALAPPDATA%\omp`, `~/.local/bin`). Not bun's folder: the GitHub download only replaces
+    /// an omp found here.
+    pub fn install_dirs(&self) -> Vec<PathBuf> {
         let mut folders = Vec::new();
         folders.extend(self.pi_install_dir.clone());
         match self.os {
-            Os::Windows => {
-                folders.extend(self.local_app_data.as_ref().map(|d| d.join("omp")));
-                folders.extend(self.bun_bin());
-            }
+            Os::Windows => folders.extend(self.local_app_data.as_ref().map(|d| d.join("omp"))),
             Os::MacOs | Os::Linux => {
                 folders.extend(self.home.as_ref().map(|h| h.join(".local").join("bin")));
-                folders.extend(self.bun_bin());
             }
         }
         folders

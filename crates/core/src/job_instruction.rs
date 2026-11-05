@@ -24,6 +24,7 @@ const IMPORT: &str = SKILL_NAMES[2];
 const SCAN: &str = SKILL_NAMES[3];
 const IMPLEMENT: &str = SKILL_NAMES[5];
 const RESOLVE: &str = SKILL_NAMES[6];
+const RESOLVE_CONFLICTS: &str = SKILL_NAMES[7];
 
 /// One job and what its first sentence names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +46,13 @@ pub enum Job {
     Import { excluded: Vec<String> },
     /// A scan of the whole System.
     Scan,
+    /// A scan of the whole System that Weaver starts when a merge is concluded: the agent reads
+    /// the files the merge brought with `weaver job show` (they are in the job's registry
+    /// record, not in the instruction).
+    ScanAfterMerge,
+    /// The resolution of the conflicts of the merge in progress, recorded in
+    /// `.weaver/merge/merge.json`.
+    MergeConflicts,
     /// A Run of one Task.
     RunTask { task: String },
     /// A Run of all the runnable Tasks, or of the group of one model.
@@ -241,6 +249,12 @@ fn first_sentence(job: &Job, max: u32) -> Result<String, InstructionError> {
             )
         }
         Job::Scan => format!("Use the {SCAN} skill on the whole System."),
+        Job::ScanAfterMerge => format!(
+            "Use the {SCAN} skill on the whole System after a merge: read the files the merge brought with `weaver job show`."
+        ),
+        Job::MergeConflicts => format!(
+            "Use the {RESOLVE_CONFLICTS} skill on the merge in progress recorded in `.weaver/merge/merge.json`."
+        ),
         Job::RunTask { task } => {
             identity("task", task)?;
             format!("Use the {IMPLEMENT} skill on Task {task}.")
@@ -364,6 +378,14 @@ mod tests {
                 "Use the weaver-import skill on this repository. Do not import these paths and do not ask which folders to import: `node_modules`, `docs/old drafts`.".into(),
             ),
             (Job::Scan, "Use the weaver-scan skill on the whole System.".into()),
+            (
+                Job::ScanAfterMerge,
+                "Use the weaver-scan skill on the whole System after a merge: read the files the merge brought with `weaver job show`.".into(),
+            ),
+            (
+                Job::MergeConflicts,
+                "Use the weaver-resolve-conflicts skill on the merge in progress recorded in `.weaver/merge/merge.json`.".into(),
+            ),
             (Job::RunTask { task: id(3) }, "Use the weaver-implement skill on Task abcdef03.".into()),
             (
                 Job::RunAll { filter: RunAllFilter::All },

@@ -824,9 +824,10 @@ pub fn split_sub_agents(limit: usize, counts: &[usize]) -> Vec<usize> {
 // ---------------------------------------------------------------------------------------------
 
 /// The reasons a Task's `Run` is disabled, in the fixed order of the control: `The agent is
-/// still finishing`, `Drifts are being resolved`, `A run is in progress`, `The agent is working
-/// on it`, `Blocked by Drift <ids>`, `Waiting for Task <id>`. Another Task held by the agent
-/// never disables it. `name` shows a Drift or a Task (`D3`, or its permanent id).
+/// still finishing`, `A merge is in progress`, `Drifts are being resolved`, `A run is in
+/// progress`, `The agent is working on it`, `Blocked by Drift <ids>`, `Waiting for Task <id>`.
+/// Another Task held by the agent never disables it. `name` shows a Drift or a Task (`D3`, or its
+/// permanent id).
 pub fn run_reasons(
     image: &ProjectImage,
     facts: &AgentFacts,
@@ -837,6 +838,9 @@ pub fn run_reasons(
     let mut reasons = Vec::new();
     if facts.is_finishing(task) {
         reasons.push(board::REASON_AGENT_FINISHING.to_owned());
+    }
+    if facts.merge_in_progress {
+        reasons.push(board::REASON_MERGE_IN_PROGRESS.to_owned());
     }
     if board::drifts_resolving(image, facts) {
         reasons.push(board::REASON_DRIFTS_RESOLVING.to_owned());
@@ -1980,6 +1984,8 @@ mod tests {
             resolve_working: true,
             working_jobs: BTreeSet::from(["jjjjjjjj".to_owned()]),
             done_since_last_scan: 0,
+            merge_in_progress: true,
+            ..AgentFacts::default()
         };
         let task = image.card(CardKind::Task, "aaaaaaaa").unwrap();
         let blocking = blocking_of(&image, task);
@@ -1992,6 +1998,7 @@ mod tests {
             run_reasons(&image, &facts, task, &blocking, &name),
             [
                 "The agent is still finishing",
+                "A merge is in progress",
                 "Drifts are being resolved",
                 "A run is in progress",
                 "Blocked by Drift D1",

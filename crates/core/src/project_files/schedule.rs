@@ -3,7 +3,9 @@
 //!
 //! The repair of Solo mode's block at the opening of a project rides on the same runs: it is
 //! coalesced like the check of the installed files and happens in the same run when both are due
-//! (`requirements/tech#solo-mode`).
+//! (`requirements/tech#solo-mode`). So does the recomputation of Merge's state
+//! (`requirements/tech#solo-merge`): one computation runs at a time per project, and the requests
+//! made meanwhile coalesce into one more.
 //!
 //! [`Runs`] is the pure rule; the app owns one per open project and starts the work it names.
 
@@ -20,17 +22,34 @@ pub enum Want {
     UpdateSkills,
 }
 
-/// One run: what it does to the installed files and whether it also repairs Solo mode's block.
+/// One run: what it does to the installed files, whether it also repairs Solo mode's block and
+/// whether it also works out Merge's state again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Run {
     pub want: Want,
     pub solo: bool,
+    pub merge: bool,
 }
 
 impl Run {
     /// A run of `want` that also repairs Solo mode's block when `solo`.
     pub fn new(want: Want, solo: bool) -> Self {
-        Self { want, solo }
+        Self {
+            want,
+            solo,
+            merge: false,
+        }
+    }
+
+    /// The same run, working out Merge's state too.
+    pub fn with_merge(mut self) -> Self {
+        self.merge = true;
+        self
+    }
+
+    /// A run that only works out Merge's state again.
+    pub fn merge_only() -> Self {
+        Run::new(Want::NoFiles, false).with_merge()
     }
 
     /// The one run that covers both.
@@ -38,6 +57,7 @@ impl Run {
         Run {
             want: self.want.max(other.want),
             solo: self.solo || other.solo,
+            merge: self.merge || other.merge,
         }
     }
 }
@@ -152,6 +172,28 @@ mod tests {
         assert_eq!(runs.request(files(Want::UpdateSkills)), None);
         assert_eq!(runs.request(files(Want::RequirementSkills)), None);
         assert_eq!(runs.finished(), Some(files(Want::UpdateSkills)));
+        assert_eq!(runs.finished(), None);
+    }
+
+    #[test]
+    fn the_state_of_merge_rides_on_the_runs_and_is_never_lost() {
+        let mut runs = Runs::default();
+        // Alone it is a run of its own, with no installed file touched.
+        assert_eq!(runs.request(Run::merge_only()), Some(Run::merge_only()));
+        // Asked again while it runs, with a wider run: one more run does both.
+        assert_eq!(runs.request(Run::merge_only()), None);
+        assert_eq!(runs.request(files(Want::OpeningCheck)), None);
+        assert_eq!(
+            runs.finished(),
+            Some(Run::new(Want::OpeningCheck, false).with_merge())
+        );
+        assert_eq!(runs.finished(), None);
+
+        // A run that already includes it takes the requests made meanwhile as they are.
+        let opening = Run::new(Want::OpeningCheck, true).with_merge();
+        assert_eq!(runs.request(opening), Some(opening));
+        assert_eq!(runs.request(files(Want::RequirementSkills)), None);
+        assert_eq!(runs.finished(), Some(files(Want::RequirementSkills)));
         assert_eq!(runs.finished(), None);
     }
 }

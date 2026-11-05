@@ -1,6 +1,6 @@
 # System Certificates
 
-Whether omp trusts the certificate authorities the developer's system trusts, one for the whole app. It is a setting of Weaver, off by default. While it is on, Weaver exports those authorities, together with the public root authorities, into one bundle for the developer, outside every project, and every omp process Weaver starts afterwards is told to trust that bundle: jobs, General, the questions Weaver asks omp about itself, omp's update and logout, and the system terminals of omp's installer and logins. While it is off, or while no bundle exists, those processes start exactly as without it. A change reaches only the processes started after it.
+Whether omp trusts the certificate authorities the developer's system trusts, one for the whole app. It is a setting of Weaver, off by default. While it is on, Weaver exports those authorities, together with the public root authorities, into one bundle for the developer, outside every project, and every omp process Weaver starts afterwards is told to trust that bundle: jobs, General, the questions Weaver asks omp about itself, omp's update and logout, the background download of omp from GitHub, and the system terminals of omp's installer and logins. While it is off, or while no bundle exists, those processes start exactly as without it. A change reaches only the processes started after it.
 
 An export never blocks the app, a window or a job, and ends within a time limit; a failed export keeps the earlier bundle in use. Each export, successful or not, makes Weaver look at omp again.
 

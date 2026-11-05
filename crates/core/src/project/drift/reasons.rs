@@ -7,7 +7,7 @@
 
 use crate::project::board::{
     is_being_written, resolution_rows, AgentFacts, REASON_AGENT_FINISHING, REASON_BEING_REFINED,
-    REASON_RUN_IN_PROGRESS,
+    REASON_MERGE_IN_PROGRESS, REASON_RUN_IN_PROGRESS,
 };
 use crate::project::cards::{Card, CardKind};
 use crate::project::concerns::{key_lists_concern, key_of};
@@ -68,7 +68,7 @@ pub fn attached_being_refined(image: &ProjectImage, drift: &Card) -> bool {
 }
 
 /// Why `Resolve` is disabled, in order: `The agent is still finishing`, `A run is in progress`,
-/// `Being refined` (its attached Proposal is Refining), `This Drift is being resolved`,
+/// `A merge is in progress`, `Being refined` (its attached Proposal is Refining), `This Drift is being resolved`,
 /// `Another resolution is being written`, and one `Proposal <id> resolving Drifts awaits a
 /// decision` for each resolution waiting for a decision. `name` shows a Proposal (`P3`, or its
 /// permanent id).
@@ -84,6 +84,9 @@ pub fn resolve_reasons(
     }
     if facts.run_in_progress {
         reasons.push(REASON_RUN_IN_PROGRESS.to_owned());
+    }
+    if facts.merge_in_progress {
+        reasons.push(REASON_MERGE_IN_PROGRESS.to_owned());
     }
     if attached_being_refined(image, drift) {
         reasons.push(REASON_BEING_REFINED.to_owned());

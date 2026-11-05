@@ -30,6 +30,12 @@ pub enum EventName {
     /// A window could not go to the background after `Keep working in background` of the close
     /// confirmation: it stays shown and shows why; see [`crate::windows`].
     WindowHideFailed,
+    /// The recent projects changed (an opening, a removal, `Clear Recent` of the File menu); sent
+    /// to the welcome window only, with the whole list; see [`crate::windows::menu`].
+    RecentChanged,
+    /// An opening started from the File menu failed: sent only to the window it was chosen from
+    /// (or to the welcome window when no window had the focus); see [`crate::windows::menu`].
+    MenuOpenFailed,
     Notice,
     /// The Jobs list of a project changed; carries the whole list (see [`crate::jobs`]).
     JobsChanged,
@@ -103,6 +109,8 @@ impl EventName {
             EventName::UsageChanged => "usage-changed",
             EventName::ShowRequested => "show-requested",
             EventName::WindowHideFailed => "window-hide-failed",
+            EventName::RecentChanged => "recent-changed",
+            EventName::MenuOpenFailed => "menu-open-failed",
             EventName::Notice => "notice",
             EventName::JobsChanged => "jobs-changed",
             EventName::JobEntries => "job-entries",

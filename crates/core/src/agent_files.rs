@@ -48,7 +48,7 @@ pub const SKILLS_DIR: &str = ".agents/skills";
 pub const OMP_DIR: &str = ".omp";
 
 /// The installed skills, one folder each with a `SKILL.md`.
-pub const SKILL_NAMES: [&str; 7] = [
+pub const SKILL_NAMES: [&str; 8] = [
     "weaver-setup",
     "weaver-design",
     "weaver-import",
@@ -56,6 +56,7 @@ pub const SKILL_NAMES: [&str; 7] = [
     "weaver-compare",
     "weaver-implement",
     "weaver-resolve-drifts",
+    "weaver-resolve-conflicts",
 ];
 
 /// A sub-agent definition is smaller than this, in bytes (6 KB).
@@ -437,6 +438,130 @@ mod tests {
         assert_eq!(cited, known);
     }
 
+    fn text_of(path: &str) -> String {
+        installed_file(path)
+            .unwrap_or_else(|| panic!("{path} is not installed"))
+            .contents
+            .clone()
+    }
+
+    #[test]
+    fn the_skills_are_the_eight_the_requirement_names_in_that_order() {
+        assert_eq!(
+            SKILL_NAMES,
+            [
+                "weaver-setup",
+                "weaver-design",
+                "weaver-import",
+                "weaver-scan",
+                "weaver-compare",
+                "weaver-implement",
+                "weaver-resolve-drifts",
+                "weaver-resolve-conflicts",
+            ]
+        );
+    }
+
+    /// `requirements/rules#project`, **Merge texts**: `weaver-resolve-conflicts`.
+    #[test]
+    fn the_conflicts_skill_reads_the_merge_resolves_asks_once_marks_with_git_add_and_never_ends_the_merge(
+    ) {
+        let skill = text_of(".agents/skills/weaver-resolve-conflicts/SKILL.md");
+        for needle in [
+            "name: weaver-resolve-conflicts",
+            ".weaver/merge/merge.json",
+            "git diff --name-only --diff-filter=U",
+            "**Resolve the obvious ones.**",
+            "one round only",
+            "`weaver question new`",
+            "names the file",
+            "the two versions",
+            "`git add <path>`",
+            "If conflicts are left when the job ends, the merge stays in progress",
+            "\n## Language\n",
+            "\n## Sub-agents context sharing\n",
+            "\n## Asking\n",
+            "`timeout: 0`",
+        ] {
+            assert!(skill.contains(needle), "the skill lacks {needle:?}");
+        }
+        // Never ends or loses the merge.
+        let rules = skill
+            .split("## Hard rules")
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("hard rules");
+        for forbidden in [
+            "NEVER run `git commit`",
+            "`git merge --abort`",
+            "`git reset`",
+            "`git checkout` of a branch",
+            "`git stash`",
+        ] {
+            assert!(
+                rules.contains(forbidden),
+                "the hard rules lack {forbidden:?}"
+            );
+        }
+        // It is the skill of the job whose instruction the core composes.
+        assert!(skill.starts_with("---\nname: weaver-resolve-conflicts\n"));
+    }
+
+    /// `requirements/rules#project`, **Merge texts**: the scan after a merge.
+    #[test]
+    fn the_scan_texts_say_that_a_scan_after_a_merge_files_merge_drifts_only_for_the_merged_files() {
+        let scan = text_of(".agents/skills/weaver-scan/SKILL.md");
+        let compare = text_of(".agents/skills/weaver-compare/SKILL.md");
+        let analysis = text_of(".omp/agents/weaver-analysis.md");
+        for (name, text) in [
+            ("scan", &scan),
+            ("compare", &compare),
+            ("analysis", &analysis),
+        ] {
+            assert!(
+                text.contains("\"merge\":true"),
+                "{name} does not file `merge`"
+            );
+            assert!(text.contains("merge"), "{name}");
+        }
+        assert!(scan.contains("\n## After a merge\n"));
+        assert!(compare.contains("\n## After a merge\n"));
+        assert!(scan.contains(
+            "Use the weaver-scan skill on the whole System after a merge: read the files the merge brought with `weaver job show`."
+        ));
+        assert!(scan.contains("`weaver job show`") && scan.contains("`merged`"));
+        assert!(scan.contains("Pass the list to every `weaver-analysis` sub-agent"));
+        assert!(scan.contains("no other Drift"));
+        assert!(scan.contains("Only this scan may set `merge`"));
+        assert!(scan.contains("a dismissed Drift whose text has not changed is never filed again"));
+        assert!(compare.contains("Only a scan after a merge may set `merge`"));
+        assert!(
+            analysis.len() < SUBAGENT_DEFINITION_LIMIT,
+            "{} bytes",
+            analysis.len()
+        );
+    }
+
+    /// `requirements/rules#project`, **Merge texts**: `weaver-resolve-drifts`.
+    #[test]
+    fn the_resolve_skill_says_a_merge_drifts_prepared_question_has_the_proposal_option_recommended()
+    {
+        let skill = text_of(".agents/skills/weaver-resolve-drifts/SKILL.md");
+        let paragraph = skill
+            .lines()
+            .find(|line| line.starts_with("- **A Drift from a merge**"))
+            .expect("the paragraph of a merge Drift");
+        for needle in [
+            "the decision `proposal`",
+            "attached Draft",
+            "`recommended`",
+            "Fix options stay, in their order",
+            "none is preselected",
+        ] {
+            assert!(paragraph.contains(needle), "{needle:?}");
+        }
+    }
+
     #[test]
     fn every_skill_points_to_the_reference_and_has_the_sections_the_instructions_name() {
         for name in SKILL_NAMES {
@@ -466,6 +591,7 @@ mod tests {
             "weaver-scan",
             "weaver-implement",
             "weaver-resolve-drifts",
+            "weaver-resolve-conflicts",
         ] {
             let file = installed_file(&format!("{SKILLS_DIR}/{name}/SKILL.md")).expect("skill");
             assert!(

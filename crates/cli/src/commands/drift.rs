@@ -10,6 +10,7 @@ use std::convert::Infallible;
 
 use serde_json::{json, Map, Value};
 use weaver_core::command::CommandReply;
+use weaver_core::jobs::JobKind;
 use weaver_core::project::board::Refused;
 use weaver_core::project::cards::{Card, CardKind};
 use weaver_core::project::changes::{self, ChangeSet, MutationError};
@@ -33,7 +34,7 @@ pub fn commands() -> Vec<Command> {
     vec![
         Command::new("drift", "new", "Files a Drift: the code and the Model or the Requirements disagree.", new)
             .notes(&[
-                "`options` are 2 to 5 fix options, the recommended first; they may be left out only with `proposal` (a Draft or Open Proposal no other Drift holds). `task` is the Task the Drift was found in; `previous` is set automatically when that Task is a fix Task. `announcement` is the identity printed by `weaver announcement new`. The job that files it is recorded when `WEAVER_JOB` is set.",
+                "`options` are 2 to 5 fix options, the recommended first; they may be left out only with `proposal` (a Draft or Open Proposal no other Drift holds). `task` is the Task the Drift was found in; `previous` is set automatically when that Task is a fix Task. `merge` is only `true` and only for the agent of a scan job started after a merge (the instruction says so), for a Drift whose difference lies in the files the merge brought; from any other caller it is refused and nothing is written, and no command changes it afterwards. `announcement` is the identity printed by `weaver announcement new`. The job that files it is recorded when `WEAVER_JOB` is set.",
             ])
             .input(vec![
                 req("title", line(), "The title."),
@@ -45,9 +46,11 @@ pub fn commands() -> Vec<Command> {
                 opt("task", line(), "The Task the Drift was found in."),
                 opt("proposal", line(), "A Draft or Open Proposal that resolves it."),
                 opt("previous", line(), "The Drift this one follows."),
+                opt("merge", boolean(), "`true` when the difference lies in the files the merge brought; only from a scan after a merge."),
                 opt("announcement", line(), "The announcement of the card."),
             ])
-            .output(card_with(vec![req("status", line(), "The status: `open`.")]))
+            .output(card_with(vec![req("status", line(), "The status: `open`."), opt("merge", boolean(), "`true` for a Drift from a merge.")]))
+            .check(check_new)
             .place(written)
             .example("weaver drift new --input -"),
         Command::new("drift", "show", "Prints a Drift with its options, Task, Proposal and prepared question.", show)
@@ -57,6 +60,7 @@ pub fn commands() -> Vec<Command> {
             .arg(Arg::Card(CardKind::Drift))
             .output(card_with(vec![
                 req("status", line(), "The status."),
+                opt("merge", boolean(), "`true` when the Drift comes from a merge."),
                 req("refs", list(line()), "What it concerns."),
                 req("happens", text(), "What the code does."),
                 req("should", text(), "What it should do."),
@@ -91,6 +95,7 @@ pub fn commands() -> Vec<Command> {
             ])
             .output(vec![req("drifts", list(object(card_with(vec![
                 req("status", line(), "The status."),
+                opt("merge", boolean(), "`true` when the Drift comes from a merge."),
                 opt("unchanged", boolean(), "A Dismissed Drift whose references have the same text as when it was dismissed."),
             ]))), "The Drifts.")])
             .place(local)
@@ -181,7 +186,32 @@ fn card_json(numbers: &ShortNumbers, kind: CardKind, card: &Card) -> Value {
 fn drift_json(numbers: &ShortNumbers, card: &Card) -> Value {
     let mut value = card_json(numbers, CardKind::Drift, card);
     value["status"] = json!(status_of(card));
+    if drift::is_merge(card) {
+        value["merge"] = json!(true);
+    }
     value
+}
+
+/// `merge` is only `true`.
+fn check_new(input: &Map<String, Value>) -> Vec<Problem> {
+    match input.get("merge") {
+        Some(Value::Bool(false)) => vec![Problem::new(
+            "merge",
+            "must be true (leave it out otherwise)",
+        )],
+        _ => Vec::new(),
+    }
+}
+
+/// The caller is the agent of a scan job started after a merge (`WEAVER_JOB`, and the `merged`
+/// files of the job's registry record).
+fn is_scan_after_merge(call: &Call) -> bool {
+    call.caller.job.is_some()
+        && call
+            .caller
+            .job_record
+            .as_ref()
+            .is_some_and(|record| record.kind == JobKind::Scan && record.merged.is_some())
 }
 
 fn bullets(prefix: &str, problems: &[(String, String)]) -> String {
@@ -251,6 +281,12 @@ fn new(call: &Call) -> Result<CommandReply, Failure> {
                 .collect()
         })
         .unwrap_or_default();
+    let merge = flag(call.input, "merge");
+    if merge && !is_scan_after_merge(call) {
+        return Err(Failure::refused(
+            "`merge` is only for the agent of a scan job started after a merge: nothing was written.",
+        ));
+    }
     let input = NewDrift {
         title: str_of(call.input, "title").unwrap_or_default().to_owned(),
         refs: strings(call.input, "refs"),
@@ -262,6 +298,7 @@ fn new(call: &Call) -> Result<CommandReply, Failure> {
         proposal: resolve_named(call, "proposal", CardKind::Proposal)?,
         previous: resolve_named(call, "previous", CardKind::Drift)?,
         job: call.caller.job.clone(),
+        merge,
     };
     let created = now()?;
     let filed = create::plan_new(call.image, &input, &created, &mut OsRandom)
@@ -376,6 +413,9 @@ fn show(call: &Call) -> Result<CommandReply, Failure> {
     let mut markdown = format!("# {label} {}\n\n`{id}` · {}", card.title, status_of(card));
     if !chain.is_empty() {
         markdown.push_str(" · recurring");
+    }
+    if drift::is_merge(card) {
+        markdown.push_str(" · merge");
     }
     if let Some(job) = card.str_key("job") {
         markdown.push_str(&format!(" · filed by job `{job}`"));
@@ -827,6 +867,172 @@ mod tests {
 
     fn hash(text: &str) -> String {
         sha256_hex(&file_content(text))
+    }
+
+    /// The registry record of the job `jjjjjjjj`: a scan, after a merge or not, or another kind.
+    fn job_caller(kind: &str, merged: Option<Value>) -> Caller {
+        let mut record = json!({
+            "id": "jjjjjjjj",
+            "kind": kind,
+            "name": "Scan",
+            "project": "/p",
+            "state": "running",
+            "created": "2026-11-05T10:00:00.000Z",
+        });
+        if let Some(merged) = merged {
+            record["merged"] = merged;
+        }
+        Caller {
+            job: Some("jjjjjjjj".into()),
+            job_record: Some(serde_json::from_value(record).expect("a valid record")),
+            ..Caller::default()
+        }
+    }
+
+    fn merge_input() -> Value {
+        let mut value = drift_input();
+        value["merge"] = json!(true);
+        value
+    }
+
+    fn drifts_written(root: &Path) -> usize {
+        fs::read_dir(root.join(".weaver/drifts")).map_or(0, |entries| entries.count())
+    }
+
+    #[test]
+    fn merge_is_accepted_only_from_the_agent_of_a_scan_after_a_merge() {
+        let dir = project();
+        let root = dir.path();
+        let file = |caller: &Caller| run(root, "drift", "new", None, None, merge_input(), caller);
+        for (why, caller) in [
+            ("outside a job", Caller::default()),
+            ("a design job", job_caller("design", None)),
+            (
+                "a design job with files",
+                job_caller("design", Some(json!(["a.rs"]))),
+            ),
+            (
+                "a scan that does not follow a merge",
+                job_caller("scan", None),
+            ),
+            (
+                "a job without a record",
+                Caller {
+                    job: Some("jjjjjjjj".into()),
+                    ..Caller::default()
+                },
+            ),
+            ("the merge conflicts job", job_caller("merge", None)),
+        ] {
+            let failure = file(&caller).unwrap_err();
+            assert_eq!(failure.exit_code(), 1, "{why}");
+            assert!(
+                failure.message.contains("scan job started after a merge"),
+                "{why}: {}",
+                failure.message
+            );
+            assert_eq!(drifts_written(root), 0, "{why}: nothing is written");
+        }
+
+        let filed = file(&job_caller("scan", Some(json!(["src/ship.rs"])))).unwrap();
+        assert_eq!(filed.json["merge"], true);
+        assert_eq!(drifts_written(root), 1);
+        let text = fs::read_to_string(
+            fs::read_dir(root.join(".weaver/drifts"))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path(),
+        )
+        .unwrap();
+        assert!(
+            text.contains("\njob: jjjjjjjj\nmerge: true\ncreated:"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn merge_is_only_true_and_a_drift_without_it_never_has_the_key() {
+        let dir = project();
+        let root = dir.path();
+        let mut off = drift_input();
+        off["merge"] = json!(false);
+        let failure = new_drift(root, off).unwrap_err();
+        assert_eq!(failure.exit_code(), 2);
+        assert!(failure.message.contains("merge"), "{}", failure.message);
+        assert_eq!(drifts_written(root), 0);
+
+        let plain = run(
+            root,
+            "drift",
+            "new",
+            None,
+            None,
+            drift_input(),
+            &job_caller("scan", Some(json!(["a.rs"]))),
+        )
+        .unwrap();
+        assert!(plain.json.get("merge").is_none());
+    }
+
+    #[test]
+    fn show_and_list_print_merge() {
+        let dir = project();
+        let root = dir.path();
+        let merged = run(
+            root,
+            "drift",
+            "new",
+            None,
+            None,
+            merge_input(),
+            &job_caller("scan", Some(json!(["src/ship.rs"]))),
+        )
+        .unwrap();
+        let plain = new_drift(root, drift_input()).unwrap();
+        let (merged, plain) = (
+            merged.json["id"].as_str().unwrap().to_owned(),
+            plain.json["id"].as_str().unwrap().to_owned(),
+        );
+
+        let shown = |card: &str| {
+            run(
+                root,
+                "drift",
+                "show",
+                Some(card),
+                None,
+                json!({}),
+                &Caller::default(),
+            )
+            .unwrap()
+        };
+        let first = shown(&merged);
+        assert_eq!(first.json["merge"], true);
+        assert!(first.markdown.contains("· merge"), "{}", first.markdown);
+        let second = shown(&plain);
+        assert!(second.json.get("merge").is_none());
+        assert!(!second.markdown.contains("· merge"), "{}", second.markdown);
+
+        let listed = run(
+            root,
+            "drift",
+            "list",
+            None,
+            None,
+            json!({}),
+            &Caller::default(),
+        )
+        .unwrap();
+        let marked: Vec<&str> = listed.json["drifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d.get("merge") == Some(&json!(true)))
+            .map(|d| d["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(marked, [merged.as_str()]);
     }
 
     #[test]

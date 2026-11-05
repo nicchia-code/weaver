@@ -15,6 +15,8 @@ pub enum JobKind {
     Resolve,
     Rework,
     Refinement,
+    /// The resolution of the conflicts of a merge in progress (`solo-merge`).
+    Merge,
 }
 
 /// The model role a job runs on (`requirements/tech#job`): the role is set by the developer once
@@ -27,7 +29,7 @@ pub enum Role {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 8] = [
+    pub const ALL: [JobKind; 9] = [
         JobKind::Setup,
         JobKind::Design,
         JobKind::Import,
@@ -36,6 +38,7 @@ impl JobKind {
         JobKind::Resolve,
         JobKind::Rework,
         JobKind::Refinement,
+        JobKind::Merge,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -48,6 +51,7 @@ impl JobKind {
             JobKind::Resolve => "resolve",
             JobKind::Rework => "rework",
             JobKind::Refinement => "refinement",
+            JobKind::Merge => "merge",
         }
     }
 
@@ -170,10 +174,12 @@ mod tests {
             JobKind::Resolve,
             JobKind::Rework,
             JobKind::Refinement,
+            JobKind::Merge,
         ] {
             assert_eq!(kind.role(), Role::Analysis);
         }
         assert!(JobKind::Scan.uses_analysis_agents() && !JobKind::Run.uses_analysis_agents());
+        assert!(!JobKind::Merge.uses_analysis_agents() && !JobKind::Merge.is_run());
     }
 
     #[test]

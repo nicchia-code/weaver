@@ -1300,6 +1300,45 @@ mod tests {
         assert_eq!(rig.machine.status().update_failure, None);
     }
 
+    #[test]
+    fn the_reason_of_a_failed_download_shows_in_ready_and_in_missing_without_a_final_full_stop() {
+        use super::super::failure::{download_failed_reason, DownloadFailure};
+        for (failure, on) in [
+            (DownloadFailure::Exit(90), false),
+            (DownloadFailure::Exit(91), false),
+            (DownloadFailure::Exit(91), true),
+            (DownloadFailure::Exit(92), true),
+            (DownloadFailure::Exit(93), false),
+            (DownloadFailure::Exit(7), true),
+            (DownloadFailure::TimedOut, false),
+        ] {
+            let reason = download_failed_reason(failure, on);
+            let mut rig = Rig::reach("", Phase::Updating);
+            rig.send(Event::UpdateFailed {
+                omp_path: "".into(),
+                reason: reason.clone(),
+                after: ready_result(&["anthropic"]),
+            });
+            assert_eq!(rig.state(), Phase::Ready, "{failure:?}");
+            assert_eq!(
+                rig.machine.status().update_failure.as_deref(),
+                Some(reason.as_str())
+            );
+
+            let mut rig = Rig::reach("", Phase::Updating);
+            rig.send(Event::UpdateFailed {
+                omp_path: "".into(),
+                reason: reason.clone(),
+                after: missing(),
+            });
+            assert_eq!(rig.state(), Phase::Missing, "{failure:?}");
+            assert_eq!(
+                rig.machine.status().reason,
+                Some(format!("Could not update omp ({reason})."))
+            );
+        }
+    }
+
     // ---- Not connected and Logging in -----------------------------------------------------
 
     #[test]
@@ -1921,6 +1960,30 @@ mod tests {
         assert_eq!(is_installer_failed(&rig), None, "only shown in Missing");
         rig.probed(missing());
         assert!(is_installer_failed(&rig).unwrap().ends_with("may fix it."));
+    }
+
+    #[test]
+    fn the_text_of_a_failed_installer_is_by_cause_for_the_setting_as_it_is() {
+        for (code, on, expected) in [
+            (90, false, "the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
+            (90, true, "the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
+            (91, false, "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."),
+            (91, true, "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."),
+            (92, false, "the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."),
+            (93, true, "the downloaded omp does not start. See the terminal."),
+        ] {
+            let mut rig = Rig::reach("", Phase::Installing);
+            rig.send(change_certificates("", on));
+            rig.send(Event::RecheckDue);
+            rig.probed(ProbeResult::InstallFailed { exit_code: code });
+            assert_eq!(
+                is_installer_failed(&rig),
+                Some(format!(
+                    "The omp installer failed (exit code {code}): {expected}"
+                )),
+                "code {code}, setting on: {on}"
+            );
+        }
     }
 
     #[test]
