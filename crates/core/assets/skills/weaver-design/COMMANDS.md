@@ -15,6 +15,7 @@ Shape: `weaver <object> <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>
 | `announcement` | `new` |
 | `job` | `new`, `show`, `list`, `edit` |
 | `question` | `new` |
+| `request` | `new` |
 
 ## model
 
@@ -105,9 +106,9 @@ Example: `weaver project show`
 
 Files a Proposal as a Draft.
 
-`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, `request` is refused together with `reworks`, and `setup` and `import` are refused from the agent of Chat, which writes only a `change` or a `resolution`; a Proposal the agent of Chat files carries `chat: true` and is marked as written by Chat until it is handed over.
+`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, and `request` is refused together with `reworks`.
 
-`request` and `reworks` bind only as Weaver allows for the caller: a setup or design job binds only the request its instruction names, and only with its first Proposal; a rework job only the Proposal its instruction names; the agent of Chat binds a request that is written, not sent, not consumed and not held by another Draft, with a `change`, and any rejected `change` or `resolution` (with or without Rework) that nothing replaced and no rework job works on, with a Proposal of the same kind; any other caller binds nothing. A binding that is not allowed leaves the Proposal unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.
+`request` and `reworks` bind only as Weaver allows for the caller: a setup or design job binds only the request its instruction names, and only with its first Proposal; a rework job only the Proposal its instruction names; any other caller binds nothing. A binding that is not allowed leaves the Proposal unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.
 
 Input:
 
@@ -154,7 +155,7 @@ Example: `weaver proposal list`
 
 Edits a Proposal: makes files editable, records Drift decisions and images.
 
-Every call, even without input, sends an Open Proposal back to Draft and says so. From the agent of Chat it also marks the Proposal as written by Chat (`chatWriting: true`) until it is handed over, a Proposal it did not create included.
+Every call, even without input, sends an Open Proposal back to Draft and says so.
 
 `edit` makes paths editable (`model/...`, `requirements/<area>/<fragment>.md`, `specs.yaml`, `tasks/<slug>.md`), copying the current content and recording `base` the first time, and prints the path to write for each. A new Task gets its identity here; Task paths are refused in `import` and `resolution`. `delete` is refused for a path the Proposal holds. `drifts` and `removeDrifts` apply only to a resolution; `option` and `note` go only with `fix-code`. `images` copies files into `.weaver/task-images/<task>/`. `rebase: true`, for any kind, attached to a Drift or not, drops broken `requires` and, in a resolution, the rows of Drifts no longer open, then records `base` again and sets `refining`; it prints what it dropped.
 
@@ -187,7 +188,7 @@ Example: `weaver proposal edit p3 --input '{"edit":["model/checkout/order.md"]}'
 
 Hands a Proposal over, or decides it.
 
-`open` hands the Proposal over, clears the mark of a Proposal written by Chat, and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: any caller can run them under the same conditions, and the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.
+`open` hands the Proposal over and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: any caller can run them under the same conditions, and the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.
 
 - Argument `<id>`: the card, by identity, unique identity prefix or short number (`P3`, `t3`: a letter and digits is always a short number, and its letter must match the type).
 - Argument `open|approved|rejected|discarded`: the state to move to: `open`, `approved`, `rejected`, `discarded`.
@@ -573,3 +574,25 @@ Output with `--json`: `status`, `answers`, `reason`. `--help` gives their types.
 The output is always JSON, with or without `--json`.
 
 Example: `weaver question new --input -`
+
+## request
+
+### `weaver request new [--input <json>|-] [--root <dir>] [--json]`
+
+Writes a design request with the given text and sends it, starting a design job on it (a setup job when the Model is empty).
+
+Run it only when the developer explicitly asked Chat for a Proposal. Weaver then starts a job that explores, asks the developer its own question rounds and hands the Proposal over; the agent of Chat does not wait for it and writes no Proposal.
+
+`text` is the whole request and must stand alone, because the job sees only the request and never the conversation: an H1 with a short title, then what to add or change, every decision agreed with the developer, and the alternatives discussed with the developer's choice. Name cards only by permanent identity, never by short number. Send no images: a request sent this way has none.
+
+Weaver writes the request as the developer's Send does: the text as given, with LF line endings and a final newline, and recognises the tags of assets in it at that moment. The request and the job are created together: when the job cannot start, nothing is written and the reason is printed (exit 1).
+
+Who: Only the agent of the project's Chat during one of its turns can run it (Weaver sets `WEAVER_GENERAL` in the environment of that agent). Any other caller, an Ask more conversation and a job included, is refused with exit 1 and nothing is written.
+
+Input:
+
+- `text`, string (not blank), required: The whole request, in Markdown; not blank.
+
+Output with `--json`: `request`, `job`, `kind`, `title`. `--help` gives their types.
+
+Example: `weaver request new --input '{"text":"# Cancel an order\n\nLet a customer cancel an order that has not shipped."}'`

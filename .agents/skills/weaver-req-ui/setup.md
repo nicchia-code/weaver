@@ -49,7 +49,6 @@
 - **Send:** primary `Send` (`SendHorizontal`), also `Ctrl/Cmd+Enter`; disabled while the text is empty after trimming, tooltip `Write the request first.`
 - **Discard:** `Discard` (`Trash2`), AlertDialog `Discard this request?` / `Its file and images are deleted.`, `Discard` (destructive) and `Cancel` (focus).
 - **Sent:** read-only rendered view with a banner `Sent to the agent · <job name>` and `Open conversation`. Back in writing after its job ended without a Proposal: banner `The job ended without a Proposal. Change the request and send it again.`
-- **Held by Chat:** listed with a `Chat` badge in place of `Draft`; read-only rendered view with a banner `Chat is writing a Proposal from this request` and `Open Chat`, without `Send` or `Discard`. When that Draft is discarded, the request is editable again as before.
 - **Images:** PNG, JPEG, GIF or WebP pasted or dropped into the text are saved in the request's images folder next to it as `image-<n>.<ext>` (next free number), and `![](<images folder>/image-<n>.<ext>)` is inserted at the cursor. At most 10 MB per image; anything else is refused with an error toast `Only PNG, JPEG, GIF or WebP images up to 10 MB.` The preview shows images only from that folder.
 
 ## developer.CHANGE_SETTINGS

@@ -19,6 +19,7 @@ history       new, edit, show, list
 announcement  new
 job           new, show, list, edit
 question      new
+request       new
 ```
 
 - One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. No aliases for removed names; an existing command never answers "unknown command".
@@ -34,9 +35,9 @@ question      new
 
 ## Agent commands
 
-Use when changing the `weaver` commands of agents in jobs, Chat and Ask more: question rounds, announcements, notes, job starts and who may run what.
+Use when changing the `weaver` commands of agents in jobs, Chat and Ask more: question rounds, announcements, notes, job starts, requests sent by Chat and who may run what.
 
-Sections: `question-round`, `job`, `agent`
+Sections: `question-round`, `job`, `design-request`, `agent`
 
 File: `agent-commands.md`
 

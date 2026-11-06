@@ -32,8 +32,6 @@ const snapshot: BoardSnapshot = {
   backlog: [
     { kind: "proposal", head: head("pppppppp", "P1", "Add a cart"), standing: "open", proposalKind: "change", view: proposalView() },
     { kind: "drift", head: head("dddddddd", "D1", "Cart total"), origin: null, view: driftView() },
-    // A Draft the agent of Chat is writing has its card, but it is not a real card of Backlog.
-    { kind: "proposal", head: head("cccccccc", "P2", "Written in Chat"), standing: "chat-draft", proposalKind: "change", view: proposalView() },
   ],
   active: [],
   gathered: [],
@@ -53,7 +51,7 @@ beforeEach(() => {
     if (name === "board_snapshot") return Promise.resolve(snapshot);
     if (name === "general_snapshot") {
       const state = { projectId: PROJECT, working: chatWaiting, starting: false, loading: false, kept: false, waiting: chatWaiting };
-      return Promise.resolve({ state, chatDrafts: 0, seq: 0, entries: [] });
+      return Promise.resolve({ state, seq: 0, entries: [] });
     }
     if (name === "startup_failures") return Promise.resolve([]);
     if (name === "update_status") return Promise.resolve({ available: null, downloading: false });
@@ -62,7 +60,7 @@ beforeEach(() => {
 });
 
 describe("ProjectContent", () => {
-  it("shows the Board and puts the number of its real Backlog cards in the sidebar: ghosts and the Draft cards of Chat not counted", async () => {
+  it("shows the Board and puts the number of its real Backlog cards in the sidebar: ghosts not counted", async () => {
     render(
       <TooltipProvider>
         <ProjectContent projectId={PROJECT} />

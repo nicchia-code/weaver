@@ -9,6 +9,7 @@ When a design, a rework, a refinement or a Run ends, whatever the way it ends, W
 ### Not started (initial)
 No job exists yet. Only one Run works at a time in a project, Run all counting as one Run even when it starts one per model, and a Run and a resolve exclude each other; scans, designs and imports can always start, except that while a merge is in progress (see `solo-merge`) Runs, Run all, resolves, scans and imports are refused, and only designs, reworks, refinements and the merge conflicts job start.
 - `developer.SEND_REQUEST` → Queued: a design job on the request, or a setup job when the Model is empty.
+- `agent.SEND_REQUEST` → Queued: a design job on the request the agent of Chat wrote and sent on the developer's explicit request, or a setup job when the Model is empty, with the same refusals as when the developer sends a request.
 - `developer.IMPORT_CODE` → Queued: an import job, leaving out the folders the developer excluded; refused while a merge is in progress.
 - `developer.SCAN_SYSTEM` → Queued: a scan job on the whole System; refused while a merge is in progress.
 - `solo-merge.CONCLUDED` → Queued: a scan job on the whole System, started by Weaver with no confirmation, telling the agent which files the merge brought; it counts as the last Scan System, like one the developer asked for.

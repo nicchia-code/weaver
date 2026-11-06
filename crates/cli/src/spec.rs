@@ -174,6 +174,9 @@ pub enum Access {
     /// Only the agent of the project's working General (`WEAVER_GENERAL`) or of a working Ask more
     /// conversation of the project (`WEAVER_ASK`).
     General,
+    /// Only the agent of the project's live Chat (`WEAVER_GENERAL`, accepted by the app) during one
+    /// of its turns; an Ask more conversation and a job are refused.
+    Chat,
 }
 
 /// Where a command runs.

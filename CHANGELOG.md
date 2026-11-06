@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Changed
+
+- Asking for a Proposal in Chat now sends a design request and starts a design job, with its own question rounds, instead of Chat writing the Proposal itself; Clear no longer discards anything but the conversation.
+- Chat no longer writes, edits or hands over Proposals: the Board has no card for a Draft of Chat and a turn of Chat never keeps a Proposal from being approved, rejected or discarded, and `weaver proposal new`, `weaver proposal edit` and `weaver proposal move <id> open` are refused with a message that points to `weaver request new` whenever they run in Chat.
+
 ## [0.4.0] - 2026-11-06
 
 ### Added

@@ -5290,6 +5290,7 @@ name = "weaver"
 version = "0.4.0"
 dependencies = [
  "block2",
+ "chrono",
  "drag",
  "notify",
  "objc2",

@@ -33,8 +33,7 @@ function ProjectShell({ projectId }: { projectId: string }) {
   const { snapshot } = useBoard();
   const { waiting } = useJobs();
   const chatWaiting = useChatWaiting(projectId);
-  // The Draft cards of Chat are not real cards of Backlog: the Board marks them `chat-draft`.
-  const backlog = snapshot?.backlog.filter((card) => !((card.kind === "proposal" || card.kind === "resolution") && card.standing === "chat-draft")).length ?? 0;
+  const backlog = snapshot?.backlog.length ?? 0;
   return (
     <ProjectWindow
       projectId={projectId}

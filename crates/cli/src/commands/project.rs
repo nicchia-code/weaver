@@ -79,8 +79,7 @@ pub fn commands() -> Vec<Command> {
                 cards("Open Proposals and open Drifts.", "toDecide"),
                 req("inWriting", list(object(card_with(vec![
                     req("job", nullable(line()), "The job writing it."),
-                    opt("chat", boolean(), "`true` for a Draft the agent of Chat is writing."),
-                ]))), "Draft Proposals with their job, or `chat: true` for one the agent of Chat is writing."),
+                ]))), "Draft Proposals with their job."),
                 cards("Tasks in To do.", "todo"),
                 req("doing", list(object(card_with(vec![
                     req("holder", nullable(line()), "The job that holds the Task."),
@@ -314,8 +313,6 @@ fn show(call: &Call) -> Result<CommandReply, Failure> {
                         to_decide.push((kind, card))
                     }
                     ProposalState::Refining => in_writing.push(card),
-                    // Listed with the other Drafts below.
-                    ProposalState::ChatDraft => {}
                 }
             }
         }
@@ -378,7 +375,6 @@ fn show(call: &Call) -> Result<CommandReply, Failure> {
             .map(|card| {
                 let job = data::job_of(card)
                     .map(|j| format!(" · job `{j}`"))
-                    .or_else(|| data::chat_writing(card).then(|| " · Chat".to_owned()))
                     .unwrap_or_default();
                 format!(
                     "- `{}` {} {}{job}",
@@ -440,9 +436,6 @@ fn show(call: &Call) -> Result<CommandReply, Failure> {
         "inWriting": in_writing.iter().map(|card| {
             let mut value = card_json(&numbers, CardKind::Proposal, card);
             value["job"] = json!(data::job_of(card));
-            if data::chat_writing(card) {
-                value["chat"] = json!(true);
-            }
             value
         }).collect::<Vec<_>>(),
         "todo": todo.iter().map(|t| card_json(&numbers, CardKind::Task, t)).collect::<Vec<_>>(),

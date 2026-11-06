@@ -36,9 +36,9 @@ pub mod service;
 pub mod wire;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod round_tests;
+#[cfg(test)]
+mod tests;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -87,9 +87,6 @@ pub fn install(app: &AppHandle, jobs: &Arc<Jobs>) -> Arc<General> {
         Arc::new(TauriEvents { app: app.clone() }),
     );
     app.manage(general.clone());
-    general.observe(Arc::new(service::ClearDiscardsChatDrafts(
-        jobs.host().clone(),
-    )));
     jobs.set_general(general.clone());
     log_info!("General is ready");
     general

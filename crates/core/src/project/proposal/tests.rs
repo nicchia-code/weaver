@@ -2156,12 +2156,6 @@ fn job_of_rework(target: &str) -> Writer {
     }
 }
 
-fn chat() -> Writer {
-    Writer::Chat {
-        reworking: Default::default(),
-    }
-}
-
 fn note_of(created: Result<super::create::Created, Vec<String>>) -> String {
     created.unwrap().note.expect("a note saying why")
 }
@@ -2307,286 +2301,61 @@ fn no_other_caller_binds_a_request_or_a_proposal_and_the_note_says_so() {
 }
 
 #[test]
-fn chat_binds_a_written_request_nothing_holds_with_a_change_and_marks_its_proposal() {
-    let dir = project();
-    let root = dir.path();
-    put(root, "requests/2026-11-02T07-00-00.md", "# A request\n");
-    put(root, "requests/2026-11-02T08-00-00.md", "# Sent\n");
-    put(
-        root,
-        "requests/.state.json",
-        "{\"sent\": {\"2026-11-02T08-00-00\": \"jjjjjjjj\"}, \"consumed\": []}",
-    );
-    let mut input = new_input("From Chat");
-    input.request = Some("2026-11-02T07-00-00".into());
-    input.writer = chat();
-    let created = plan_new_in(root, &input).unwrap();
-    assert!(created.note.is_none(), "{:?}", created.note);
-    let Some(Change::Write(text)) = created.changes.get(&created.path) else {
-        panic!()
-    };
-    assert!(text.contains("request: 2026-11-02T07-00-00"));
-    assert!(text.contains("chat: true\nchatWriting: true\n"), "{text}");
-
-    // Sent: not bound.
-    let mut sent = new_input("Sent");
-    sent.request = Some("2026-11-02T08-00-00".into());
-    sent.writer = chat();
-    assert!(note_of(plan_new_in(root, &sent)).contains("already sent"));
-    // A resolution binds no request.
-    input.kind = Some(Kind::Resolution);
-    assert!(note_of(plan_new_in(root, &input)).contains("only a `change` Proposal binds a request"));
-    input.kind = None;
-    // Held by another Draft that Chat writes: the first Draft binds, the second does not.
-    proposal(
-        root,
-        "cccccccc",
-        "status: draft\nchat: true\nchatWriting: true\nrequest: 2026-11-02T07-00-00\n",
-        "# Held\n",
-        &[],
-        &[],
-    );
-    assert!(note_of(plan_new_in(root, &input)).contains("is not bound to the request"));
-    // No such request.
-    let mut missing = new_input("Missing");
-    missing.request = Some("2020-01-01T00-00-00".into());
-    missing.writer = chat();
-    assert!(note_of(plan_new_in(root, &missing)).contains("no such request"));
-}
-
-#[test]
-fn chat_binds_any_rejected_change_or_resolution_of_the_same_kind_nothing_replaced_and_no_rework_job_works_on(
-) {
-    let dir = project();
-    let root = dir.path();
-    proposal(root, "aaaaaaaa", "status: rejected\n", "# Plain\n", &[], &[]);
-    proposal(
-        root,
-        "bbbbbbbb",
-        "status: rejected\nreworkRequested: true\n",
-        "# With rework\n",
-        &[],
-        &[],
-    );
-    proposal(
-        root,
-        "cccccccc",
-        "status: rejected\nkind: resolution\n",
-        "# Resolution\n",
-        &[],
-        &[],
-    );
-    proposal(root, "dddddddd", "status: open\n", "# Open\n", &[], &[]);
-    for target in ["aaaaaaaa", "bbbbbbbb"] {
-        let mut input = new_input("Replacement");
-        input.reworks = Some(target.into());
-        input.writer = chat();
-        let created = plan_new_in(root, &input).unwrap();
-        assert!(created.note.is_none(), "{target}: {:?}", created.note);
-        let Some(Change::Write(text)) = created.changes.get(&created.path) else {
-            panic!()
-        };
-        assert!(text.contains(&format!("reworks: {target}")));
-    }
-    // A resolution is replaced by a resolution, never by a change.
-    let mut input = new_input("Replacement");
-    input.reworks = Some("cccccccc".into());
-    input.writer = chat();
-    assert!(note_of(plan_new_in(root, &input)).contains("with one of the same kind"));
-    input.kind = Some(Kind::Resolution);
-    assert!(plan_new_in(root, &input).unwrap().note.is_none());
-    // Not rejected.
-    input.reworks = Some("dddddddd".into());
-    input.kind = None;
-    assert!(note_of(plan_new_in(root, &input)).contains("that one was not rejected"));
-    // A rework job works on it.
-    input.reworks = Some("bbbbbbbb".into());
-    input.writer = Writer::Chat {
-        reworking: ["bbbbbbbb".to_owned()].into(),
-    };
-    assert!(note_of(plan_new_in(root, &input)).contains("a rework job is working on it"));
-    // Replaced already.
-    proposal(
-        root,
-        "mmmmmmmm",
-        "status: draft\nreworks: aaaaaaaa\n",
-        "# Replacement\n",
-        &[],
-        &[],
-    );
-    input.reworks = Some("aaaaaaaa".into());
-    input.writer = chat();
-    assert!(note_of(plan_new_in(root, &input)).contains("is not bound to the Proposal it reworks"));
-}
-
-#[test]
-fn chat_writes_only_a_change_or_a_resolution() {
-    let empty = empty_project();
-    for kind in [Kind::Setup, Kind::Import] {
-        let mut input = new_input("Shop");
-        input.kind = Some(kind);
-        input.writer = chat();
-        let problems = plan_new_in(empty.path(), &input).unwrap_err();
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.contains("the agent of Chat writes only a `change` or a `resolution`")),
-            "{problems:?}"
-        );
-        // Any other caller can still write them.
-        input.writer = Writer::Other;
-        assert!(plan_new_in(empty.path(), &input).is_ok());
-    }
-    let mut resolution = new_input("Resolve");
-    resolution.kind = Some(Kind::Resolution);
-    resolution.writer = chat();
-    assert!(plan_new_in(empty.path(), &resolution).is_ok());
-}
-
-#[test]
-fn a_turn_of_chat_keeps_the_agent_finishing_for_a_proposal_chat_created_or_is_writing() {
+fn only_a_working_job_keeps_the_agent_finishing_and_a_draft_of_chat_is_an_ordinary_draft() {
     let dir = project();
     let root = dir.path();
     proposal(
         root,
         "aaaaaaaa",
         "status: draft\nchat: true\nchatWriting: true\n",
-        "# Written\n",
+        "# Of an earlier version\n",
         &[],
         &[],
     );
     proposal(
         root,
         "bbbbbbbb",
-        "status: draft\nchatWriting: true\n",
-        "# Reopened\n",
-        &[],
-        &[],
-    );
-    proposal(root, "cccccccc", "status: draft\n", "# Plain\n", &[], &[]);
-    proposal(
-        root,
-        "dddddddd",
-        "status: open\nchat: true\n",
-        "# Handed over\n",
-        &[],
-        &[],
-    );
-    let (image, _, numbers) = state(root);
-    let turn = AgentFacts {
-        chat_working: true,
-        ..AgentFacts::default()
-    };
-    let gate = |facts: &AgentFacts, id: &str| {
-        gate_of(facts, image.card(CardKind::Proposal, id).unwrap())
-    };
-    // Discard of a Draft, approval and rejection of an Open one: refused during the turn only.
-    for id in ["aaaaaaaa", "bbbbbbbb"] {
-        assert_eq!(
-            plan_discard(&image, &numbers, id, gate(&turn, id), Decider::Developer)
-                .unwrap_err()
-                .0,
-            ["The agent is still finishing"],
-            "{id}"
-        );
-        assert!(plan_discard(
-            &image,
-            &numbers,
-            id,
-            gate(&AgentFacts::default(), id),
-            Decider::Developer
-        )
-        .is_ok());
-    }
-    assert!(plan_discard(
-        &image,
-        &numbers,
-        "cccccccc",
-        gate(&turn, "cccccccc"),
-        Decider::Developer
-    )
-    .is_ok());
-    assert!(gate(&turn, "dddddddd").agent_finishing);
-    assert!(!gate(&AgentFacts::default(), "dddddddd").agent_finishing);
-    assert!(plan_reject(
-        &image,
-        &numbers,
-        "dddddddd",
-        None,
-        false,
-        gate(&turn, "dddddddd"),
-        Decider::Developer
-    )
-    .is_err());
-    assert!(!gate(&turn, "cccccccc").agent_finishing);
-}
-
-#[test]
-fn the_clear_of_chat_discards_the_drafts_it_created_and_frees_the_request_they_held() {
-    let dir = project();
-    let root = dir.path();
-    put(root, "requests/2026-11-02T07-00-00.md", "# A request\n");
-    proposal(
-        root,
-        "aaaaaaaa",
-        "status: draft\nchat: true\nchatWriting: true\nrequest: 2026-11-02T07-00-00\n",
-        "# Written\n",
-        &[],
-        &[],
-    );
-    proposal(
-        root,
-        "bbbbbbbb",
-        "status: draft\nchat: true\nrefining: true\n",
-        "# Half-way\n",
-        &[],
-        &[],
-    );
-    proposal(
-        root,
-        "cccccccc",
-        "status: draft\nchatWriting: true\n",
-        "# Only reopened\n",
-        &[],
-        &[],
-    );
-    proposal(
-        root,
-        "dddddddd",
-        "status: open\nchat: true\n",
-        "# Handed over\n",
-        &[],
-        &[],
-    );
-    proposal(
-        root,
-        "eeeeeeee",
         "status: draft\njob: jjjjjjjj\n",
         "# A job's\n",
         &[],
         &[],
     );
-    let store = crate::project::requests::store::RequestStore::new(root);
+    let (image, _, numbers) = state(root);
+    let working = AgentFacts {
+        working_jobs: ["jjjjjjjj".to_owned()].into(),
+        ..AgentFacts::default()
+    };
+    let gate =
+        |facts: &AgentFacts, id: &str| gate_of(facts, image.card(CardKind::Proposal, id).unwrap());
+    assert!(!gate(&working, "aaaaaaaa").agent_finishing);
+    assert!(plan_discard(
+        &image,
+        &numbers,
+        "aaaaaaaa",
+        gate(&working, "aaaaaaaa"),
+        Decider::Developer
+    )
+    .is_ok());
     assert_eq!(
-        store.state_of("2026-11-02T07-00-00").unwrap(),
-        crate::project::requests::machine::RequestState::HeldByChat
+        plan_discard(
+            &image,
+            &numbers,
+            "bbbbbbbb",
+            gate(&working, "bbbbbbbb"),
+            Decider::Developer
+        )
+        .unwrap_err()
+        .0,
+        ["The agent is still finishing"]
     );
-
-    let (image, _, _) = state(root);
-    assert_eq!(chat_drafts_to_clear(&image), ["aaaaaaaa"]);
-    let after = clear_chat_drafts(root).unwrap().expect("something to discard");
-    let status = |id: &str| data::status_of(after.card(CardKind::Proposal, id).unwrap());
-    assert_eq!(status("aaaaaaaa"), Some(Status::Discarded));
-    for id in ["bbbbbbbb", "cccccccc", "eeeeeeee"] {
-        assert_eq!(status(id), Some(Status::Draft), "{id}");
-    }
-    assert_eq!(status("dddddddd"), Some(Status::Open));
-    assert_eq!(
-        store.state_of("2026-11-02T07-00-00").unwrap(),
-        crate::project::requests::machine::RequestState::Writing
-    );
-    // Nothing left to discard: nothing is written.
-    assert!(clear_chat_drafts(root).unwrap().is_none());
+    assert!(plan_discard(
+        &image,
+        &numbers,
+        "bbbbbbbb",
+        gate(&AgentFacts::default(), "bbbbbbbb"),
+        Decider::Developer
+    )
+    .is_ok());
 }
 
 fn edit_plan(

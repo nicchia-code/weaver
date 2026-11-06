@@ -34,9 +34,6 @@ pub struct GeneralState {
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSnapshot {
     pub state: GeneralState,
-    /// The Draft Proposals the agent of Chat created that `Clear` discards (`chat: true`, not
-    /// refined): the Clear dialog says how many.
-    pub chat_drafts: u32,
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,

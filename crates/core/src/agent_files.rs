@@ -145,7 +145,7 @@ mod tests {
 
     /// The objects and verbs of `requirements/cli#General`: the commands that exist. The command
     /// registry of the CLI crate must offer exactly these; its own tests compare it with them.
-    const REGISTRY: [(&str, &[&str]); 9] = [
+    const REGISTRY: [(&str, &[&str]); 10] = [
         ("model", &["show", "list", "check"]),
         ("project", &["new", "edit", "show"]),
         ("proposal", &["new", "show", "list", "edit", "move"]),
@@ -155,6 +155,7 @@ mod tests {
         ("announcement", &["new"]),
         ("job", &["new", "show", "list", "edit"]),
         ("question", &["new"]),
+        ("request", &["new"]),
     ];
 
     /// Words and phrases of the features Weaver does not have; none may remain in an installed text.
@@ -590,30 +591,47 @@ mod tests {
 
     /// `requirements/rules#project`, **Chat texts**: `weaver-design` and `weaver-resolve-drifts`.
     #[test]
-    fn the_design_and_resolve_skills_have_the_chat_section_and_no_longer_exclude_chat() {
+    fn the_design_and_resolve_skills_have_no_chat_section_and_keep_every_non_job_conversation_out()
+    {
+        for name in SKILL_NAMES {
+            let skill = text_of(&format!(".agents/skills/{name}/SKILL.md"));
+            assert!(!skill.contains("Writing from Chat"), "{name}");
+            assert!(!skill.contains("Chat's instruction"), "{name}");
+            assert!(!skill.contains("instruction of Chat"), "{name}");
+        }
         for name in ["weaver-design", "weaver-resolve-drifts"] {
             let skill = text_of(&format!(".agents/skills/{name}/SKILL.md"));
+            let description = skill
+                .lines()
+                .find(|line| line.starts_with("description: "))
+                .expect("the description");
             assert!(
-                skill.contains("\n## Writing from Chat\n"),
-                "{name} lacks the section"
+                description
+                    .starts_with("description: Use only when the instruction of a Weaver job"),
+                "{name}: the description"
             );
-            let section = skill
-                .split("\n## Writing from Chat\n")
-                .nth(1)
-                .and_then(|rest| rest.split("\n## ").next())
-                .expect("the section");
-            for needle in [
-                "The conversation",
-                "asked in your reply",
-                "only when the developer asked to be asked that way",
-                "No announcement and no job note",
-                "`reworks`",
-                "summarise the Proposal in a few lines and stop",
-            ] {
-                assert!(section.contains(needle), "{name}: {needle:?}");
-            }
-            assert!(!skill.contains("never in Chat"), "{name}");
-            assert!(!skill.contains("+ Work Item"), "{name}");
+            assert!(
+                description.contains("(Chat, Ask more)"),
+                "{name}: the description keeps Chat and Ask more out"
+            );
+            let rule = skill
+                .lines()
+                .find(|line| {
+                    line.starts_with(
+                        "- This skill runs only when the instruction of a Weaver job names it",
+                    )
+                })
+                .unwrap_or_else(|| panic!("{name}: no rule on the job"));
+            assert!(
+                rule.contains("(Chat, Ask more, or any other conversation that is not a job)"),
+                "{name}"
+            );
+            assert!(
+                rule.contains(
+                    "In Chat a Proposal starts as a design request sent with `weaver request new`"
+                ),
+                "{name}"
+            );
         }
     }
 

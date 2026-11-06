@@ -265,7 +265,7 @@ async fn an_empty_general_keeps_nothing_and_the_first_message_starts_omp_with_th
 }
 
 #[tokio::test]
-async fn a_talk_only_general_reaches_the_board_only_at_the_turn_edges_and_never_the_jobs_or_a_notification() {
+async fn a_talk_only_general_never_reaches_the_board_the_jobs_or_a_notification() {
     let f = fixture().await;
     let jobs = Jobs::new(f.host.clone());
     f.host.script(json!({ "prompts": [[agent("Done")]] }));
@@ -274,13 +274,10 @@ async fn a_talk_only_general_reaches_the_board_only_at_the_turn_edges_and_never_
         !f.general.working(f.id()) && !f.entries().is_empty() && f.entries().len() > 1
     })
     .await;
-    // Chat shows no card while it only talks, but a Draft card it wrote disables `Discard` during
-    // a turn (`requirements/ui#board-cards`, Chat Draft; `proposal` DISCARD/APPROVE_PROPOSAL), so
-    // the Board is sent again exactly when the turn starts and when it ends.
     assert_eq!(
         *f.host.board_changes.lock().unwrap(),
-        2,
-        "the Board is only sent again at the start and at the end of the turn"
+        0,
+        "a turn of Chat never sends the Board again"
     );
     assert!(
         f.host.snapshots.lock().unwrap().is_empty(),
@@ -1066,11 +1063,8 @@ async fn closing_the_window_during_a_turn_cancels_it_and_keeps_the_conversation(
 }
 
 #[tokio::test]
-async fn clear_discards_the_drafts_the_chat_created_and_stop_and_closing_the_window_discard_nothing()
-{
+async fn clear_discards_no_draft_and_neither_do_stop_and_closing_the_window() {
     let f = fixture().await;
-    f.general
-        .observe(Arc::new(super::service::ClearDiscardsChatDrafts(f.host.clone())));
     let proposal = |id: &str| {
         f.project
             .root
@@ -1102,12 +1096,11 @@ async fn clear_discards_the_drafts_the_chat_created_and_stop_and_closing_the_win
     assert!(status_of("aaaaaaaa").contains("status: draft"));
     assert!(status_of("bbbbbbbb").contains("status: draft"));
 
-    // Clear discards the one Chat created, never the one it only reopened.
+    // Clear empties the conversation and nothing else: no Draft is discarded.
     f.general.clear(f.id()).unwrap();
-    until("the Draft Chat created to be discarded", LIMIT, || {
-        status_of("aaaaaaaa").contains("status: discarded")
-    })
-    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(f.entries().is_empty());
+    assert!(status_of("aaaaaaaa").contains("status: draft"));
     assert!(status_of("bbbbbbbb").contains("status: draft"));
 }
 
@@ -2401,36 +2394,11 @@ mod ask_job_new {
 }
 
 #[tokio::test]
-async fn the_snapshot_counts_the_drafts_created_in_chat_that_clear_discards() {
-    let host = TestHost::new();
-    let events = Arc::new(Recorder::default());
-    let general = General::new(host.clone(), events.clone());
-    let draft = |extra: &str| format!("---\nstatus: draft\nkind: change\n{extra}created: 2026-11-02T07:00:00.000Z\n---\n# Idea\n\nWhy.\n");
-    let (_dir, project) = host
-        .project(&[
-            // Created in Chat and still a Draft: counted, being written or not.
-            ("proposals/aaaaaaaa-one/proposal.md", &draft("chat: true\nchatWriting: true\n")),
-            ("proposals/bbbbbbbb-two/proposal.md", &draft("chat: true\n")),
-            // Only reopened by the Chat, left half-way by a refinement, delivered, or written by a job.
-            ("proposals/cccccccc-three/proposal.md", &draft("chatWriting: true\n")),
-            ("proposals/dddddddd-four/proposal.md", &draft("chat: true\nrefining: true\n")),
-            (
-                "proposals/eeeeeeee-five/proposal.md",
-                "---\nstatus: open\nkind: change\nchat: true\ncreated: 2026-11-02T07:00:00.000Z\n---\n# Idea\n",
-            ),
-            ("proposals/ffffffff-six/proposal.md", &draft("job: jjjjjjjj\n")),
-        ])
-        .await;
-    general.open(&project.id, &project.root).await;
-    let snapshot = general.snapshot(&project.id).unwrap();
-    assert_eq!(snapshot.chat_drafts, 2);
-    assert!(!snapshot.state.waiting);
-}
-
-#[tokio::test]
 async fn the_state_says_waiting_while_a_round_of_the_chat_is_open_and_stays_working() {
     let f = fixture().await;
-    f.host.script(json!({ "log": f.host.received_log(), "prompts": [[agent("Asking"), { "hold": true }]] }));
+    f.host.script(
+        json!({ "log": f.host.received_log(), "prompts": [[agent("Asking"), { "hold": true }]] }),
+    );
     f.send("Ask me");
     // omp is open once the agent answers: only then can it open a round.
     until("the agent to answer", LIMIT, || {

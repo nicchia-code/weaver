@@ -454,14 +454,15 @@ pub fn answer_cli(call: &Call, jobs: &dyn ProposalJobs) -> Option<Result<Command
             Some(rework_from_cli(call, jobs, &project_id, id))
         }
         "open" => {
-            // `proposal.SUBMITTED`: read before the hand-over, which deletes the request's files and
-            // takes `chatWriting` off the Proposal (the Draft of Chat that holds its request).
-            let card = call.image.card(CardKind::Proposal, id);
-            let request = card.and_then(data::request_of).map(str::to_owned);
-            let from_chat = card.and_then(|card| card.bool_key("chatWriting")) == Some(true);
+            // `proposal.SUBMITTED`: read before the hand-over, which deletes the request's files.
+            let request = call
+                .image
+                .card(CardKind::Proposal, id)
+                .and_then(data::request_of)
+                .map(str::to_owned);
             let result = (call.command.run)(call);
             if let (Ok(_), Some(request)) = (&result, &request) {
-                crate::requests::proposal_submitted(call.root, request, from_chat);
+                crate::requests::proposal_submitted(call.root, request);
             }
             if let Ok(reply) = &result {
                 let setup = reply.json["kind"] == "setup" && reply.json["status"] == "approved";
@@ -894,7 +895,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_draft_chat_writes_cannot_be_discarded_while_a_turn_of_chat_works() {
+    async fn a_draft_of_an_earlier_version_that_chat_wrote_is_discarded_as_any_draft() {
         let f = fixture().await;
         change(f.project.path(), "qqqqqqqq", "draft");
         let text = fs::read_to_string(
@@ -908,32 +909,15 @@ mod tests {
             "proposals/qqqqqqqq-t/proposal.md",
             &text.replacen("---\n", "---\nchat: true\nchatWriting: true\n", 1),
         );
-        struct Turn(bool);
-        impl crate::agent_work::AgentWork for Turn {
-            fn ghosts(&self, _: &str) -> Vec<crate::agent_work::Ghost> {
-                Vec::new()
-            }
-            fn facts(&self, _: &str) -> weaver_core::project::board::AgentFacts {
-                weaver_core::project::board::AgentFacts {
-                    chat_working: self.0,
-                    ..Default::default()
-                }
-            }
-        }
-        f.state.agent_work.set(Arc::new(Turn(true)));
-        let error = discard(&f.state, &f.id, "qqqqqqqq").await.unwrap_err();
-        assert_eq!(error.code, ErrorCode::Refused);
-        assert!(
-            error.message.ends_with("The agent is still finishing."),
-            "{}",
-            error.message
-        );
-        assert_eq!(status(&f, "qqqqqqqq"), "draft");
-
-        // Between turns the developer discards it, as any Draft.
-        f.state.agent_work.set(Arc::new(Turn(false)));
         discard(&f.state, &f.id, "qqqqqqqq").await.unwrap();
         assert_eq!(status(&f, "qqqqqqqq"), "discarded");
+        let after = fs::read_to_string(
+            f.project
+                .path()
+                .join(".weaver/proposals/qqqqqqqq-t/proposal.md"),
+        )
+        .unwrap();
+        assert!(!after.contains("chat"), "{after}");
     }
 
     #[tokio::test]

@@ -168,20 +168,6 @@ describe("columns", () => {
     const titles = within(active()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(titles).toEqual(["Second", "First"]);
   });
-
-  it("shows a Draft Chat writes as a card in Backlog, in the backend's order, counted with the others", async () => {
-    const chatDraft: BoardCard = { kind: "proposal", head: head("cccccccc", "P2", "Chat idea"), standing: "chat-draft", proposalKind: "change", view: proposalView() };
-    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart"), chatDraft, drift("dddddddd", "D1", "Cart total")] }));
-    await show();
-    expect(backlog().querySelector("h2")).toHaveTextContent("Backlog3");
-    const titles = within(backlog()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(titles).toEqual(["Add a cart", "Chat idea", "Cart total"]);
-    const shown = within(backlog().querySelector<HTMLElement>('[data-card-id="cccccccc"]')!);
-    expect(shown.getByText("draft")).toBeInTheDocument();
-    expect(shown.getByText("Chat")).toBeInTheDocument();
-    expect(shown.getByRole("button", { name: "Open Chat" })).toBeInTheDocument();
-    expect(shown.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
-  });
 });
 
 describe("ghosts", () => {

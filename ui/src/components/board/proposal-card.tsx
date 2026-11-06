@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Cpu, MessageSquare, Settings, Sparkles, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, Settings, Sparkles, Trash2, X } from "lucide-react";
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { ProposalView } from "@/bindings/ProposalView";
@@ -14,7 +14,6 @@ import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { GuardedButton } from "@/components/guarded-button";
 import { Markdown } from "@/components/markdown";
 import { modelCatalogOf } from "@/components/omp-status";
-import { useProject } from "@/components/project-context";
 import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,11 +36,10 @@ function nameOf(ref: { id: string; shortNumber: string | null }): string {
 /** The value of the model control that stands for the models of the Settings. */
 const SETTINGS_MODELS = "__settings__";
 
-/** `Open`, `Refining`, `Refinement interrupted` or `Draft written by Chat`: the standing of the Proposal in words. */
+/** `Open`, `Refining` or `Refinement interrupted`: the standing of the Proposal in words. */
 export function standingText(card: Pick<ProposalCardData, "standing">): string {
   if (card.standing === "refining") return "Refining";
   if (card.standing === "interrupted") return "Refinement interrupted";
-  if (card.standing === "chat-draft") return "Draft written by Chat";
   return "Open";
 }
 
@@ -82,17 +80,11 @@ function BlockedPopover({ reasons }: { reasons: readonly string[] }) {
   );
 }
 
-/** `draft` and `Chat` (a Draft the agent of Chat writes), `stale`, `refining`, `refinement interrupted`, `blocked` and the chosen model, in that order. */
+/** `stale`, `refining`, `refinement interrupted`, `blocked` and the chosen model, in that order. */
 function ProposalBadges({ card }: { card: ProposalCardData }) {
   const { view, standing } = card;
   return (
     <>
-      {standing === "chat-draft" ? (
-        <>
-          <Badge variant="outline">draft</Badge>
-          <Badge variant="outline">Chat</Badge>
-        </>
-      ) : null}
       {view.stale ? <Badge variant="warning">stale</Badge> : null}
       {standing === "refining" ? <Badge variant="info">refining</Badge> : null}
       {standing === "interrupted" ? <Badge variant="warning">refinement interrupted</Badge> : null}
@@ -334,41 +326,6 @@ function ReworkDialog({
 }
 
 /**
- * The controls of a Draft the agent of Chat is writing: `Open Chat` and `Discard`, which asks first
- * and is disabled while a turn of Chat is in progress (the backend lists why).
- */
-function ChatDraftControls({ card }: { card: ProposalCardData }) {
-  const { discardProposal } = useBoard();
-  const { showView } = useProject();
-  const [open, setOpen] = useState(false);
-  const { head, view } = card;
-  return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => showView("general")}>
-        <MessageSquare aria-hidden />
-        Open Chat
-      </Button>
-      <GuardedButton variant="destructive" size="sm" reasons={view.rejectReasons} onClick={() => setOpen(true)}>
-        <Trash2 aria-hidden />
-        Discard
-      </GuardedButton>
-      {/* A click inside the dialog never reaches the card behind it (the dialog lives in the React tree of the card). */}
-      <div onClick={(event) => event.stopPropagation()}>
-        <ConfirmDialog
-          open={open}
-          onOpenChange={setOpen}
-          title="Discard this Draft?"
-          description="Its files and Tasks are thrown away."
-          confirmLabel="Discard"
-          destructive
-          onConfirm={() => void discardProposal(head.id, nameOf(head))}
-        />
-      </div>
-    </>
-  );
-}
-
-/**
  * The controls of a Proposal: `Approve`, or `Refine` in its place when the backend says a click
  * starts a refinement job; the `Reject` split button (its menu has `Rework with
  * feedback…`, absent once the Proposal is itself a rework), `View requirements`, and last the
@@ -398,8 +355,6 @@ function ProposalControls({ card }: { card: ProposalCardData }) {
       {refines ? "Refine" : "Approve"}
     </GuardedButton>
   );
-
-  if (standing === "chat-draft") return <ChatDraftControls card={card} />;
 
   // A click inside a dialog never reaches the card behind it (the dialogs live in the React tree of the card).
   if (standing === "interrupted") {

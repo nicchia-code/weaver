@@ -23,10 +23,9 @@ A Proposal is the folder `.weaver/proposals/<id>-<slug>/` holding `proposal.md` 
 | `label` | optional: the short label, one line |
 | `refining` | optional: `true` from the moment a refinement starts on it until it is handed over again; a `draft` carrying it was left half-way by a refinement |
 | `job` | optional: identity of the Weaver job that created it |
-| `chat` | optional: `true` when the agent of Chat created it; never removed |
-| `chatWriting` | optional: `true` while the agent of Chat writes it, set by its `proposal new` and `proposal edit` and removed at hand-over; a `draft` carrying it has the Chat Draft card |
 | `drifts` | resolutions only: list of `{drift, decision, option?, note?}`, `decision` being `fix-code`, `proposal` or `dismissed`, `option` counted from 1 and only with `fix-code` |
 
+- Keys a Proposal of an earlier version may carry and no longer has a meaning, `chat` and `chatWriting`, are ignored when read and dropped the next time Weaver writes that `proposal.md`; a `draft` carrying them is an ordinary Draft with no job, listed by `weaver proposal list` and discarded with `weaver proposal move <id> discarded`.
 - The model the developer chose for a Proposal is never written in the repository, so that a cloned project cannot choose models for the developer: the app keeps it in its local data, `proposal-models/<project hash>.json`, a map from Proposal identity to model value, and drops an entry once no Task of that Proposal is in To do or In progress. It reaches omp only as one argument of a process started without a shell, and choosing it never sends the Proposal back to Draft.
 - Body: one H1 with the title, then prose saying why. `## Feedback` is appended on rejection only when the feedback has non-blank text. `## Already present` holds one line per element the code already implements, ``- `<ref>` — <where in the code>``.
 - A Task file of a Proposal has front matter with only `technical` (default `false`) and `refs` (element references and Requirement sections), then an H1 title and a body, which may end with `## Code notes` (see `task`). It has no `base` and never makes the Proposal stale.
@@ -102,5 +101,5 @@ Body: one H1 title, then the text in Markdown.
 - Title: the first H1 outside code fences; otherwise the first non-empty line that is not only images; otherwise the id.
 - Empty: nothing left after removing whitespace. A request made only of images is not empty.
 - `.weaver/requests/.state.json` records the requests that were sent (`{sent: {<id>: <job id>}, consumed: [<id>]}`), written by the app only. An id listed as consumed is never shown or sent again, even if a file with that name reappears.
-- A request is held by Chat while a `draft` Proposal with `chatWriting: true` names it in `request`; nothing else records it.
+- A request sent by Chat (`weaver request new`) is written the same way, with the id of its creation time: its text as given, line endings normalised to LF and one final newline, with no images folder. It is recorded under `sent` with its job in the same step; when the job cannot start, neither the file nor the record is written.
 - Consuming or discarding a request deletes `<id>.md` and `<id>.images/` in one step.

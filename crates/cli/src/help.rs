@@ -109,6 +109,9 @@ fn access_text(command: &Command) -> Option<&'static str> {
         Access::General => Some(
             "Only the agent of the project's General or of an Ask more conversation that Weaver started can run it (Weaver sets `WEAVER_GENERAL` or `WEAVER_ASK` in the environment of that agent). Any other caller is refused with exit 1 and nothing is written.",
         ),
+        Access::Chat => Some(
+            "Only the agent of the project's Chat during one of its turns can run it (Weaver sets `WEAVER_GENERAL` in the environment of that agent). Any other caller, an Ask more conversation and a job included, is refused with exit 1 and nothing is written.",
+        ),
     }
 }
 

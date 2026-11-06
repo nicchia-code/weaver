@@ -176,7 +176,6 @@ fn plan_approval(
         data::rewritten(card, |front| {
             set(front, "status", Status::Approved.as_str());
             front.remove("refining");
-            front.remove("chatWriting");
         }),
     );
     plan.start_run_all = analysis.kind == Kind::Setup;
@@ -394,7 +393,6 @@ pub fn plan_submit(
             &card.path,
             data::rewritten(card, |front| {
                 set(front, "status", Status::Open.as_str());
-                front.remove("chatWriting");
                 front.remove("refining");
             }),
         );
@@ -748,54 +746,6 @@ pub fn discard(
         |_| Ok(()),
     )
     .map(|(image, ())| image)
-}
-
-/// The Drafts `general-chat.CLEARED` discards: every `draft` the agent of Chat created
-/// (`chat: true`) that is not half-way through a refinement. A Draft that Chat only reopened
-/// (`chatWriting` without `chat`) stays.
-pub fn chat_drafts_to_clear(image: &ProjectImage) -> Vec<String> {
-    image
-        .cards_of(CardKind::Proposal)
-        .filter(|card| {
-            data::status_of(card) == Some(Status::Draft)
-                && data::created_by_chat(card)
-                && !data::refining_flag(card)
-        })
-        .map(|card| card.id.clone())
-        .collect()
-}
-
-/// `general-chat.CLEARED`, under the project lock: discards every Draft of [`chat_drafts_to_clear`]
-/// as a discard of the developer would, after the turn of Chat stopped. Each request such a Draft
-/// held goes back to Writing by itself (the Draft is no longer `chatWriting`), and the Proposals
-/// that require it stay blocked, saying it was discarded. `None` when there was nothing to
-/// discard.
-pub fn clear_chat_drafts(
-    project_root: &Path,
-) -> Result<Option<ProjectImage>, MutationError<Refused>> {
-    if chat_drafts_to_clear(&ProjectImage::load(project_root)).is_empty() {
-        return Ok(None);
-    }
-    changes::mutate(
-        project_root,
-        |image| {
-            let mut discarded = ChangeSet::new();
-            for id in chat_drafts_to_clear(image) {
-                if let Some(card) = image.card(CardKind::Proposal, &id) {
-                    discarded.write(
-                        &card.path,
-                        data::rewritten(card, |front| {
-                            set(front, "status", Status::Discarded.as_str());
-                            front.remove("chatWriting");
-                        }),
-                    );
-                }
-            }
-            Ok((discarded, ()))
-        },
-        |_| Ok(()),
-    )
-    .map(|(image, ())| Some(image))
 }
 
 /// The hand-over, under the project lock.

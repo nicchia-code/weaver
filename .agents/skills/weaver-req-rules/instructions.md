@@ -26,7 +26,7 @@
   3. ``Ask the developer only with `weaver question new`, as the skill says, never with your own question tool; run it with no time limit and wait until it ends.``
   4. Only when a language is set: `Write the texts for the developer in <language>, as the Language section of your skill says.`
 - Always-on features (advisor, prepared Drift questions, parallel slots) add no sentence: the skills always do them.
-- Bindings are enforced by the command line, not by the instruction, as `requirements/rules#proposal` (**Bindings**) says: a job binds only the request its instruction named, and only its first Proposal; only a rework job, or Chat, may bind with `reworks`.
+- Bindings are enforced by the command line, not by the instruction, as `requirements/rules#proposal` (**Bindings**) says: a job binds only the request its instruction named, and only its first Proposal; only a rework job may bind with `reworks`.
 
 ## ask-conversation
 

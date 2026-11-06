@@ -22,5 +22,6 @@ pub mod title;
 pub use id::LocalTime;
 pub use machine::{step, Effect, RequestEvent, RequestState, Step};
 pub use store::{
-    job_for, model_is_empty, RequestEntry, RequestError, RequestStore, RequestsState, SendPlan,
+    job_for, model_is_empty, AgentSend, RequestEntry, RequestError, RequestStore, RequestsState,
+    SendPlan,
 };

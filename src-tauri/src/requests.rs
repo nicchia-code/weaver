@@ -26,10 +26,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde::Serialize;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use ts_rs::TS;
+use weaver_cli::spec::{Call, Failure};
 use weaver_core::assets::tags;
+use weaver_core::command::CommandReply;
 use weaver_core::job_instruction::Job;
+use weaver_core::paths::project_hash_of_canonical;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::requests::image::{base64_decode, base64_encode, ImageError};
 use weaver_core::project::requests::{
@@ -41,7 +45,10 @@ use crate::error::{AppError, ErrorCode};
 use crate::events::EventName;
 use crate::jobs::starts::Ctx;
 use crate::jobs::wire::{JobInfo, JobObserver};
-use crate::jobs::{authority::RequestSender, Jobs};
+use crate::jobs::{
+    authority::{CommandExtension, RequestSender},
+    Jobs,
+};
 use crate::pictures::Rebuild;
 use crate::state::AppState;
 use crate::windows::registry::label_of;
@@ -113,15 +120,44 @@ impl RequestJobs for AppJobs {
     }
 }
 
-/// Whether a request is being written, was sent or is held by Chat.
+/// What the refusal of a job a request starts begins with (`RequestJobs::start`).
+const SEND_REFUSED_PREFIX: &str = "Could not send the request: ";
+
+/// A request the agent of Chat sent (`agent.SEND_REQUEST`) and the job that works on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSent {
+    pub request: String,
+    pub title: String,
+    pub job: StartedJob,
+    /// `design`, or `setup` when the Model was empty.
+    pub kind: &'static str,
+}
+
+/// Why the agent of Chat could not send a request: nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSendRefusal {
+    /// The kind of job that would have started.
+    pub kind: &'static str,
+    pub message: String,
+}
+
+impl AgentSendRefusal {
+    /// What the Chat shows after `Weaver did not start <kind>:`: the message without its lead-in
+    /// and its final full stop.
+    fn reason(&self) -> &str {
+        self.message
+            .strip_prefix(SEND_REFUSED_PREFIX)
+            .unwrap_or(&self.message)
+            .trim_end_matches('.')
+    }
+}
+
+/// Whether a request is being written or was sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum RequestStatus {
     Writing,
     Sent,
-    /// The agent of Chat is writing a Proposal bound to it: it can be read, not changed, sent or
-    /// discarded.
-    HeldByChat,
 }
 
 /// A row of the list of open requests.
@@ -192,7 +228,6 @@ fn failed(error: RequestError) -> AppError {
 fn status_of(state: RequestState) -> RequestStatus {
     match state {
         RequestState::Sent => RequestStatus::Sent,
-        RequestState::HeldByChat => RequestStatus::HeldByChat,
         _ => RequestStatus::Writing,
     }
 }
@@ -356,6 +391,60 @@ impl RequestsService {
         }
     }
 
+    /// `agent.SEND_REQUEST`, under the project lock: creates the request with the text the agent of
+    /// Chat gave, starts its job (design, or setup when the Model is empty) and records the request
+    /// as sent. When the job cannot start, the request is removed again and nothing is left.
+    pub fn agent_send_locked(
+        &self,
+        project_id: &str,
+        root: &Path,
+        image: &ProjectImage,
+        text: &str,
+        now: &LocalTime,
+    ) -> Result<AgentSent, AgentSendRefusal> {
+        let refused = |kind: &'static str, message: String| AgentSendRefusal { kind, message };
+        let store = RequestStore::new(root);
+        // The tags are recognised against the assets that exist now, in the one read of the text.
+        let names = self.jobs().asset_names(project_id);
+        let empty_model = model_is_empty(image.model());
+        let kind = if empty_model { "setup" } else { "design" };
+        let sent = store
+            .plan_agent_send(now, text, empty_model, &|text| tags::tagged(text, &names))
+            .map_err(|error| refused(kind, failed(error).message))?
+            .ok_or_else(|| refused(kind, "The request is empty: write it first.".to_owned()))?;
+        let started = match self.jobs().start(
+            &Ctx {
+                project_id,
+                root,
+                image,
+            },
+            &sent.job,
+        ) {
+            Ok(started) => started,
+            Err(why) => {
+                // Nothing is left of a request whose job did not start.
+                if let Err(error) = store.discard(&sent.id) {
+                    log_warn!("the request {} could not be removed: {error}", sent.id);
+                }
+                return Err(refused(kind, why));
+            }
+        };
+        store
+            .record_sent(&sent.id, &started.id)
+            .map_err(|error| refused(kind, failed(error).message))?;
+        log_info!(
+            "the request {} of Chat was sent to the job {}",
+            sent.id,
+            started.id
+        );
+        Ok(AgentSent {
+            request: sent.id,
+            title: sent.title,
+            job: started,
+            kind,
+        })
+    }
+
     /// `job.ENDED` of `job_id`: the requests it received that no Proposal consumed go back to
     /// `Writing`. Under the project lock. Returns their ids.
     pub fn job_ended_locked(
@@ -371,10 +460,9 @@ impl RequestsService {
 }
 
 /// `proposal.SUBMITTED` of a Proposal bound to `request`: the first one consumes the request. Under
-/// the project lock, at the hand-over. `from_chat` is whether the Proposal was a Draft the agent of
-/// Chat was writing (`chatWriting`) until the hand-over: that Draft held the request.
-pub fn proposal_submitted(root: &Path, request: &str, from_chat: bool) {
-    match RequestStore::new(root).consume(request, from_chat) {
+/// the project lock, at the hand-over.
+pub fn proposal_submitted(root: &Path, request: &str) {
+    match RequestStore::new(root).consume(request) {
         Ok(true) => log_info!("the request {request} was consumed by a Proposal"),
         Ok(false) => {}
         Err(error) => log_warn!("the request {request} could not be recorded as consumed: {error}"),
@@ -391,25 +479,14 @@ pub fn emit_changed(app: &AppHandle, project_id: &str) {
     }
 }
 
-/// Whether a batch of file changes touches what the requests are made of: `.weaver/requests/`, and
-/// the `proposal.md` of the Proposals, because a Draft of Chat that names a request holds it while
-/// it exists (so the Draft being created, discarded or handed over changes the request).
+/// Whether a batch of file changes touches what the requests are made of: `.weaver/requests/`.
 pub fn touches_requests(root: &Path, batch: &Rebuild) -> bool {
     match batch {
         Rebuild::All => true,
         Rebuild::Paths(paths) => {
-            let weaver = weaver_core::project::layout::weaver_dir(root);
-            let requests = weaver.join(weaver_core::project::layout::REQUESTS_DIR);
-            let proposals = weaver.join(weaver_core::project::layout::PROPOSALS_DIR);
-            paths.iter().any(|path| {
-                path.starts_with(&requests)
-                    || path.strip_prefix(&proposals).is_ok_and(|inside| {
-                        let mut parts = inside.iter();
-                        let (_folder, file, rest) = (parts.next(), parts.next(), parts.next());
-                        rest.is_none()
-                            && file.is_none_or(|file| file == weaver_core::project::layout::PROPOSAL_FILE)
-                    })
-            })
+            let requests = weaver_core::project::layout::weaver_dir(root)
+                .join(weaver_core::project::layout::REQUESTS_DIR);
+            paths.iter().any(|path| path.starts_with(&requests))
         }
     }
 }
@@ -482,6 +559,85 @@ impl RequestSender for GeneralSender {
     }
 }
 
+/// The local time of the computer, which names a request the agent of Chat sends.
+fn local_now() -> LocalTime {
+    use chrono::{Datelike, Timelike};
+    let now = chrono::Local::now();
+    LocalTime {
+        year: u16::try_from(now.year()).unwrap_or(0),
+        month: now.month() as u8,
+        day: now.day() as u8,
+        hour: now.hour() as u8,
+        minute: now.minute() as u8,
+        // A leap second reads as 60.
+        second: now.second().min(59) as u8,
+    }
+}
+
+/// `weaver request new` from the Chat: the request is written and sent as the developer's Send
+/// does, and the Chat is told which job started, or why none did, as for any job it asks for.
+struct RequestCli {
+    app: AppHandle,
+    jobs: Arc<Jobs>,
+    service: Arc<RequestsService>,
+}
+
+impl CommandExtension for RequestCli {
+    fn run(&self, call: &Call) -> Option<Result<CommandReply, Failure>> {
+        (call.command.object == "request" && call.command.verb == "new").then(|| self.send(call))
+    }
+}
+
+impl RequestCli {
+    fn send(&self, call: &Call) -> Result<CommandReply, Failure> {
+        let project_id = project_hash_of_canonical(call.root);
+        let text = call
+            .input
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let outcome =
+            self.service
+                .agent_send_locked(&project_id, call.root, call.image, text, &local_now());
+        let general = self
+            .jobs
+            .hooks
+            .general
+            .read()
+            .expect("hooks poisoned")
+            .clone();
+        if let (Some(general), Some(token)) = (general, call.caller.general.as_deref()) {
+            match &outcome {
+                Ok(sent) => general.job_requested(
+                    call.root,
+                    token,
+                    sent.kind,
+                    Ok(&[(sent.job.id.clone(), sent.job.name.clone())]),
+                ),
+                Err(refusal) => {
+                    general.job_requested(call.root, token, refusal.kind, Err(refusal.reason()))
+                }
+            }
+        }
+        emit_changed(&self.app, &project_id);
+        let sent = outcome.map_err(|refusal| Failure::refused(refusal.message))?;
+        Ok(CommandReply {
+            markdown: format!(
+                "Sent the request `{}` and started the {} job `{}`. The job writes the Proposal and asks the developer its own questions; the agent does not wait for it. Tell the developer which job started.\n",
+                sent.request, sent.kind, sent.job.id
+            ),
+            json: json!({
+                "request": sent.request,
+                "job": sent.job.id,
+                "kind": sent.kind,
+                "title": sent.title,
+            }),
+            exit: 0,
+            note: None,
+        })
+    }
+}
+
 /// `job.ENDED`: the requests the job received go back to `Writing` unless a Proposal consumed
 /// them.
 struct JobEnd {
@@ -524,6 +680,11 @@ pub fn install(app: &AppHandle, jobs: &Arc<Jobs>) -> Arc<RequestsService> {
     let service = Arc::new(RequestsService::new(Arc::new(AppJobs(jobs.clone()))));
     app.manage(service.clone());
     jobs.set_request_sender(Arc::new(GeneralSender(service.clone())));
+    jobs.add_extension(Arc::new(RequestCli {
+        app: app.clone(),
+        jobs: jobs.clone(),
+        service: service.clone(),
+    }));
     jobs.observe(Arc::new(JobEnd {
         app: app.clone(),
         service: service.clone(),
@@ -935,136 +1096,6 @@ mod tests {
             .is_err());
     }
 
-    /// A `proposal.md` of the Draft Chat writes (or of a job when `chat_writing` is `false`) that
-    /// names `request`, with `status`.
-    fn proposal(f: &Fixture, status: &str, chat_writing: bool, request: &str) {
-        let writing = if chat_writing { "chatWriting: true\n" } else { "" };
-        put(
-            f.project.path(),
-            "proposals/pppppppp-cart/proposal.md",
-            &format!("---\nstatus: {status}\nkind: change\nrequest: {request}\n{writing}---\n\nBody\n"),
-        );
-    }
-
-    #[test]
-    fn a_request_the_draft_of_chat_names_is_held_and_refuses_save_send_and_discard() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal(&f, "draft", true, &id);
-        let store = RequestStore::new(f.project.path());
-
-        let view = f.service.view(P, f.project.path(), &id).unwrap();
-        assert_eq!(
-            (view.status, view.returned, view.text.as_str()),
-            (RequestStatus::HeldByChat, false, "Add a cart")
-        );
-        let listed = f.service.list_locked(P, f.project.path(), false).unwrap();
-        assert_eq!(
-            listed.requests.iter().map(|r| r.status).collect::<Vec<_>>(),
-            [RequestStatus::HeldByChat]
-        );
-
-        let error = f.service.send_locked(P, f.project.path(), &id).unwrap_err();
-        assert_eq!(error.code, ErrorCode::Refused);
-        assert!(f.jobs.started.lock().unwrap().is_empty());
-        assert!(matches!(
-            store.save(&id, "other"),
-            Err(RequestError::HeldByChat)
-        ));
-        assert!(matches!(store.discard(&id), Err(RequestError::HeldByChat)));
-        assert_eq!(store.read(&id).unwrap(), "Add a cart");
-        // Nothing was written about it: the record stays what it was.
-        assert!(!f.project.path().join(".weaver/requests/.state.json").exists());
-    }
-
-    #[test]
-    fn a_draft_of_a_job_does_not_hold_the_request() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal(&f, "draft", false, &id);
-        let view = f.service.view(P, f.project.path(), &id).unwrap();
-        assert_eq!(view.status, RequestStatus::Writing);
-    }
-
-    #[test]
-    fn discarding_the_draft_of_chat_makes_the_request_writable_again() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal(&f, "draft", true, &id);
-        assert_eq!(
-            f.service.view(P, f.project.path(), &id).unwrap().status,
-            RequestStatus::HeldByChat
-        );
-
-        proposal(&f, "discarded", true, &id);
-        let view = f.service.view(P, f.project.path(), &id).unwrap();
-        // The job did not end: there is no "job ended" banner.
-        assert_eq!((view.status, view.returned), (RequestStatus::Writing, false));
-        RequestStore::new(f.project.path())
-            .save(&id, "Add a cart and a wishlist")
-            .unwrap();
-        assert!(f
-            .service
-            .send_locked(P, f.project.path(), &id)
-            .unwrap()
-            .is_some());
-    }
-
-    #[test]
-    fn handing_over_the_draft_of_chat_consumes_the_request_it_held() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal(&f, "draft", true, &id);
-        // The hand-over: the Proposal is Open and `chatWriting` is gone; the call reads
-        // `chatWriting` before it happens.
-        proposal(&f, "open", false, &id);
-        proposal_submitted(f.project.path(), &id, true);
-
-        let store = RequestStore::new(f.project.path());
-        assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
-        assert!(!f
-            .project
-            .path()
-            .join(format!(".weaver/requests/{id}.md"))
-            .exists());
-        assert!(f
-            .service
-            .list_locked(P, f.project.path(), false)
-            .unwrap()
-            .requests
-            .is_empty());
-    }
-
-    #[test]
-    fn a_request_being_written_is_not_consumed_by_a_proposal_that_is_not_from_chat() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal_submitted(f.project.path(), &id, false);
-        assert_eq!(
-            RequestStore::new(f.project.path()).state_of(&id).unwrap(),
-            RequestState::Writing
-        );
-    }
-
-    #[test]
-    fn a_held_request_deleted_from_outside_is_discarded() {
-        let f = fixture(true);
-        let id = written(&f, "Add a cart");
-        proposal(&f, "draft", true, &id);
-        fs::remove_file(f.project.path().join(format!(".weaver/requests/{id}.md"))).unwrap();
-        assert_eq!(
-            RequestStore::new(f.project.path()).state_of(&id).unwrap(),
-            RequestState::Discarded
-        );
-        assert!(f
-            .service
-            .list_locked(P, f.project.path(), false)
-            .unwrap()
-            .requests
-            .is_empty());
-        assert!(f.service.view(P, f.project.path(), &id).is_err());
-    }
-
     #[test]
     fn a_refused_job_leaves_the_request_being_written() {
         let f = fixture(true);
@@ -1155,7 +1186,7 @@ mod tests {
             .send_locked(P, f.project.path(), &id)
             .unwrap()
             .unwrap();
-        proposal_submitted(f.project.path(), &id, false);
+        proposal_submitted(f.project.path(), &id);
         let store = RequestStore::new(f.project.path());
         assert_eq!(store.state().unwrap().consumed, std::slice::from_ref(&id));
         assert!(!f
@@ -1178,7 +1209,7 @@ mod tests {
             .is_empty());
         assert!(f.service.view(P, f.project.path(), &id).is_err());
         // A second Proposal changes nothing.
-        proposal_submitted(f.project.path(), &id, false);
+        proposal_submitted(f.project.path(), &id);
         assert_eq!(store.state().unwrap().consumed, [id]);
     }
 
@@ -1241,6 +1272,149 @@ mod tests {
         assert!(sender.send(P, f.project.path(), "../x").is_err());
     }
 
+    fn at(text: &str) -> LocalTime {
+        LocalTime::parse(text).unwrap()
+    }
+
+    #[test]
+    fn the_agent_of_chat_sends_a_request_that_is_one_like_the_others() {
+        let f = fixture(true);
+        let root = f.project.path();
+        let image = ProjectImage::load(root);
+        *f.jobs.assets.lock().unwrap() = vec!["logo.png".to_owned()];
+        let sent = f
+            .service
+            .agent_send_locked(
+                P,
+                root,
+                &image,
+                "# Carts\r\n\r\nAdd carts, see @logo.png",
+                &at("2026-11-02T09:30:00"),
+            )
+            .unwrap();
+        assert_eq!(sent.request, A);
+        assert_eq!(sent.title, "Carts");
+        assert_eq!(sent.kind, "design");
+        assert!(sent.job.id.starts_with("job"));
+        assert_eq!(
+            f.jobs.started.lock().unwrap().as_slice(),
+            [Job::Design {
+                request: A.to_owned(),
+                assets: vec!["logo.png".to_owned()],
+            }]
+        );
+        // The file is the text as given, with LF and one final newline, and no images folder.
+        let folder = root.join(".weaver/requests");
+        assert_eq!(
+            fs::read_to_string(folder.join(format!("{A}.md"))).unwrap(),
+            "# Carts\n\nAdd carts, see @logo.png\n"
+        );
+        assert!(!folder.join(format!("{A}.images")).exists());
+        // It is recorded as sent with its job, and the editor shows it as any sent request.
+        let store = RequestStore::new(root);
+        assert_eq!(
+            store.state().unwrap().sent.get(A).map(String::as_str),
+            Some(sent.job.id.as_str())
+        );
+        let view = f.service.view(P, root, A).unwrap();
+        assert_eq!(view.status, RequestStatus::Sent);
+        assert_eq!(view.job_id.as_deref(), Some(sent.job.id.as_str()));
+        // The developer cannot send it again.
+        assert!(f.service.send_locked(P, root, A).is_err());
+    }
+
+    #[test]
+    fn the_agent_of_chat_starts_a_setup_job_while_the_model_is_empty() {
+        let f = fixture(false);
+        let root = f.project.path();
+        let sent = f
+            .service
+            .agent_send_locked(
+                P,
+                root,
+                &ProjectImage::load(root),
+                "Build a shop",
+                &at("2026-11-02T09:30:00"),
+            )
+            .unwrap();
+        assert_eq!(sent.kind, "setup");
+        assert_eq!(
+            f.jobs.started.lock().unwrap().as_slice(),
+            [Job::Setup {
+                request: A.to_owned(),
+                assets: Vec::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_refused_job_of_the_agent_of_chat_leaves_no_request_and_no_record() {
+        let f = fixture(true);
+        let root = f.project.path();
+        *f.jobs.refuse.lock().unwrap() =
+            Some("Could not send the request: omp is not ready.".to_owned());
+        let refusal = f
+            .service
+            .agent_send_locked(
+                P,
+                root,
+                &ProjectImage::load(root),
+                "Add carts",
+                &at("2026-11-02T09:30:00"),
+            )
+            .unwrap_err();
+        assert_eq!(refusal.kind, "design");
+        assert_eq!(refusal.reason(), "omp is not ready");
+        let folder = root.join(".weaver/requests");
+        assert!(!folder.join(format!("{A}.md")).exists());
+        assert!(!folder.join(".state.json").exists());
+        assert!(RequestStore::new(root).list().unwrap().is_empty());
+        assert!(f.jobs.started.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_text_with_nothing_in_it_starts_nothing_and_writes_nothing() {
+        let f = fixture(true);
+        let root = f.project.path();
+        let refusal = f
+            .service
+            .agent_send_locked(
+                P,
+                root,
+                &ProjectImage::load(root),
+                "  \n ",
+                &at("2026-11-02T09:30:00"),
+            )
+            .unwrap_err();
+        assert!(refusal.message.contains("empty"));
+        assert!(!root.join(".weaver/requests").exists());
+        assert!(f.jobs.started.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn two_requests_of_the_same_second_get_different_ids() {
+        let f = fixture(true);
+        let root = f.project.path();
+        let now = at("2026-11-02T09:30:00");
+        let first = f
+            .service
+            .agent_send_locked(P, root, &ProjectImage::load(root), "One", &now)
+            .unwrap();
+        let second = f
+            .service
+            .agent_send_locked(P, root, &ProjectImage::load(root), "Two", &now)
+            .unwrap();
+        assert_eq!(first.request, A);
+        assert_eq!(second.request, format!("{A}-2"));
+    }
+
+    #[test]
+    fn the_local_time_names_a_valid_request() {
+        let now = local_now();
+        assert!(LocalTime::parse(&now.iso()).is_some());
+        assert!(now.year >= 2026);
+    }
+
     #[test]
     fn a_batch_touches_the_requests_only_when_it_names_their_folder() {
         let root = Path::new("/p");
@@ -1258,23 +1432,11 @@ mod tests {
             root,
             &Rebuild::Paths(vec!["/p/.weaver/requests-old/a.md".into()])
         ));
-        // A Draft of Chat that names a request holds it: its `proposal.md` (and its folder) count,
-        // what else a Proposal holds does not.
-        for named in [
+        // The Proposals do not hold a request: none of their files counts.
+        for other in [
             "/p/.weaver/proposals/pppppppp-cart/proposal.md",
             "/p/.weaver/proposals/pppppppp-cart",
             "/p/.weaver/proposals",
-        ] {
-            assert!(
-                touches_requests(root, &Rebuild::Paths(vec![named.into()])),
-                "{named}"
-            );
-        }
-        for other in [
-            "/p/.weaver/proposals/pppppppp-cart/tasks/a.md",
-            "/p/.weaver/proposals/pppppppp-cart/model/shop/feature.md",
-            "/p/.weaver/proposals/pppppppp-cart/notes.md",
-            "/p/.weaver/proposals-old/pppppppp-cart/proposal.md",
         ] {
             assert!(
                 !touches_requests(root, &Rebuild::Paths(vec![other.into()])),

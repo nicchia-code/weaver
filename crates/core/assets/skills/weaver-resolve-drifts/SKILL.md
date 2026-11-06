@@ -1,6 +1,6 @@
 ---
 name: weaver-resolve-drifts
-description: Use when the instruction asks to resolve a Drift of a project with a `.weaver/` folder, to rework a rejected resolution, when Chat's instruction sends you here on the developer's explicit order to resolve open Drifts, or when a skill sends you here to prepare the question of a Drift. Asks the developer one question per Drift (from Chat, the conversation stands for it), then opens the resolution Proposal from the answer.
+description: Use only when the instruction of a Weaver job asks to resolve a Drift of a project with a `.weaver/` folder, to rework a rejected resolution, or to prepare the question of a Drift (also when a skill sends you here for it). Asks the developer one question per Drift, then opens the resolution Proposal from the answer. Never in a conversation that is not a job (Chat, Ask more).
 ---
 
 # Weaver: resolve Drifts
@@ -17,6 +17,7 @@ Announce a Proposal as soon as you know you will write it: `weaver announcement 
 
 ## Hard rules
 
+- This skill runs only when the instruction of a Weaver job names it. Without that instruction (Chat, Ask more, or any other conversation that is not a job) do not follow it, announce nothing, ask no round and open no Proposal. In Chat a Proposal starts as a design request sent with `weaver request new`.
 - NEVER edit `.weaver/model/` or `.weaver/requirements/` directly, nor the generated `weaver-req-*` skills. Every change goes through a Proposal.
 - Agents may approve, reject or discard a Proposal, decide a Drift or delete a Task in To do (`weaver task delete`) only when the developer explicitly asks for that decision in the conversation. Without that request, do not decide and do not ask the developer about it: stop and tell them the decision is theirs, on the Board. A request to prepare a resolution does not by itself authorise any of them.
 - NEVER change the code of the project, and never create Tasks: approving the resolution creates the Task of each Drift to be fixed in the code.
@@ -42,15 +43,6 @@ When the instruction asks for a language, the texts listed below go in that lang
 - **Always in English**, whatever the language: the whole Model (the name of the System; the names of Features, Machines, Actors and States; IDs and Event names; the descriptions in Model files); the Requirements (Areas, titles and bodies of fragments); the Specs, also their `notes`; code and its comments, commit messages and the project's own documentation; the headers Weaver reads in files (`States`, `Events`, `General`, `What happens`, `What should happen`, `Where in the code`, `Fix options`, `Already present`), the `(initial)` and `(final)` markers and the front matter fields; technical terms (commands and tools such as `git pull` or `npm install`, names of products, services, libraries and languages) and Weaver's own terms (Proposal, Task, Drift, Board, Run, Scan). Weaver's interface and the `weaver` command line stay in English.
 - **A language changes nothing already written.** When you edit a file written in another language, keep its existing text and write only the new or rewritten text in the chosen language; never translate the whole file.
 - **No first person in Weaver's texts.** In what you write for Weaver (questions, contexts and options of rounds, titles and bodies of Proposals, Tasks and Drifts, History entries), Weaver is always "Weaver" and you are "the agent": no first-person pronouns or first-person verbs, in any language. Your replies in the conversation are not Weaver's texts and do not change. Text already written is not rewritten.
-
-## Writing from Chat
-
-This section applies when Chat's instruction sends you to this skill on the developer's explicit order to resolve open Drifts. Without that instruction, skip it. It replaces the round of questions and the announcement of the Steps; the rest of the Steps holds.
-
-- **The conversation stands for the round.** What the developer and you agreed in it counts as decided and is not asked again. A decision still open is asked in your reply, or with one round of `weaver question new` (see "Asking") only when the developer asked to be asked that way. Whether to bind the images of a request goes the same way.
-- **No announcement and no job note.** Open the resolution at once with `weaver proposal new --input -`. Pass `request` only when the developer named a request that is not sent, and `reworks` only when the developer named a rejected Proposal.
-- **Then follow the Steps:** the decisions (step 4), the files of the `proposal` decisions (step 5), the check (step 6) and the hand-over (step 7). A contradiction found while writing is asked as above.
-- **After the hand-over,** summarise the Proposal in a few lines and stop. Decide nothing, unless the developer explicitly asks for that decision: approving the resolution, resolving a Drift or rejecting a Proposal stays the developer's.
 
 ## Steps
 

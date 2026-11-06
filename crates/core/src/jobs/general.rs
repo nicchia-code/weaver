@@ -89,7 +89,8 @@ pub enum Event {
     PermissionRequested(RequestId),
     /// `developer.ANSWER_PERMISSION`.
     PermissionAnswered(RequestId),
-    /// `agent.START_JOB`: a job was started (or refused) on the developer's request.
+    /// `agent.START_JOB` or `agent.SEND_REQUEST`: a job was started (or refused) on the developer's
+    /// explicit request, the request of Chat included; either stays in the same state.
     StartJob,
     /// `omp.TURN_ENDED`.
     TurnEnded,
@@ -600,7 +601,8 @@ pub fn clean_language(language: Option<&str>) -> Option<&str> {
 
 /// The sentence the fixed text adds to the one of the context sharing: with no skill loaded there
 /// is no section to read, and the agent passes on what it already read all the same.
-const NO_SKILL_SENTENCE: &str = "With no skill loaded, pass each sub-agent what you have already read that concerns its part.";
+const NO_SKILL_SENTENCE: &str =
+    "With no skill loaded, pass each sub-agent what you have already read that concerns its part.";
 
 /// The instruction of Chat's agent, appended to omp's system prompt (`requirements/rules#general-chat`):
 /// the fixed text, then the lines the Settings of this start add, in this order: the sub-agent
@@ -616,7 +618,9 @@ pub fn instruction(max_agents: u32, language: Option<&str>) -> String {
     text.push_str(NO_SKILL_SENTENCE);
     text.push('\n');
     if let Some(language) = clean_language(language) {
-        text.push_str(&format!("Write the texts for the developer in {language}.\n"));
+        text.push_str(&format!(
+            "Write the texts for the developer in {language}.\n"
+        ));
     }
     text
 }
@@ -629,7 +633,7 @@ This is Chat, the brainstorming conversation of a developer with the agent about
 - Read freely whatever is needed to reason: the project's files, the `weaver` commands that only read, and the Requirement skills `weaver-req-*`.
 - Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.
 - Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.
-- On an explicit order to write an ordinary change Proposal, load `weaver-design` and follow its section for Chat. On an explicit order to resolve open Drifts with a resolution, load `weaver-resolve-drifts` and follow its section for Chat. Write no setup or import Proposal. Never load or follow another skill of Weaver's jobs (`weaver-setup`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-conflicts`), except to read the writing rules named in the next point.
+- On an explicit order to write a Proposal, write none: write a design request with what the developer and the agent agreed on and send it with `weaver request new`, as its `--help` says, so that the design job (a setup job when the Model is empty) explores, asks its question rounds and hands the Proposal over. The request is self-contained, since the job sees only the request and not the conversation: an H1 with a short title, then what to add or change, every decision agreed and the alternatives discussed, with the developer's choice for each, and permanent identities only, never short numbers. On an explicit order to resolve open Drifts, start one Resolve job per Drift with `weaver job new`. Never write or change a Proposal (`weaver proposal new`, `weaver proposal edit` and `weaver proposal move <id> open` are refused here), and never load or follow a skill of Weaver's jobs (`weaver-setup`, `weaver-design`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-drifts`, `weaver-resolve-conflicts`), except to read the writing rules named in the next point. Tell the developer which job the request started and do not wait for it to end; when Weaver refuses it, tell the reason from the output of the command and do not write the Proposal in another way.
 - On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says, writing the Task self-contained as `weaver-design` says for Tasks and the Drift as `weaver-compare` says for a Drift.
 - Take a decision of the developer (approving, rejecting or discarding a Proposal, deciding a Drift, deleting a Task in To do) only when the developer explicitly asks for that decision in this conversation.
 - Ask the developer in the reply, in plain text, and wait for the answer. Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.
@@ -1385,7 +1389,7 @@ mod tests {
             "Read freely whatever is needed",
             "Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.",
             "Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.",
-            "load `weaver-design` and follow its section for Chat",
+            "On an explicit order to write a Proposal, write none: write a design request with what the developer and the agent agreed on and send it with `weaver request new`, as its `--help` says",
             "On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says",
             "Take a decision of the developer",
             "Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.",
@@ -1399,19 +1403,29 @@ mod tests {
                 .unwrap_or_else(|| panic!("{point:?} is missing or out of order in {plain}"));
             from += at + point.len();
         }
-        // Point 5 names both skills and the ones that stay out.
-        assert!(plain.contains("load `weaver-resolve-drifts` and follow its section for Chat"));
-        assert!(plain.contains("Write no setup or import Proposal."));
+        // Point 5 sends a self-contained request and starts a Resolve job per Drift, never writes a
+        // Proposal and names every skill of the jobs as out of reach.
+        assert!(plain.contains("an H1 with a short title"));
+        assert!(plain.contains("permanent identities only, never short numbers"));
+        assert!(plain.contains("start one Resolve job per Drift with `weaver job new`"));
+        assert!(plain.contains("Never write or change a Proposal (`weaver proposal new`, `weaver proposal edit` and `weaver proposal move <id> open` are refused here)"));
+        assert!(plain.contains("do not write the Proposal in another way"));
         for skill in [
             "weaver-setup",
+            "weaver-design",
             "weaver-import",
             "weaver-scan",
             "weaver-compare",
             "weaver-implement",
+            "weaver-resolve-drifts",
             "weaver-resolve-conflicts",
         ] {
             assert!(plain.contains(&format!("`{skill}`")), "{skill}");
         }
+        assert!(
+            !plain.contains("section for Chat"),
+            "no skill is followed for Proposals"
+        );
 
         // After the fixed text, the lines of the Settings, in order, with the language only when set.
         let lines = "Run at most 4 sub-agents at once.\n\
@@ -1429,8 +1443,9 @@ mod tests {
             plain,
             "a language with a control character adds nothing"
         );
-        assert!(instruction(4, Some(" Italian "))
-            .ends_with(&format!("{lines}Write the texts for the developer in Italian.\n")));
+        assert!(instruction(4, Some(" Italian ")).ends_with(&format!(
+            "{lines}Write the texts for the developer in Italian.\n"
+        )));
         assert!(instruction(7, None).ends_with(&format!(
             "\nRun at most 7 sub-agents at once.\n{}",
             lines.split_once('\n').unwrap().1

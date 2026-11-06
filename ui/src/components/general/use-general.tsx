@@ -24,8 +24,6 @@ export function generalSubAgentsApi(projectId: string): SubAgentsApi {
 export interface GeneralData {
   /** `null` until the backend answered. */
   state: GeneralState | null;
-  /** The Drafts the agent of Chat created that Clear discards (`chat: true`). */
-  chatDrafts: number;
   entries: readonly Entry[];
   /** A command the backend refused: the text to show, `null` once the developer sends again. */
   problem: string | null;
@@ -33,21 +31,17 @@ export interface GeneralData {
   stop: () => void;
   answer: (request: number, option: string) => void;
   clear: () => void;
-  /** Reads the count of Drafts again: it moves with the Proposals, not with the conversation. */
-  refreshDrafts: () => void;
 }
 
 /** The conversation of the General of a project: the snapshot, then the batches of changes after it. */
 export function useGeneral(projectId: string): GeneralData {
   const [state, setState] = useState<GeneralState | null>(null);
-  const [chatDrafts, setChatDrafts] = useState(0);
   const [entries, setEntries] = useState<readonly Entry[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
     setState(null);
-    setChatDrafts(0);
     setEntries([]);
     seq.current = 0;
     let alive = true;
@@ -60,7 +54,6 @@ export function useGeneral(projectId: string): GeneralData {
           if (!alive || snapshot.state.projectId !== projectId) return;
           seq.current = snapshot.seq;
           setEntries(snapshot.entries);
-          setChatDrafts(snapshot.chatDrafts);
           if (stateEvents === seen) setState(snapshot.state);
         })
         .catch(() => {});
@@ -110,15 +103,8 @@ export function useGeneral(projectId: string): GeneralData {
     [projectId, run],
   );
   const clear = useCallback(() => run(call("general_clear", { projectId })), [projectId, run]);
-  const refreshDrafts = useCallback(() => {
-    call("general_snapshot", { projectId })
-      .then((snapshot: GeneralSnapshot) => {
-        if (snapshot.state.projectId === projectId) setChatDrafts(snapshot.chatDrafts);
-      })
-      .catch(() => {});
-  }, [projectId]);
 
-  return { state, chatDrafts, entries, problem, send, stop, answer, clear, refreshDrafts };
+  return { state, entries, problem, send, stop, answer, clear };
 }
 
 /** Whether the Chat of a project waits for the answers of its round: the sidebar's `1` on the Chat entry. */

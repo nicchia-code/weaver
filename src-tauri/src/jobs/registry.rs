@@ -433,14 +433,6 @@ impl Jobs {
             .host
             .picture(project_id)
             .is_some_and(|(root, _)| weaver_core::solo_merge::in_progress(&root));
-        // Asked before the registry is locked: Chat holds its own lock when it answers.
-        let chat_working = self
-            .hooks
-            .general
-            .read()
-            .expect("hooks poisoned")
-            .as_ref()
-            .is_some_and(|general| general.chat_working(project_id));
         let inner = self.lock();
         let active = inner
             .jobs
@@ -449,7 +441,6 @@ impl Jobs {
         let mut facts = AgentFacts {
             done_since_last_scan: inner.done_since_scan.get(project_id).copied().unwrap_or(0),
             merge_in_progress: merging,
-            chat_working,
             ..AgentFacts::default()
         };
         for live in active {
@@ -460,11 +451,6 @@ impl Jobs {
             if live.record.kind == JobKind::Resolve {
                 facts
                     .resolving_drifts
-                    .extend(live.record.target.iter().cloned());
-            }
-            if live.record.kind == JobKind::Rework {
-                facts
-                    .reworking_proposals
                     .extend(live.record.target.iter().cloned());
             }
         }
@@ -897,7 +883,10 @@ impl Jobs {
                 return;
             };
             if let Err(error) = measure::append(&root, &line) {
-                log_warn!("the measure of job {} could not be written: {error}", record.id);
+                log_warn!(
+                    "the measure of job {} could not be written: {error}",
+                    record.id
+                );
             }
         });
     }

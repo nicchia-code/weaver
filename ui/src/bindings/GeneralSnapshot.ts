@@ -5,9 +5,4 @@ import type { GeneralState } from "./GeneralState";
 /**
  * The conversation as it is now, with the count of change batches it holds.
  */
-export type GeneralSnapshot = { state: GeneralState, 
-/**
- * The Draft Proposals the agent of Chat created that `Clear` discards (`chat: true`, not
- * refined): the Clear dialog says how many.
- */
-chatDrafts: number, seq: number, entries: Array<Entry>, };
+export type GeneralSnapshot = { state: GeneralState, seq: number, entries: Array<Entry>, };

@@ -17,7 +17,7 @@
   - at the bottom-left, kept apart from the top group by the free space between them: Usage, then Settings, the last entry.
 - The selected entry is the view shown on the right; switching entries keeps the state of every view (focus, overlay, scroll), except the File view, which closes when another entry is chosen (`requirements/ui#file-view`), and the Assets view, which forgets its selection (`requirements/ui#asset-view`). Usage is not a view: it opens the Usage dialog (`requirements/ui#usage`) over the view shown, is never the selected entry and never carries `aria-current`.
 - Below a window width of 1024 px the sidebar shows icons only, 56 px wide, and then each entry, Usage and Settings included, gets its name as tooltip.
-- The Board entry shows the number of real cards in Backlog, without the Draft cards of Chat; the Jobs entry shows the number of jobs waiting for the developer, in the warning colour (amber); the Chat entry shows `1` in the same colour while Chat waits for the answers of its round. No number is shown when it is 0.
+- The Board entry shows the number of real cards in Backlog; the Jobs entry shows the number of jobs waiting for the developer, in the warning colour (amber); the Chat entry shows `1` in the same colour while Chat waits for the answers of its round. No number is shown when it is 0.
 - The minimum size of a project window is the one in `requirements/tech#window` (960 × 600 px); its size and position are remembered per project.
 
 ### View header

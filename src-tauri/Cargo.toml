@@ -33,6 +33,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 notify = "8"
+# The local time of the computer, which names a request the agent of Chat sends (`requests`).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Starts a native drag of assets out of a window (`assets::drag`); never through `tauri-plugin-drag`.
 drag = "2.1"
 thiserror.workspace = true

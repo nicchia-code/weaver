@@ -351,13 +351,13 @@ mod tests {
         }
     }
 
-    /// The `proposal.md` that `proposal new` wrote for a caller carrying `general`.
+    /// The answer to `proposal new` for a caller carrying `general`.
     fn proposal_new_from(
         f: &Fixture,
         queues: &MutationQueues,
         authority: &Arc<dyn Authority + Send + Sync>,
         general: Option<&str>,
-    ) -> String {
+    ) -> Response {
         let mut request = request(
             &f.root,
             None,
@@ -370,20 +370,11 @@ mod tests {
         let mut command: CommandRequest = serde_json::from_value(request.payload).unwrap();
         command.general = general.map(Into::into);
         request.payload = serde_json::to_value(command).unwrap();
-        let response = handle(queues, authority, request);
-        assert!(response.error.is_none(), "{:?}", response.error);
-        let reply: CommandReply = serde_json::from_value(response.payload).unwrap();
-        let id = reply.json["id"].as_str().unwrap().to_owned();
-        let folder = fs::read_dir(f.root.join(".weaver/proposals"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .find(|path| path.file_name().unwrap().to_string_lossy().starts_with(&id))
-            .unwrap();
-        fs::read_to_string(folder.join("proposal.md")).unwrap()
+        handle(queues, authority, request)
     }
 
     #[test]
-    fn the_chat_is_the_caller_only_when_the_authority_recognises_its_identity() {
+    fn the_chat_identity_cannot_write_a_proposal_whether_or_not_the_app_recognises_it() {
         let f = fixture();
         let queues = MutationQueues::new(f.dirs.clone());
         handle(
@@ -392,18 +383,26 @@ mod tests {
             request(&f.root, None, "project", "new", None, None, json!({})),
         );
         let chat: Arc<dyn Authority + Send + Sync> = Arc::new(OneChat);
-        // Recognised: the Draft is the Chat's, marked as created and written by it.
-        let text = proposal_new_from(&f, &queues, &chat, Some("chattoken"));
-        assert!(text.contains("chat: true\nchatWriting: true\n"), "{text}");
-        // An identity the app does not recognise counts as none, and so does no app at all.
         for (authority, general) in [
+            (&chat, Some("chattoken")),
             (&chat, Some("forged")),
-            (&chat, None),
             (&nobody(), Some("chattoken")),
         ] {
-            let text = proposal_new_from(&f, &queues, authority, general);
-            assert!(!text.contains("chat"), "{general:?}: {text}");
+            let error = proposal_new_from(&f, &queues, authority, general)
+                .error
+                .unwrap();
+            assert_eq!(error.code, code::REFUSED, "{general:?}");
+            assert!(
+                error.message.contains("Chat does not write Proposals"),
+                "{general:?}: {}",
+                error.message
+            );
+            assert!(!f.root.join(".weaver/proposals").exists());
         }
+        // Without the identity of Chat the same call writes the Draft.
+        let response = proposal_new_from(&f, &queues, &chat, None);
+        assert!(response.error.is_none(), "{:?}", response.error);
+        assert!(f.root.join(".weaver/proposals").is_dir());
     }
 
     #[test]

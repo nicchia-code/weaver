@@ -324,48 +324,6 @@ describe("the request editor", () => {
     expect(openJob).toHaveBeenCalledWith("jjjjjjjj");
   });
 
-  describe("held by Chat", () => {
-    const held = { text: "# Cart\nA cart.", status: "held-by-chat" } as const;
-
-    it("is listed with the Chat badge, read-only, with a banner and Open Chat, without Send, Discard or the text", async () => {
-      await mount(held);
-      expect(screen.getByText("Chat is writing a Proposal from this request")).toBeInTheDocument();
-      expect(screen.getByText("Chat")).toBeInTheDocument();
-      expect(screen.queryByText("Draft")).toBeNull();
-      expect(screen.queryByText("Sent")).toBeNull();
-      expect(screen.queryByRole("combobox", { name: "Request text" })).toBeNull();
-      for (const name of ["Send", "Discard", "Preview"]) {
-        expect(screen.queryByRole("button", { name })).toBeNull();
-      }
-      expect(screen.getByText("A cart.")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Open Chat" }));
-      expect(showView).toHaveBeenCalledWith("general");
-    });
-
-    it("writes and sends nothing, not even with Ctrl+Enter or when the window closes", async () => {
-      await mount(held);
-      fireEvent.keyDown(document.body, { key: "Enter", ctrlKey: true });
-      await act(async () => handlers.get("requests-flush")?.({ projectId: PROJECT }));
-      await settle();
-      await wait(1000);
-      expect(saves()).toHaveLength(0);
-      expect(vi.mocked(call).mock.calls.some(([name]) => name === "request_send")).toBe(false);
-    });
-
-    it("is editable again, with no banner, once the draft of Chat is discarded", async () => {
-      await mount(held);
-      fake.status = "writing";
-      await act(async () => handlers.get("requests-changed")?.({ projectId: PROJECT }));
-      await settle();
-      expect(area()).toHaveValue("# Cart\nA cart.");
-      expect(screen.queryByText("Chat is writing a Proposal from this request")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Open Chat" })).toBeNull();
-      expect(screen.getByText("Draft")).toBeInTheDocument();
-      expect(screen.queryByText("The job ended without a Proposal. Change the request and send it again.")).toBeNull();
-      expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
-    });
-  });
-
   it("says the job ended without a Proposal when the request is back in writing", async () => {
     await mount({ text: "Add a cart", returned: true });
     expect(screen.getByText("The job ended without a Proposal. Change the request and send it again.")).toBeInTheDocument();

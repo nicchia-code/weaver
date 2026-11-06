@@ -51,7 +51,7 @@ mod tests {
     use super::*;
 
     /// The objects and verbs of `requirements/cli#General`.
-    const TABLE: [(&str, &[&str]); 9] = [
+    const TABLE: [(&str, &[&str]); 10] = [
         ("model", &["show", "list", "check"]),
         ("project", &["new", "edit", "show"]),
         ("proposal", &["new", "show", "list", "edit", "move"]),
@@ -61,6 +61,7 @@ mod tests {
         ("announcement", &["new"]),
         ("job", &["new", "show", "list", "edit"]),
         ("question", &["new"]),
+        ("request", &["new"]),
     ];
 
     #[test]
