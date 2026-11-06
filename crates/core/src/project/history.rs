@@ -366,6 +366,9 @@ pub struct Planned {
     pub file: String,
     /// The Tasks cited for the first time (`history-entry.TASKS_CITED`).
     pub cited: Vec<String>,
+    /// The Tasks the write adds to the entry: every Task of a new entry, and for an edit the Tasks
+    /// it names that the entry did not cite.
+    pub added: Vec<String>,
     /// The Tasks now recorded: copy written, file deleted.
     pub recorded: Vec<String>,
     /// The cited Tasks that stay, with the reason.
@@ -506,6 +509,7 @@ fn finish(
     title: String,
     file: String,
     cited: Vec<String>,
+    added: Vec<String>,
 ) -> Planned {
     let after = image.with_changes(&changes);
     let clear = plan_clear(&after);
@@ -521,6 +525,7 @@ fn finish(
         title,
         file,
         cited,
+        added,
         recorded: clear.recorded,
         kept: clear.kept,
     }
@@ -558,7 +563,7 @@ pub fn plan_new(
     let mut changes = ChangeSet::new();
     changes.write(&file, render_entry(&front, &title, body.unwrap_or("")));
     let first_time = first_time(image, &cited);
-    Ok(finish(image, changes, id, title, file, first_time))
+    Ok(finish(image, changes, id, title, file, first_time, cited))
 }
 
 /// The tasks of `ids` that no entry cites yet.
@@ -617,6 +622,7 @@ pub fn plan_edit(
             new_title,
             entry.path,
             first_time,
+            added,
         ));
     }
     let now = now_instant(clock).map_err(|e| vec![Problem::new("clock", e.to_string())])?;
@@ -633,6 +639,7 @@ pub fn plan_edit(
         new_title,
         entry.path,
         first_time,
+        added,
     ))
 }
 

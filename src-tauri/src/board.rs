@@ -83,6 +83,8 @@ pub enum ProposalStanding {
     Refining,
     /// A Draft a refinement left half-way.
     Interrupted,
+    /// A Draft the agent of Chat is writing: `Open Chat` and `Discard` only.
+    ChatDraft,
 }
 
 impl From<ProposalState> for ProposalStanding {
@@ -91,6 +93,7 @@ impl From<ProposalState> for ProposalStanding {
             ProposalState::Open => ProposalStanding::Open,
             ProposalState::Refining => ProposalStanding::Refining,
             ProposalState::Interrupted => ProposalStanding::Interrupted,
+            ProposalState::ChatDraft => ProposalStanding::ChatDraft,
         }
     }
 }
@@ -617,5 +620,54 @@ mod tests {
             board.warnings[0]
         );
         assert!(board.active.is_empty(), "a Done Task is never on the Board");
+    }
+
+    #[test]
+    fn a_draft_the_chat_writes_is_a_card_that_is_finishing_while_a_turn_of_chat_works() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "proposals/pppppppp-idea/proposal.md",
+            "---\nstatus: draft\nkind: change\nchat: true\nchatWriting: true\ncreated: 2026-11-02T07:00:00.000Z\n---\n# Idea\n\nWhy.\n",
+        );
+        write(
+            dir.path(),
+            "proposals/qqqqqqqq-other/proposal.md",
+            "---\nstatus: draft\nkind: change\ncreated: 2026-11-02T07:00:01.000Z\n---\n# Other\n",
+        );
+        let image = ProjectImage::load(dir.path());
+        let at = |facts: &AgentFacts| {
+            snapshot(
+                "0123456789abcdef",
+                1,
+                dir.path(),
+                &image,
+                facts,
+                Vec::new(),
+                &ProposalModels::default(),
+            )
+        };
+
+        let idle = at(&AgentFacts::default());
+        let [BoardCard::Proposal { head, standing, view, .. }] = idle.backlog.as_slice() else {
+            panic!("{:?}", idle.backlog)
+        };
+        assert_eq!(head.id, "pppppppp");
+        assert_eq!(*standing, ProposalStanding::ChatDraft);
+        assert!(!head.agent_finishing && view.reject_reasons.is_empty());
+        assert_eq!(
+            serde_json::to_value(&idle).unwrap()["backlog"][0]["standing"],
+            "chat-draft"
+        );
+
+        let turn = at(&AgentFacts {
+            chat_working: true,
+            ..AgentFacts::default()
+        });
+        let [BoardCard::Proposal { head, view, .. }] = turn.backlog.as_slice() else {
+            panic!("{:?}", turn.backlog)
+        };
+        assert!(head.agent_finishing);
+        assert_eq!(view.reject_reasons, ["The agent is still finishing"]);
     }
 }

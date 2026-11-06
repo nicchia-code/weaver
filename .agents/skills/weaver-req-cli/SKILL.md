@@ -32,10 +32,26 @@ question      new
 - Reads run in the CLI process. A writing command goes to the running app (found through `WEAVER_ENDPOINT` or the app's runtime record, `requirements/tech#General`), which runs it in the project's queue with the app's checks; when no app answers, the CLI runs it itself under the project lock. Commands that need the app then fail with exit 1 saying Weaver is not running.
 - `model show <ref>`, `model list {text?}` and `model check` are read-only; `check` exits 1 on errors, not on warnings (a fragment over 12,288 bytes).
 
+## Agent commands
+
+Use when changing the `weaver` commands of agents in jobs, Chat and Ask more: question rounds, announcements, notes, job starts and who may run what.
+
+Sections: `question-round`, `job`, `agent`
+
+File: `agent-commands.md`
+
 ## weaver commands
 
 Use when adding or changing a `weaver` command, its input, output, help or its link with the app.
 
-Sections: `General`, `project`, `proposal`, `task`, `drift`, `history-entry`, `question-round`, `job`, `agent`
+Sections: `General`, `project`, `proposal`, `task`, `drift`
 
 File: `commands.md`
+
+## weaver history commands
+
+Use when adding or changing the `weaver history` commands, their input with the files and message of a commit, or their output.
+
+Sections: `history-entry`
+
+File: `history.md`

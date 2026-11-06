@@ -1,11 +1,11 @@
 # Question round
 
-A group of related decisions the agent of a job asks the developer at once: each question with its options, a recommendation, single or multiple choice and an optional longer context, and always room for a free answer. The developer answers one question at a time, can go back to any of them, and sends the round from a summary of every answer. A round is also how Weaver itself asks the prepared question of a Drift. A round belongs to its job and its project; it never shows in another project's window, and neither Weaver nor the agent sets a time limit. Questions and answers are never written to the project.
+A group of related decisions the agent of a job, or of General when the developer asks to be asked that way, asks the developer at once: each question with its options, a recommendation, single or multiple choice and an optional longer context, and always room for a free answer. The developer answers one question at a time, can go back to any of them, and sends the round from a summary of every answer. A round is also how Weaver itself asks the prepared question of a Drift. A round belongs to its job, or to General, and to its project; it never shows in another project's window, and neither Weaver nor the agent sets a time limit. Questions and answers are never written to the project.
 
 ## States
 
 ### Not asked (initial)
-- `agent.ASK_QUESTIONS` → Unavailable: when the caller is not the agent of a working job of Weaver, or Weaver is not running.
+- `agent.ASK_QUESTIONS` → Unavailable: when the caller is neither the agent of a working job of Weaver nor the agent of the project's General during a turn, or Weaver is not running.
 - `agent.ASK_QUESTIONS` → Queued: when another round of the same project is presented.
 - `agent.ASK_QUESTIONS` → Presented: otherwise; the project's window comes to the front.
 - `developer.RESOLVE_DRIFT` → Queued: the prepared question of the Drift, when another round of the project is presented.

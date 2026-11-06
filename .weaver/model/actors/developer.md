@@ -43,6 +43,9 @@ The developer asks Weaver to export the certificate authorities his system trust
 ### CHANGE_SOLO_MODE
 The developer turns Solo mode of this working copy on, off, or to its other mode, in Settings or from the command line.
 
+### CHANGE_ATOMIC_COMMITS
+The developer turns Atomic commits of this working copy on or off in Settings.
+
 ### MERGE_BRANCH
 The developer chooses, on the Board, a branch to bring into the current branch and confirms the merge, while Solo mode is on and Merge is available.
 
@@ -122,7 +125,7 @@ The developer stops the agent of a job, of General or of an Ask more conversatio
 The developer answers a permission omp asks for: allow once, allow always, or refuse.
 
 ### CLEAR_GENERAL
-The developer starts General again from an empty conversation.
+The developer starts General again from an empty conversation; the Proposals its agent created that are still Drafts are discarded with it.
 
 ### ASK_MORE
 The developer asks an agent about one thing he is reading: a Proposal, a Task or a Drift in its details, a History entry with the Tasks it cites, the question in view of a question round, or the Requirements as a whole, from the Requirements view.

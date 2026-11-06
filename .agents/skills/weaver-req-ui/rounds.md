@@ -3,7 +3,7 @@
 ## question-round
 
 - **Overlay:** a modal Dialog over the whole window, any view, background dimmed; up to ~760 px wide and 85% of the window high, content scrolling inside. `Esc` and outside clicks do nothing. Focus is trapped and moves to the question text on each question; no transitions under reduced motion.
-- **Header:** `Questions from the agent · <job name>` (prepared Drift question: `Question about <D3> · <Drift title>`), below `Question <n> of <N>` or `Summary`; with other rounds waiting, `+<k> more round(s) waiting`. Right: `Minimize` (`Minus`) and `Close` (`X`), which opens the Skip-all confirmation.
+- **Header:** `Questions from the agent · <job name>`, `Questions from the agent · Chat` for a round of Chat (prepared Drift question: `Question about <D3> · <Drift title>`), below `Question <n> of <N>` or `Summary`; with other rounds waiting, `+<k> more round(s) waiting`. Right: `Minimize` (`Minus`) and `Close` (`X`), which opens the Skip-all confirmation.
 - **Index:** left column, one entry per question (number, one-line text with full text in the tooltip, status icon + text: `Answered`, `Skipped`, `Missing`), last entry `Summary`. Below 600 px window width: a row of numbered dots with the same accessible status.
 - **Question:** text in full, context below in muted text, both Markdown, in the agent's language; every label of the overlay is English. `Ask more` (see `ask-conversation`) sits at the top right of the question text, on its first line; it is not in the Summary, the Skip-all confirmation or the minimized bar.
 - **Options:** full-row radio (single) or checkbox (multiple) with key hint `1`–`9`, bold plain-text label, full Markdown description, `Recommended` badge; the recommended option is preselected on the first visit only. `Show details` / `Hide details`, collapsed on every visit. Clicking a selected single option clears it. A digit selects (single) or toggles (multiple); digits are inert while the textarea has focus. Arrows move within the group.
@@ -24,8 +24,8 @@
 | Permission | `<project> – <job> asks permission` | `The agent is waiting for your approval.` |
 | System Certificates turned on | `System Certificates turned on` | the text of `requirements/ui#system-certificates` |
 
-- `<project>` is the folder name, `<job>` the job's fixed name. Never any message, question, command, path, answer or card. Only the System Certificates notification names a product, and it belongs to no project.
+- `<project>` is the folder name, `<job>` the job's fixed name, or `Chat` for a round of Chat, which only ever raises the Question round kind. Never any message, question, command, path, answer or card. Only the System Certificates notification names a product, and it belongs to no project.
 - **Grouping:** a job finishing while a finished notification of the same project is shown replaces it with `<n> jobs finished`; at most one finished notification per project. The other kinds are one per event, never grouped.
-- Each notification has an ID of project + job + kind to replace or withdraw it. Where the system cannot remove a delivered one, clicking a withdrawn one only brings the window forward.
+- Each notification has an ID of project + job (or Chat) + kind to replace or withdraw it. Where the system cannot remove a delivered one, clicking a withdrawn one only brings the window forward.
 - **Click target:** finished/failed → that job's conversation (several → the Jobs view); question → the round overlay; permission → the conversation scrolled to the card; System Certificates turned on → the Settings view of the project window used most recently, else the welcome window.
 - App name and icon, system default sound; no setting.

@@ -45,6 +45,7 @@ type Save = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: 
 
 const TOAST_KEPT = "The request changed on disk; Weaver kept your version.";
 const RETURNED = "The job ended without a Proposal. Change the request and send it again.";
+const HELD_BY_CHAT = "Chat is writing a Proposal from this request";
 
 function messageOf(error: unknown, fallback: string): string {
   return isAppError(error) ? error.message : fallback;
@@ -85,7 +86,7 @@ export interface RequestPaneProps {
  */
 export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, onDiscarding }: RequestPaneProps) {
   const { changes, setFlusher } = useRequests();
-  const { openJob } = useProject();
+  const { openJob, showView } = useProject();
   const [view, setView] = useState<RequestView | null>(null);
   const [text, setText] = useState("");
   const [saveState, setSaveState] = useState<Save>({ kind: "idle" });
@@ -408,6 +409,14 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
               Open conversation
             </Button>
           ) : null}
+        </Alert>
+      ) : view.status === "held-by-chat" ? (
+        <Alert role="status" className="m-3 mb-0 items-center">
+          <MessageSquare aria-hidden />
+          <p className="min-w-0 flex-1">{HELD_BY_CHAT}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => showView("general")}>
+            Open Chat
+          </Button>
         </Alert>
       ) : view.returned ? (
         <Alert role="status" variant="warning" className="m-3 mb-0">

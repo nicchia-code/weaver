@@ -162,6 +162,12 @@ describe("QuestionOverlay", () => {
     expect(screen.getByText("+1 more round waiting")).toBeInTheDocument();
   });
 
+  it("names a round of the Chat", async () => {
+    fakeBackend(round({ origin: { kind: "chat" } }));
+    mount();
+    expect(await screen.findByRole("dialog", { name: "Questions from the agent · Chat" })).toBeInTheDocument();
+  });
+
   it("Esc and a click outside do nothing", async () => {
     fakeBackend(round());
     mount();

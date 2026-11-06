@@ -1,7 +1,7 @@
 ---
-description: "Use when building the Solo mode control in Settings and Get Started, its notes, warnings and the list of tracked files, or Merge on the Board with its button, Dialog, merge banner and notices."
+description: "Use when building the Solo mode control in Settings and Get Started, its notes, warnings and the list of tracked files; Merge on the Board with its button, Dialog, merge banner and notices; or the Atomic commits switch in Settings and its notices."
 ---
-# Solo mode
+# Solo mode and Atomic commits
 
 ## solo-mode
 
@@ -25,3 +25,13 @@ description: "Use when building the Solo mode control in Settings and Get Starte
 - **Merge banner:** while a merge is in progress, an `Alert` above both columns and above the notices, with the icon `GitMerge` and no close button: `Merging <branch> into <current>: <n> files with conflicts. Resolve them here or by hand, then commit the merge in git.`, or, with no conflicts left, `Merging <branch> into <current>: no conflicts left. Commit the merge in git to finish.` Its actions, on its right: `Resolve with the agent` (primary, icon `Sparkles`, only while some file has conflicts; disabled with `The agent is resolving the conflicts` while the merge conflicts job has not ended) and `Abort merge` (outline, destructive text).
 - **Abort:** confirmed with `Abort the merge of <branch>? Every change of the merge, conflict resolutions included, is lost.`, `Abort merge` (destructive) / `Cancel`; disabled with `The agent is resolving the conflicts` while the merge conflicts job has not ended.
 - **Accessibility:** the banner is a `region` named `Merge in progress`; a change of its text is announced (`aria-live="polite"`); disabled reasons are the description of their control (`aria-describedby`).
+
+## atomic-commits
+
+- **Control:** title `Atomic commits`, a shadcn `Switch` like `System Certificates` (`requirements/ui#system-certificates`), off by default, with the note `Applies only to this working copy: after each History entry, Weaver commits the code the agent wrote for it.` under it. It is not in the settings schema and is never stored in `settings.json`: it shows the project's state and sends changes to the backend.
+- **Place:** in the `Project` group of Settings, after `Solo mode` and before `Update skills`. Nowhere else: not in Get Started, not on the command line.
+- **Saving:** at once on toggle, no confirmation. While a change runs the switch is disabled. A failed change shows `Could not change Atomic commits: <reason>.` under it in the error colour and puts back the project's value.
+- **Not initialised:** disabled and off, with `Initialise the project to use Atomic commits.` under the note.
+- **No git:** while off, disabled with `Atomic commits needs git: <reason>.` under the note (the reasons of `requirements/rules#solo-mode`, **Not available**). While on, it stays usable, so that it can be turned off.
+- **Notices** at the top of the Board (`requirements/ui#work`, **Details dialogs and notices**), each with a close button: `History entry "<title>" was not committed: <reason>.`, with the reasons of `requirements/rules#atomic-commits` (**No commit**, **Limit**, **Failure**).
+- **Accessibility:** the note and the reason the switch is disabled are its description for assistive technology (`aria-describedby`).

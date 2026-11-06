@@ -43,6 +43,7 @@ function statusOf(revision: number, merge?: MergeStatus): ProjectStatus {
     folderHasFiles: true,
     check: { opening: 0, outcome: "none" },
     solo: { mode: "on" },
+    atomicCommits: { enabled: false },
     ...(merge ? { merge } : {}),
   } as unknown as ProjectStatus;
 }

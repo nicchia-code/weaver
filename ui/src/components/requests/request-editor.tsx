@@ -27,7 +27,7 @@ function useWidth() {
 
 function RequestRow({ request, selected, onSelect }: { request: RequestSummary; selected: boolean; onSelect: () => void }) {
   const title = displayTitle(request);
-  const sent = request.status === "sent";
+  const badge = { writing: "Draft", sent: "Sent", "held-by-chat": "Chat" }[request.status];
   return (
     <li>
       <button
@@ -43,7 +43,7 @@ function RequestRow({ request, selected, onSelect }: { request: RequestSummary; 
         <span className="truncate font-medium">{title}</span>
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{createdLabel(request.created)}</span>
-          <Badge variant={sent ? "info" : "muted"}>{sent ? "Sent" : "Draft"}</Badge>
+          <Badge variant={request.status === "writing" ? "muted" : "info"}>{badge}</Badge>
         </span>
       </button>
     </li>
@@ -51,7 +51,7 @@ function RequestRow({ request, selected, onSelect }: { request: RequestSummary; 
 }
 
 /**
- * The request editor: the open requests (writing or sent) newest first on the left, the chosen one
+ * The request editor: the open requests (writing, sent or held by Chat) newest first on the left, the chosen one
  * on the right. Closing it never sends anything.
  */
 export function RequestEditor({ projectId }: { projectId: string }) {

@@ -11,7 +11,7 @@ use crate::project::image::ProjectImage;
 use crate::project::layout::PROPOSALS_DIR;
 
 /// Keys of `proposal.md`, in the order `requirements/data#proposal` lists them.
-pub const KEYS: [&str; 13] = [
+pub const KEYS: [&str; 15] = [
     "status",
     "kind",
     "requires",
@@ -24,6 +24,8 @@ pub const KEYS: [&str; 13] = [
     "label",
     "refining",
     "job",
+    "chat",
+    "chatWriting",
     "drifts",
 ];
 
@@ -163,6 +165,17 @@ pub fn reworks_of(card: &Card) -> Option<&str> {
 
 pub fn job_of(card: &Card) -> Option<&str> {
     card.str_key("job")
+}
+
+/// `chat: true`: the agent of Chat created it; never removed.
+pub fn created_by_chat(card: &Card) -> bool {
+    card.bool_key("chat") == Some(true)
+}
+
+/// `chatWriting: true`: the agent of Chat is writing it, from its `proposal new` or `proposal edit`
+/// until the hand-over.
+pub fn chat_writing(card: &Card) -> bool {
+    card.bool_key("chatWriting") == Some(true)
 }
 
 /// Rejected with `Rework`.

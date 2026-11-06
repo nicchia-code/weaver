@@ -32,7 +32,7 @@ function isTextEntry(target: EventTarget): boolean {
 /** The bar that stays when the overlay is reduced: the agent still waits. */
 function MinimizedBar({ round, act }: { round: QuestionRoundView; act: (action: ActionInput) => void }) {
   const where = round.position.kind === "summary" ? "summary" : `question ${round.position.index + 1} of ${round.questions.length}`;
-  const who = round.origin.kind === "agent" ? "The agent" : "Weaver";
+  const who = round.origin.kind === "drift" ? "Weaver" : "The agent";
   return (
     <div
       role="region"

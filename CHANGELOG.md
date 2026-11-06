@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Added
+
+- A new `Atomic commits` switch in Settings → Project, off by default and kept for each working copy, makes Weaver commit with git the code of every History entry the agent writes, one commit per entry with an English message written by the agent, so that the repository's history follows the work feature by feature.
+- Weaver records how long each design, rework, refinement and Run lasted and how long the agent actually worked, with the files it read, its searches and its tokens for the main agent, its sub-agents and the advisors of a Run, in `.weaver/timings` on your computer (never committed), so that jobs can be compared before and after a change of the way the agent works; `weaver job show <id>` prints the measure of a finished job.
+- Chat goes back to being a brainstorming conversation with omp about the project and Weaver: on your explicit order it writes change Proposals and resolutions of Drifts (each with its own Draft card on the Board), single Tasks and Drifts, and it can ask you questions with a round when you ask for one. Clear discards the Drafts that Chat wrote.
+
+### Changed
+
+- The Tasks written by a design, a scan or a compare carry notes for the agent that implements them, made of what the agent already read of the code and with the commit it read it on, and the agent that implements a Task starts from them and explores again only the files that changed since that commit.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added

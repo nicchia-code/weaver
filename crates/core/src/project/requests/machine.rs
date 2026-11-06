@@ -9,10 +9,19 @@
 //! Not written --NEW_REQUEST--> Writing
 //! Writing --SEND_REQUEST (not empty)--> Sent            starts a design job, or a setup job
 //! Writing --DISCARD_REQUEST--> Discarded                deletes the file and the images
-//! Writing | Sent --REQUEST_DELETED--> Discarded         nothing is ever sent afterwards
-//! Sent --PROPOSAL_SUBMITTED--> Consumed                 only the first Proposal; deletes the files
+//! Writing | Sent | Held by Chat --REQUEST_DELETED--> Discarded   nothing is ever sent afterwards
+//! Writing --OPEN_PROPOSAL (by Chat, bound to it)--> Held by Chat   derived from the Draft, see below
+//! Sent | Held by Chat --PROPOSAL_SUBMITTED--> Consumed   only the first Proposal; deletes the files
 //! Sent --JOB_ENDED (no Proposal handed over)--> Writing the developer can change it and send it again
+//! Held by Chat --PROPOSAL_DISCARDED--> Writing           the Draft was discarded before the hand-over
 //! ```
+//!
+//! `Held by Chat` is derived, never recorded: a `draft` Proposal with `chatWriting: true` names the
+//! request (`requirements/data#design-request`), so the two events that leave it ([`PROPOSAL_SUBMITTED`]
+//! and [`PROPOSAL_DISCARDED`]) have no effect to carry out beyond what the Proposal already did.
+//!
+//! [`PROPOSAL_SUBMITTED`]: RequestEvent::ProposalSubmitted
+//! [`PROPOSAL_DISCARDED`]: RequestEvent::ProposalDiscarded
 //!
 //! `Consumed` and `Discarded` are final: every event is ignored there.
 
@@ -25,6 +34,9 @@ pub enum RequestState {
     Writing,
     /// The agent works on it; it can be read, not sent again.
     Sent,
+    /// The agent of Chat is writing a Proposal bound to it; it can be read, not changed, sent or
+    /// discarded.
+    HeldByChat,
     /// A Proposal was born from it (final).
     Consumed,
     /// Thrown away without a Proposal (final).
@@ -50,6 +62,11 @@ pub enum RequestEvent {
     RequestDeleted,
     /// `proposal.SUBMITTED` of a Proposal bound to the request.
     ProposalSubmitted,
+    /// `proposal.DISCARDED` of a Draft bound to the request, discarded before the hand-over.
+    ProposalDiscarded,
+    /// `agent.OPEN_PROPOSAL` of a new Proposal bound to the request; `by_chat` is whether the agent
+    /// of Chat opened it (the Proposal of a job never holds a request).
+    OpenProposal { by_chat: bool },
     /// `job.ENDED` of the job that received the request; `proposal_handed_over` is whether a
     /// Proposal bound to the request was handed over.
     JobEnded { proposal_handed_over: bool },
@@ -105,14 +122,25 @@ pub fn step(state: RequestState, event: RequestEvent) -> Step {
             state: S::Discarded,
             effect: E::DeleteFiles,
         },
-        (S::Writing | S::Sent, Ev::RequestDeleted) => Step {
+        (S::Writing | S::Sent | S::HeldByChat, Ev::RequestDeleted) => Step {
             state: S::Discarded,
             effect: E::ForgetRemains,
         },
+        // Only a Proposal the agent of Chat opens bound to it holds a request; the state is derived
+        // from that Draft, so there is nothing to carry out.
+        (S::Writing, Ev::OpenProposal { by_chat: true }) => Step {
+            state: S::HeldByChat,
+            effect: E::None,
+        },
 
-        (S::Sent, Ev::ProposalSubmitted) => Step {
+        (S::Sent | S::HeldByChat, Ev::ProposalSubmitted) => Step {
             state: S::Consumed,
             effect: E::DeleteFiles,
+        },
+        // The Draft is gone: the request is the developer's again, as it was.
+        (S::HeldByChat, Ev::ProposalDiscarded) => Step {
+            state: S::Writing,
+            effect: E::None,
         },
         (
             S::Sent,
@@ -124,8 +152,9 @@ pub fn step(state: RequestState, event: RequestEvent) -> Step {
             effect: E::ReturnToWriting,
         },
 
-        // Anything else: a request that was sent cannot be sent again, a request that is not
-        // written receives nothing, and the final states never change.
+        // Anything else: a request that was sent cannot be sent again, a request held by Chat cannot
+        // be sent or discarded, a request that is not written receives nothing, and the final states
+        // never change.
         _ => stay,
     }
 }
@@ -233,6 +262,82 @@ mod tests {
     }
 
     #[test]
+    fn only_a_proposal_of_chat_holds_a_written_request() {
+        is(
+            S::Writing,
+            Ev::OpenProposal { by_chat: true },
+            S::HeldByChat,
+            E::None,
+        );
+        is(
+            S::Writing,
+            Ev::OpenProposal { by_chat: false },
+            S::Writing,
+            E::None,
+        );
+        // A request that was sent already has its job.
+        is(
+            S::Sent,
+            Ev::OpenProposal { by_chat: true },
+            S::Sent,
+            E::None,
+        );
+    }
+
+    #[test]
+    fn a_request_held_by_chat_cannot_be_sent_discarded_or_given_back_by_a_job() {
+        is(
+            S::HeldByChat,
+            Ev::SendRequest { empty: false },
+            S::HeldByChat,
+            E::None,
+        );
+        is(S::HeldByChat, Ev::DiscardRequest, S::HeldByChat, E::None);
+        is(
+            S::HeldByChat,
+            Ev::JobEnded {
+                proposal_handed_over: false,
+            },
+            S::HeldByChat,
+            E::None,
+        );
+        is(
+            S::HeldByChat,
+            Ev::OpenProposal { by_chat: true },
+            S::HeldByChat,
+            E::None,
+        );
+    }
+
+    #[test]
+    fn the_proposal_of_chat_consumes_the_request_it_holds() {
+        is(
+            S::HeldByChat,
+            Ev::ProposalSubmitted,
+            S::Consumed,
+            E::DeleteFiles,
+        );
+    }
+
+    #[test]
+    fn discarding_the_draft_of_chat_returns_the_request_to_writing() {
+        is(S::HeldByChat, Ev::ProposalDiscarded, S::Writing, E::None);
+        // Nothing to give back to a request nobody holds.
+        is(S::Writing, Ev::ProposalDiscarded, S::Writing, E::None);
+        is(S::Sent, Ev::ProposalDiscarded, S::Sent, E::None);
+    }
+
+    #[test]
+    fn a_file_deleted_from_outside_discards_a_request_held_by_chat() {
+        is(
+            S::HeldByChat,
+            Ev::RequestDeleted,
+            S::Discarded,
+            E::ForgetRemains,
+        );
+    }
+
+    #[test]
     fn consumed_and_discarded_are_final() {
         let events = [
             Ev::NewRequest,
@@ -240,6 +345,8 @@ mod tests {
             Ev::DiscardRequest,
             Ev::RequestDeleted,
             Ev::ProposalSubmitted,
+            Ev::ProposalDiscarded,
+            Ev::OpenProposal { by_chat: true },
             Ev::JobEnded {
                 proposal_handed_over: false,
             },

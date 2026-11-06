@@ -38,6 +38,8 @@ export interface ShellCounts {
   backlog: number;
   /** Jobs waiting for the developer. */
   jobsWaiting: number;
+  /** Chat waits for the answers of its round: the entry shows `1`. Jobs never count Chat. */
+  chatWaiting: boolean;
 }
 
-export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0 };
+export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0, chatWaiting: false };

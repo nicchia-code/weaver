@@ -80,17 +80,23 @@ description: "Use when building the ACP client of jobs and General: command line
   - After `session/load` (resume or reload), the sub-agents are rebuilt from the replayed history and their transcripts are read again from the start.
   - Any sub-agent still working when omp exits or the job ends becomes interrupted, nested ones included.
   - These omp internals (`progress[]`, the `wait` details, transcript folders and records) are re-verified at each `MIN_OMP_VERSION` bump.
+- **Measure:** when a design, rework, refinement or Run ends (`requirements/data#job`), Weaver reads omp's session files once, after the end has been applied and the end shown, off the UI and IPC threads; the line is written when the reading is over. Nothing of it delays the end, the release of the job's holdings or the next job, and its failure changes nothing of the job.
+  - Files: the main session file (name ending `_<sessionId>.jsonl`) is `main`; every transcript in its folder and in the nested folders, at any depth, is `subAgents`, except those whose name starts with `__advisor.`, which are `advisors`. Each file is streamed line by line, never held whole in memory.
+  - Records: the `usage` of each `message` with `role: assistant` gives the tokens (`input`, `output`, `cacheRead`, `cacheWrite`); each `toolCall` named `read` is a read, its `arguments.path` the file, and each named `grep` or `glob` a search. Other records are ignored.
+  - A missing session id, a missing or unreadable main file, or a malformed complete line in any file makes the whole job `unavailable`, with the reason naming the file. A last line not complete is ignored.
+  - These records are among the omp internals re-verified at each `MIN_OMP_VERSION` bump.
 
 ## general-chat
 - **Process:** one omp per project's General, kept until the window closes, which shuts it down as in `## job`.
   - With a kept session, it starts when the window opens, or as soon as omp-setup becomes Ready if it was not; it is never started for a window with no kept session.
   - Otherwise, and after it stopped, it is started by the next message.
 - **Command line:** `<omp> [--model <analysis>] --approval-mode <mode> --append-system-prompt <file> acp`.
-  - `<file>` is the embedded General instruction, written to `<app local data>/general.md`.
+  - `<file>` is Chat's instruction (`requirements/rules#general-chat`), built at each start with the sub-agent limit and the language of the Settings at that moment and written to `<app local data>/general.md` before omp is spawned.
   - No `--advisor`, `--slow` or overlay.
 - **Environment:**
   - `WEAVER_GENERAL=<General identity>` and `WEAVER_ENDPOINT`, with no `WEAVER_JOB`, so `weaver` refuses job-bound commands.
-  - The exception is `weaver job new`. The app accepts it only from the live General identity of an open project, with the same refusals as the developer's request.
+  - The exceptions are `weaver job new`, accepted only from the live General identity of an open project with the same refusals as the developer's request, and `weaver question new`, accepted only from that identity while a turn of Chat is in progress (`requirements/tech#question-round`).
+  - The app knows the live General identity of each open project, so that `proposal new` and `proposal edit` record `chat` and `chatWriting` (`requirements/data#proposal`) and the Board knows whether a turn of Chat is in progress (`requirements/rules#proposal`, reason 1).
   - PATH and the certificate variables as in `## omp`.
 - **Session:**
   - The session id and arguments are kept in `<app local data>/general/<project hash>.json`.

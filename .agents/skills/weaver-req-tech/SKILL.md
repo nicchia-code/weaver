@@ -101,11 +101,11 @@ Sections: `omp`, `omp-setup`
 
 File: `omp.md`
 
-## Solo mode
+## Solo mode and Atomic commits
 
-Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, the File view's listing, and Merge: its git steps, commands, state and jobs.
+Use when building Solo mode: git calls, the exclusions block at initialisation, change and opening, its state in the app and the command line, the File view's listing; Merge: its git steps, commands, state and jobs; and Atomic commits: its state, its commits and their notices.
 
-Sections: `solo-mode`, `solo-merge`
+Sections: `solo-mode`, `solo-merge`, `atomic-commits`
 
 File: `solo-mode.md`
 

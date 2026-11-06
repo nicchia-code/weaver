@@ -3,4 +3,4 @@
 /**
  * Who asks.
  */
-export type OriginView = { "kind": "agent", jobName: string, } | { "kind": "drift", drift: string, title: string, };
+export type OriginView = { "kind": "agent", jobName: string, } | { "kind": "chat" } | { "kind": "drift", drift: string, title: string, };

@@ -1,8 +1,9 @@
 //! General chat (`requirements/tech#general-chat`, `requirements/data#general-chat`): the pure part.
 //!
-//! General is the free conversation with omp of a project. It is not a job: it holds no Task,
-//! announces no card, asks no question round and has no instruction, skill or written request.
-//! What is decided without a process lives here:
+//! Chat (the General of a project) is the brainstorming conversation of the developer with omp,
+//! guided by an instruction of Weaver. It is not a job: it holds no Task, announces no card and
+//! has no skill or written request; the agent opens a question round only when the developer asked
+//! to be asked that way. What is decided without a process lives here:
 //!
 //! * [`GeneralMachine`], the Machine `general-chat` (events in, effects out);
 //! * the command line and the environment of omp ([`args`], [`env`]) and the embedded
@@ -16,7 +17,12 @@
 //!    │ │ TURN_ENDED · TURN_FAILED · EXITED ·          └─ with messages waiting ─▶ Working
 //!    │ │ STOP_AGENT · CLEAR_GENERAL · window.CLOSED
 //!    │ └────────────────────────────────────┐
-//!    └─────────────▶ Working ───────────────┘   SEND_MESSAGE (omp starts with the message)
+//!    └─────────────▶ Working ◀──────────────┘   SEND_MESSAGE (omp starts with the message)
+//!                     │    ▲
+//!      question-round │    │ question-round.CLOSED
+//!               .OPENED ▼    │
+//!                Waiting for answers ── TURN_FAILED · EXITED · STOP_AGENT · CLEAR_GENERAL ·
+//!                                       window.CLOSED ─▶ Idle (the round ends without answers)
 //! ```
 //!
 //! Loading sends nothing to the agent: a message sent meanwhile waits, and goes out as a prompt
@@ -25,7 +31,9 @@
 //!
 //! Messages follow the rules of a job's conversation: while the agent works a message goes out at
 //! once as a steer; while a permission waits it is held and goes out as a follow-up when the last
-//! permission is answered; one that arrives while omp starts goes with the first prompt.
+//! permission is answered; one that arrives while omp starts goes with the first prompt. While the
+//! agent waits for the answers of a round the message is held too, and goes out as a follow-up when
+//! the round is closed: it never answers the round.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -50,6 +58,9 @@ pub enum State {
     Loading,
     /// The agent answers (omp may still be starting).
     Working,
+    /// The agent waits, in the same turn, for the answers of its round (`question-round.OPENED`):
+    /// Chat counts as waiting for the developer.
+    WaitingForAnswers,
 }
 
 /// Where omp stands.
@@ -89,6 +100,10 @@ pub enum Event {
     /// `window.OPENED` with a conversation kept: whether omp is ready decides between Reloading
     /// and Waiting for omp.
     WindowOpened { omp_ready: bool },
+    /// `question-round.OPENED`: a round of Chat; only the Working agent opens one.
+    RoundOpened,
+    /// `question-round.CLOSED`: the round of Chat is closed.
+    RoundClosed,
     /// `omp.READY`: omp-setup became Ready while Waiting for omp.
     OmpReady,
     /// `developer.STOP_AGENT`.
@@ -124,6 +139,11 @@ pub enum Effect {
     TurnFailed(String),
     /// omp stopped; the next message starts it again.
     Stopped(String),
+    /// `general-chat.WAITING`: the agent starts waiting for the answers of its round.
+    Waiting,
+    /// The round the agent waited for ends without answers (the turn failed, omp exited, Stop,
+    /// Clear or the window closing): the app closes it.
+    EndRound,
 }
 
 /// The reasons shown under a message that never reached the agent.
@@ -193,9 +213,14 @@ impl GeneralMachine {
         self.turn_running
     }
 
-    /// Whether the agent may ask a permission or start a job now.
+    /// Whether the agent may ask a permission, open a round or start a job now.
     pub fn accepts_agent_calls(&self) -> bool {
-        self.state == State::Working && self.omp == Omp::Open
+        self.turn_in_progress() && self.omp == Omp::Open
+    }
+
+    /// Whether a turn of the agent is in progress: Working, or Waiting for answers (the same turn).
+    pub fn turn_in_progress(&self) -> bool {
+        matches!(self.state, State::Working | State::WaitingForAnswers)
     }
 
     /// Applies `event`; returns what the app must do, in order.
@@ -215,6 +240,8 @@ impl GeneralMachine {
             }
             Event::PermissionAnswered(request) => self.permission_answered(request),
             Event::StartJob => Vec::new(),
+            Event::RoundOpened => self.round_opened(),
+            Event::RoundClosed => self.round_closed(),
             Event::TurnEnded => self.turn_ended(),
             Event::TurnFailed(reason) => self.turn_failed(reason),
             Event::Exited(reason) => self.exited(reason),
@@ -235,6 +262,12 @@ impl GeneralMachine {
 
     fn send(&mut self, id: MessageId) -> Vec<Effect> {
         match (self.state, self.omp) {
+            (State::WaitingForAnswers, _) => {
+                // The message never answers the round: it waits and reaches the agent when the
+                // round is closed.
+                self.held.push(id);
+                Vec::new()
+            }
             (State::Loading, _) => {
                 // The conversation is coming back: the message waits and is sent below it.
                 self.held.push(id);
@@ -312,6 +345,12 @@ impl GeneralMachine {
 
     fn permission_answered(&mut self, request: RequestId) -> Vec<Effect> {
         self.permissions.remove(&request);
+        self.release_held()
+    }
+
+    /// The held messages go out as follow-ups once nothing makes the agent wait any more: no
+    /// permission asked and no round open, in a turn that runs.
+    fn release_held(&mut self) -> Vec<Effect> {
         if !self.permissions.is_empty()
             || self.state != State::Working
             || !self.turn_running
@@ -319,7 +358,6 @@ impl GeneralMachine {
         {
             return Vec::new();
         }
-        // The held messages go out as follow-ups now that the wait is over.
         std::mem::take(&mut self.held)
             .into_iter()
             .map(|id| {
@@ -327,6 +365,34 @@ impl GeneralMachine {
                 Effect::FollowUp(id)
             })
             .collect()
+    }
+
+    /// `question-round.OPENED`: only a round of Chat, opened by the agent of a turn in progress.
+    fn round_opened(&mut self) -> Vec<Effect> {
+        if self.state != State::Working || self.omp != Omp::Open {
+            return Vec::new();
+        }
+        self.state = State::WaitingForAnswers;
+        vec![Effect::Waiting]
+    }
+
+    /// `question-round.CLOSED`: the agent goes on in the same turn, and the messages that waited
+    /// reach it.
+    fn round_closed(&mut self) -> Vec<Effect> {
+        if self.state != State::WaitingForAnswers {
+            return Vec::new();
+        }
+        self.state = State::Working;
+        self.release_held()
+    }
+
+    /// The round the agent waited for ends without answers, when it waited for one.
+    fn round_ends_without_answers(&self) -> Vec<Effect> {
+        if self.state == State::WaitingForAnswers {
+            vec![Effect::EndRound]
+        } else {
+            Vec::new()
+        }
     }
 
     fn steering_replied(&mut self, id: MessageId, outcome: SteeringOutcome) -> Vec<Effect> {
@@ -364,8 +430,12 @@ impl GeneralMachine {
     fn turn_ended(&mut self) -> Vec<Effect> {
         self.turn_running = false;
         self.cancelling = false;
+        let mut effects = self.round_ends_without_answers();
+        if self.state == State::WaitingForAnswers {
+            self.state = State::Working;
+        }
         // A permission still asked is void.
-        let mut effects = self.close_permissions(PermissionEnd::Void);
+        effects.extend(self.close_permissions(PermissionEnd::Void));
         if self.omp == Omp::Open && !self.held.is_empty() {
             effects.extend(self.prompt_held());
         } else if self.in_flight.is_empty() {
@@ -377,7 +447,8 @@ impl GeneralMachine {
     fn turn_failed(&mut self, reason: String) -> Vec<Effect> {
         self.turn_running = false;
         self.cancelling = false;
-        let mut effects = self.close_permissions(PermissionEnd::Void);
+        let mut effects = self.round_ends_without_answers();
+        effects.extend(self.close_permissions(PermissionEnd::Void));
         effects.extend(self.discard_messages(NOT_DELIVERED_FAILED));
         self.state = State::Idle;
         effects.push(Effect::TurnFailed(reason));
@@ -385,8 +456,10 @@ impl GeneralMachine {
     }
 
     fn exited(&mut self, reason: String) -> Vec<Effect> {
-        // omp is gone already: no shutdown to run, and a permission asked is void.
-        let mut effects = self.close_permissions(PermissionEnd::Void);
+        // omp is gone already: no shutdown to run, a permission asked is void and a round the
+        // agent waited for ends without answers.
+        let mut effects = self.round_ends_without_answers();
+        effects.extend(self.close_permissions(PermissionEnd::Void));
         effects.extend(self.discard_messages(NOT_DELIVERED_EXITED));
         self.omp = Omp::Off;
         self.waiting_for_omp = false;
@@ -402,7 +475,8 @@ impl GeneralMachine {
         if matches!(self.state, State::Idle | State::Loading) {
             return Vec::new();
         }
-        let mut effects = self.close_permissions(PermissionEnd::Cancelled);
+        let mut effects = self.round_ends_without_answers();
+        effects.extend(self.close_permissions(PermissionEnd::Cancelled));
         effects.extend(self.discard_messages(NOT_DELIVERED_STOPPED));
         match self.omp {
             Omp::Starting | Omp::Off => {
@@ -427,7 +501,8 @@ impl GeneralMachine {
     }
 
     fn window_closed(&mut self) -> Vec<Effect> {
-        let mut effects = self.close_permissions(PermissionEnd::Cancelled);
+        let mut effects = self.round_ends_without_answers();
+        effects.extend(self.close_permissions(PermissionEnd::Cancelled));
         effects.extend(self.discard_messages(NOT_DELIVERED_CLOSED));
         if self.omp != Omp::Off {
             effects.push(Effect::ShutDown {
@@ -439,7 +514,8 @@ impl GeneralMachine {
     }
 
     fn clear(&mut self) -> Vec<Effect> {
-        let mut effects = self.close_permissions(PermissionEnd::Cancelled);
+        let mut effects = self.round_ends_without_answers();
+        effects.extend(self.close_permissions(PermissionEnd::Cancelled));
         effects.extend(self.discard_messages(NOT_DELIVERED_CLEARED));
         effects.push(Effect::Clear {
             turn_running: self.turn_running,
@@ -522,27 +598,42 @@ pub fn clean_language(language: Option<&str>) -> Option<&str> {
         .filter(|l| !l.is_empty() && !l.chars().any(char::is_control))
 }
 
-/// The instruction of General's agent, appended to omp's system prompt. Fixed text, and the
-/// language sentence only when a language is set. It never names the first person.
-pub fn instruction(language: Option<&str>) -> String {
+/// The sentence the fixed text adds to the one of the context sharing: with no skill loaded there
+/// is no section to read, and the agent passes on what it already read all the same.
+const NO_SKILL_SENTENCE: &str = "With no skill loaded, pass each sub-agent what you have already read that concerns its part.";
+
+/// The instruction of Chat's agent, appended to omp's system prompt (`requirements/rules#general-chat`):
+/// the fixed text, then the lines the Settings of this start add, in this order: the sub-agent
+/// limit, the context sharing of the sub-agents, and, only when a language is set, the language.
+/// It never names the first person.
+pub fn instruction(max_agents: u32, language: Option<&str>) -> String {
     let mut text = String::from(INSTRUCTION);
+    text.push('\n');
+    text.push_str(&crate::job_instruction::max_agents_sentence(max_agents));
+    text.push('\n');
+    text.push_str(crate::job_instruction::CONTEXT_SHARING_SENTENCE);
+    text.push(' ');
+    text.push_str(NO_SKILL_SENTENCE);
+    text.push('\n');
     if let Some(language) = clean_language(language) {
-        text.push_str(&format!(
-            "\nWrite the texts for the developer in {language}.\n"
-        ));
+        text.push_str(&format!("Write the texts for the developer in {language}.\n"));
     }
     text
 }
 
 const INSTRUCTION: &str = "\
-# Weaver General
+# Weaver Chat
 
-This is General, the free conversation of a developer with the agent in a project that Weaver manages. The project keeps its Model, Requirements, Proposals, Tasks and Drifts in `.weaver/`.
+This is Chat, the brainstorming conversation of a developer with the agent about the project and about Weaver. The project keeps its Model, Requirements, Specs, Proposals, Tasks and Drifts in `.weaver/`. No written request and no skill is attached to this conversation.
 
-- Do what the developer asks, directly in this conversation. No skill and no written request is attached to it. Weaver's job skills (`weaver-setup`, `weaver-design`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-drifts`) work only inside a job: never load or follow them here. The Requirement skills `weaver-req-*` apply here as everywhere.
-- Ask the developer in the reply, in plain text, and wait for the answer. A form or a question tool is declined here, and `weaver question new` does not work here.
-- General is not a job. The commands that belong to a job (`weaver task move`, `weaver announcement new`, `weaver job edit`, `weaver question new`) are refused here.
-- A change of the Model or the Requirements is never designed in this conversation and no Proposal is written here. The developer writes a design request with `+ Work Item` on the Board and sends it, or asks here to send one already written; Weaver's design job then interviews the developer and writes the Proposal.
+- Read freely whatever is needed to reason: the project's files, the `weaver` commands that only read, and the Requirement skills `weaver-req-*`.
+- Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.
+- Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.
+- On an explicit order to write an ordinary change Proposal, load `weaver-design` and follow its section for Chat. On an explicit order to resolve open Drifts with a resolution, load `weaver-resolve-drifts` and follow its section for Chat. Write no setup or import Proposal. Never load or follow another skill of Weaver's jobs (`weaver-setup`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-conflicts`), except to read the writing rules named in the next point.
+- On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says, writing the Task self-contained as `weaver-design` says for Tasks and the Drift as `weaver-compare` says for a Drift.
+- Take a decision of the developer (approving, rejecting or discarding a Proposal, deciding a Drift, deleting a Task in To do) only when the developer explicitly asks for that decision in this conversation.
+- Ask the developer in the reply, in plain text, and wait for the answer. Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.
+- Chat is not a job: the commands that belong to a job (`weaver task move`, `weaver announcement new`, `weaver job edit`) are refused here.
 - Start a job of Weaver with `weaver job new` only when the developer explicitly asks for that job in this conversation:
   - `weaver job new --input '{\"kind\":\"scan\"}'` scans the whole System;
   - `weaver job new --input '{\"kind\":\"run\",\"task\":\"<task>\"}'` runs one Task, and without `task` runs every runnable Task;
@@ -920,6 +1011,167 @@ mod tests {
         assert_eq!(machine.handle(Event::SendMessage(4)), [StartOmp]);
     }
 
+    /// A machine whose agent waits for the answers of its round.
+    fn waiting() -> GeneralMachine {
+        let mut machine = working();
+        assert_eq!(machine.handle(Event::RoundOpened), [Waiting]);
+        assert_eq!(machine.state(), State::WaitingForAnswers);
+        machine
+    }
+
+    #[test]
+    fn a_round_takes_the_working_agent_to_waiting_for_answers_and_back_in_the_same_turn() {
+        let mut machine = working();
+        assert!(!machine.waiting_for_omp());
+        assert_eq!(machine.handle(Event::RoundOpened), [Waiting]);
+        assert_eq!(machine.state(), State::WaitingForAnswers);
+        // The turn is still in progress: the agent may ask, and the app knows a turn runs.
+        assert!(machine.turn_running() && machine.turn_in_progress());
+        assert!(machine.accepts_agent_calls());
+        assert!(machine.handle(Event::StartJob).is_empty());
+        assert_eq!(machine.state(), State::WaitingForAnswers);
+        assert!(machine.handle(Event::RoundClosed).is_empty());
+        assert_eq!(machine.state(), State::Working);
+        assert!(machine.turn_running() && machine.accepts_agent_calls());
+        // A round that closes twice changes nothing.
+        assert!(machine.handle(Event::RoundClosed).is_empty());
+        assert_eq!(machine.state(), State::Working);
+        assert!(machine.handle(Event::TurnEnded).is_empty());
+        assert!(!machine.turn_in_progress());
+    }
+
+    #[test]
+    fn only_the_working_agent_opens_a_round() {
+        let mut idle = idle_open();
+        assert!(idle.handle(Event::RoundOpened).is_empty());
+        assert_eq!(idle.state(), State::Idle);
+        let mut loading = reloading();
+        assert!(loading.handle(Event::RoundOpened).is_empty());
+        assert_eq!(loading.state(), State::Loading);
+        let mut starting = GeneralMachine::new();
+        starting.handle(Event::SendMessage(1));
+        assert!(starting.handle(Event::RoundOpened).is_empty());
+        assert_eq!(starting.state(), State::Working);
+        // Already waiting: a second opening does not emit WAITING again.
+        let mut waiting = waiting();
+        assert!(waiting.handle(Event::RoundOpened).is_empty());
+        assert_eq!(waiting.state(), State::WaitingForAnswers);
+        // No round to close: nothing happens.
+        let mut working = working();
+        assert!(working.handle(Event::RoundClosed).is_empty());
+    }
+
+    #[test]
+    fn a_message_while_waiting_never_answers_the_round_and_reaches_the_agent_when_it_closes() {
+        let mut machine = waiting();
+        assert!(machine.handle(Event::SendMessage(3)).is_empty());
+        assert!(machine.handle(Event::SendMessage(4)).is_empty());
+        assert_eq!(machine.state(), State::WaitingForAnswers);
+        assert_eq!(
+            machine.handle(Event::RoundClosed),
+            [FollowUp(3), FollowUp(4)]
+        );
+        assert_eq!(machine.state(), State::Working);
+        assert_eq!(
+            machine.handle(Event::SteeringReplied(3, SteeringOutcome::Injected)),
+            [Delivered(3)]
+        );
+
+        // A permission still asked keeps them held until it is answered.
+        let mut machine = waiting();
+        machine.handle(Event::PermissionRequested(7));
+        machine.handle(Event::SendMessage(5));
+        assert!(machine.handle(Event::RoundClosed).is_empty());
+        assert_eq!(machine.handle(Event::PermissionAnswered(7)), [FollowUp(5)]);
+    }
+
+    #[test]
+    fn the_turn_ending_while_waiting_ends_the_round_without_answers_and_goes_on_with_the_held_messages(
+    ) {
+        let mut machine = waiting();
+        assert_eq!(machine.handle(Event::TurnEnded), [EndRound]);
+        assert_eq!(machine.state(), State::Idle);
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::TurnEnded),
+            [EndRound, Prompt(vec![3]), Delivered(3)]
+        );
+        assert_eq!(machine.state(), State::Working);
+    }
+
+    #[test]
+    fn a_failed_turn_an_exit_stop_clear_and_the_window_closing_end_the_round_without_answers() {
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::TurnFailed("the agent refused".into())),
+            [
+                EndRound,
+                NotDelivered(3, NOT_DELIVERED_FAILED.into()),
+                TurnFailed("the agent refused".into())
+            ]
+        );
+        assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Open));
+
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::Exited("omp exited with code 1".into())),
+            [
+                EndRound,
+                NotDelivered(3, NOT_DELIVERED_EXITED.into()),
+                Stopped("omp exited with code 1".into())
+            ]
+        );
+        assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Off));
+        assert_eq!(machine.handle(Event::SendMessage(4)), [StartOmp]);
+
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::StopAgent),
+            [
+                EndRound,
+                NotDelivered(3, NOT_DELIVERED_STOPPED.into()),
+                Cancel
+            ]
+        );
+        assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Open));
+
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::Clear),
+            [
+                EndRound,
+                NotDelivered(3, NOT_DELIVERED_CLEARED.into()),
+                Clear { turn_running: true }
+            ]
+        );
+        assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Off));
+
+        let mut machine = waiting();
+        machine.handle(Event::SendMessage(3));
+        assert_eq!(
+            machine.handle(Event::WindowClosed),
+            [
+                EndRound,
+                NotDelivered(3, NOT_DELIVERED_CLOSED.into()),
+                ShutDown { turn_running: true }
+            ]
+        );
+        assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Off));
+    }
+
+    #[test]
+    fn a_working_agent_ending_its_turn_or_stopping_never_ends_a_round() {
+        let mut machine = working();
+        assert!(machine.handle(Event::TurnEnded).is_empty());
+        let mut machine = working();
+        assert_eq!(machine.handle(Event::StopAgent), [Cancel]);
+    }
+
     /// A machine that is loading a kept conversation, omp ready.
     fn reloading() -> GeneralMachine {
         let mut machine = GeneralMachine::new();
@@ -1119,23 +1371,77 @@ mod tests {
     }
 
     #[test]
-    fn the_instruction_is_fixed_text_with_the_language_only_when_one_is_set() {
-        let plain = instruction(None);
-        assert!(plain.contains("weaver job new") && plain.contains("explicitly asks"));
-        assert!(!plain.contains("Write the texts"));
-        assert_eq!(instruction(Some("  ")), plain);
-        assert!(instruction(Some("Italian"))
-            .ends_with("Write the texts for the developer in Italian.\n"));
+    fn the_instruction_of_chat_holds_the_rules_in_order_and_the_lines_of_the_settings() {
+        let plain = instruction(4, None);
+        assert!(plain.starts_with("# Weaver Chat\n"), "{plain}");
+        assert!(!plain.contains("General"), "Chat is never called General");
+        assert!(
+            !plain.contains("+ Work Item") && !plain.contains("no Proposal is written here"),
+            "the sentence that forbids Proposals is gone"
+        );
+        // The ten points of `requirements/rules#general-chat`, in order.
+        let points = [
+            "the brainstorming conversation of a developer with the agent about the project and about Weaver",
+            "Read freely whatever is needed",
+            "Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.",
+            "Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.",
+            "load `weaver-design` and follow its section for Chat",
+            "On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says",
+            "Take a decision of the developer",
+            "Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.",
+            "Chat is not a job: the commands that belong to a job (`weaver task move`, `weaver announcement new`, `weaver job edit`) are refused here.",
+            "Start a job of Weaver with `weaver job new` only when the developer explicitly asks",
+        ];
+        let mut from = 0;
+        for point in points {
+            let at = plain[from..]
+                .find(point)
+                .unwrap_or_else(|| panic!("{point:?} is missing or out of order in {plain}"));
+            from += at + point.len();
+        }
+        // Point 5 names both skills and the ones that stay out.
+        assert!(plain.contains("load `weaver-resolve-drifts` and follow its section for Chat"));
+        assert!(plain.contains("Write no setup or import Proposal."));
+        for skill in [
+            "weaver-setup",
+            "weaver-import",
+            "weaver-scan",
+            "weaver-compare",
+            "weaver-implement",
+            "weaver-resolve-conflicts",
+        ] {
+            assert!(plain.contains(&format!("`{skill}`")), "{skill}");
+        }
+
+        // After the fixed text, the lines of the Settings, in order, with the language only when set.
+        let lines = "Run at most 4 sub-agents at once.\n\
+            Pass each sub-agent what you have already read that concerns its part, as the \"Sub-agents context sharing\" section of your skill says. With no skill loaded, pass each sub-agent what you have already read that concerns its part.\n";
+        assert!(plain.ends_with(&format!("\n{lines}")), "{plain}");
         assert_eq!(
-            instruction(Some("Ita\nlian")),
+            plain.matches("sub-agents at once").count(),
+            1,
+            "the limit is not in the fixed text"
+        );
+        assert!(!plain.contains("Write the texts"));
+        assert_eq!(instruction(4, Some("  ")), plain);
+        assert_eq!(
+            instruction(4, Some("Ita\nlian")),
             plain,
             "a language with a control character adds nothing"
         );
-        // No first person, as every text Weaver writes for the agent.
+        assert!(instruction(4, Some(" Italian "))
+            .ends_with(&format!("{lines}Write the texts for the developer in Italian.\n")));
+        assert!(instruction(7, None).ends_with(&format!(
+            "\nRun at most 7 sub-agents at once.\n{}",
+            lines.split_once('\n').unwrap().1
+        )));
+
+        // No short number, no text of a card or of a request, and no first person.
         let lower = plain.to_lowercase();
-        for word in [" i ", " we ", " my ", " our ", "i'm", "i'll"] {
+        for word in [" i ", " we ", " my ", " our ", "i'm", "i'll", "i've"] {
             assert!(!lower.contains(word), "{word:?}");
         }
+        assert!(!plain.lines().any(|line| line.starts_with("I ")));
     }
 
     #[test]

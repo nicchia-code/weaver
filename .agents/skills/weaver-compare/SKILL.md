@@ -69,6 +69,10 @@ Only for an important case the Model forgot, or when no fix of the code respects
 
 Never approve, reject, discard or resolve any card, never delete a Task (`weaver task delete`) and never choose a resolution: decisions belong to the developer, unless the developer explicitly asks you in the conversation.
 
+## After a merge
+
+When the scan that sent you here follows a merge, it passes you the files the merge brought, relative to the project folder; without that list, nothing here applies. Before filing a Drift, look at where the difference lies: when the code you cite in `where` is in one of those files, add `"merge":true` to the Drift, and never in any other case. The Drift is otherwise filed as always, and the rules for Drifts already filed, dismissed or closed do not change. Only a scan after a merge may set `merge`: `weaver drift new` refuses it from any other job.
+
 ## Reply
 
 Name each card by short number and title, as `Task T3 – title` or `Drift D2 – title`, but write only permanent identities in files and commands. Report: the cards created with their identities; references you found no code for; any doubt you could not settle.

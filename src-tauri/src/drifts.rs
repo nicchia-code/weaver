@@ -773,6 +773,11 @@ mod tests {
         fn round_opened(&self, _: &str) {}
         fn round_closed(&self, _: &str) {}
         fn focus_project(&self, _: &str) {}
+        fn chat(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn chat_round_opened(&self, _: &str) {}
+        fn chat_round_closed(&self, _: &str) {}
         fn changed(&self, _: &QuestionRoundChanged) {}
     }
 

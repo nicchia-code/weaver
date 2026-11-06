@@ -462,7 +462,7 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
     ],
   });
 
-  test("question new outside a job answers unavailable on stdout, exit 0, with or without --json", async () => {
+  test("question new without WEAVER_JOB and WEAVER_GENERAL answers unavailable on stdout, exit 0, with or without --json", async () => {
     const root = await newProject(environment);
     for (const extra of [[], ["--json"]]) {
       const result = await exec(["question", "new", "--root", root, "--input", "-", ...extra], { cwd: root, stdin: QUESTION });
@@ -480,10 +480,26 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
     assert.equal(parseJson(result.stdout)?.status, "unavailable");
   });
 
+  test("question new in the Chat with no app answers unavailable too", async () => {
+    const root = await newProject(environment);
+    const result = await run(["question", "new", "--root", root, "--input", "-"], { ...asGeneral(), cwd: root, stdin: QUESTION });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.equal(parseJson(result.stdout)?.status, "unavailable");
+  });
+
+  test("question new --help names the Chat: during a turn, and only when the developer asked for a round", async () => {
+    const result = await exec(["question", "new", "--help"], { cwd: emptyFolder() });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /in Chat, use it only when the developer asked to be asked with a round/i);
+    assert.match(result.stdout, /neither in a working Weaver job nor in the project's Chat during a turn/);
+    assert.match(result.stdout, /agent of the project's Chat during a turn can use it/);
+  });
+
   test("question new validates the whole round first: exit 2 with the paths, JSON on stdout without --json", async () => {
     const root = await newProject(environment);
     const bad = JSON.stringify({ questions: [{ id: "a", question: "Q", options: [{ label: "x", description: "d" }, { label: "", description: "d" }], recommended: 5, multi: false }] });
-    const result = await run(["question", "new", "--root", root, "--input", "-"], { ...asJob(), cwd: root, stdin: bad });
+    // An endpoint with no app behind it: the round is validated before the app is contacted.
+    const result = await run(["question", "new", "--root", root, "--input", "-"], { ...asJob({ WEAVER_ENDPOINT: "/nonexistent" }), cwd: root, stdin: bad });
     assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
     assert.ok(result.stderr.includes("questions[0].options[1].label"), result.stderr);
     assert.ok(result.stderr.includes("questions[0].recommended"), result.stderr);
@@ -499,6 +515,30 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
       assert.doesNotMatch(result.stderr, /agent of a job/);
       assert.match(result.stderr, /not the number of any live/);
     }
+  });
+
+  test("proposal new from a WEAVER_GENERAL or a WEAVER_JOB no app vouches for files a plain Draft: no Chat mark", async () => {
+    for (const [who, options] of [["the Chat", asGeneral()], ["a job", asJob()]]) {
+      const root = await newProject(environment);
+      const result = await run(["proposal", "new", "--root", root, "--json", "--input", '{"title":"Cancel an order"}'], { ...options, cwd: root });
+      assert.equal(result.status, 0, `${who}: ${result.stdout}${result.stderr}`);
+      const body = parseJson(result.stdout);
+      const folder = readdirSync(path.join(root, ".weaver", "proposals")).find((name) => name.startsWith(body.id));
+      const text = readFileSync(path.join(root, ".weaver", "proposals", folder, "proposal.md"), "utf8");
+      assert.doesNotMatch(text, /^chat(Writing)?:/m, `${who}: an unrecognised identity counts as none`);
+    }
+  });
+
+  test("proposal new --help, edit --help and move --help say what the Chat marks and binds", async () => {
+    const created = await exec(["proposal", "new", "--help"], { cwd: emptyFolder() });
+    assert.equal(created.status, 0, created.stderr);
+    assert.match(created.stdout, /refused from the agent of Chat/);
+    assert.match(created.stdout, /any other caller binds nothing/);
+    const edited = await exec(["proposal", "edit", "--help"], { cwd: emptyFolder() });
+    assert.match(edited.stdout, /marks the Proposal as written by Chat/);
+    const moved = await exec(["proposal", "move", "--help"], { cwd: emptyFolder() });
+    assert.match(moved.stdout, /clears the mark of a Proposal written by Chat/);
+    assert.match(moved.stdout, /any caller can run them under the same conditions/);
   });
 
   test("a Task number for a Proposal, and a number no live card has, are refused with exit 1", async () => {

@@ -30,6 +30,10 @@ pub trait GeneralAuthority: Send + Sync {
     /// `root`.
     fn accepts_ask(&self, root: &Path, token: &str) -> bool;
 
+    /// Whether a turn of the General of the project is in progress (its Machine is in Working):
+    /// the Draft Proposals it writes are still being finished.
+    fn chat_working(&self, project_id: &str) -> bool;
+
     /// `agent.START_JOB`: the agent of the General or of the Ask more conversation `token` asked
     /// for a job of `kind` (the app
     /// already accepted `token`). `outcome` is the jobs that started, as `(identity, name)`, or the
@@ -116,6 +120,12 @@ impl Authority for AppAuthority {
             .expect("hooks poisoned")
             .as_ref()
             .is_some_and(|general| general.accepts_ask(root, token))
+    }
+
+    fn job_record(&self, root: &Path, job: &str) -> Option<JobRecord> {
+        self.jobs
+            .record(job)
+            .filter(|record| Path::new(&record.project) == root)
     }
 
     fn facts(&self, root: &Path) -> AgentFacts {
@@ -249,7 +259,7 @@ fn job_show(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
         )));
     };
     let task = record.run_task().map(str::to_owned);
-    let markdown = format!(
+    let mut markdown = format!(
         "# Job `{}`\n\n- name: {}\n- kind: `{}`\n- state: `{}`\n",
         record.id,
         record.name,
@@ -259,6 +269,14 @@ fn job_show(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
     let mut job = json!({ "id": record.id, "kind": record.kind.as_str(), "target": record.target, "run": record.is_run(), "task": task });
     if let Some(merged) = &record.merged {
         job["merged"] = json!(merged);
+    }
+    // The line of the job in `.weaver/timings/jobs.jsonl`, once it was written. It is not part of
+    // the command's help: no text installed for the agent speaks of it.
+    if record.state.is_final() && record.kind.is_measured() {
+        if let Some(measure) = weaver_core::jobs::measure::find(call.root, &record.id) {
+            markdown.push_str(&weaver_core::jobs::measure::describe(&measure));
+            job["measure"] = measure;
+        }
     }
     Ok(reply(markdown, json!({ "job": job })))
 }

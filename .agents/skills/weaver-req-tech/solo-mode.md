@@ -1,4 +1,4 @@
-# Solo mode
+# Solo mode and Atomic commits
 
 ## solo-mode
 
@@ -23,3 +23,13 @@
 - **Conclusion:** the step that finds the merge concluded deletes `merge.json` and starts the scan job through the same start path as Scan System, without its confirmation; its registry record gets `merged`. A forgotten merge and every refusal reach the Board as notices.
 - **Jobs:** a job kind `merge`, named `Merge conflicts`, with the analysis model's role, no `--slow`, no `--advisor` and the environment of every job; it is not among the kinds of `job new` or of `agent.START_JOB`. Admission refuses, with the reason `A merge is in progress`, Runs, Run all, resolves, scans and imports while `merge.json` exists, and `merge` when no merge with conflicts is in progress or a `merge` job of the project has not ended.
 - **Solo mode:** `set_solo_mode` is refused while `merge.json` exists, for `off` and for the other mode, with the reason of `requirements/ui#solo-mode`.
+
+## atomic-commits
+
+- **Where:** one module of `weaver-core`, beside Solo mode's and Merge's, reads and writes `commits/commits.json` (`requirements/data#atomic-commits`), checks the paths and makes the commit (`requirements/rules#atomic-commits`). It is called by the core function that writes History entries, so the app (through `AppAuthority`) and the command line running alone behave the same; the UI never runs git.
+- **git:** the runner of `requirements/tech#solo-mode` (**git**): no shell, cwd the project root, `GIT_OPTIONAL_LOCKS=0` for the calls that only read, `GIT_EDITOR=true` and `GIT_TERMINAL_PROMPT=0` for `git add`, `git rm` and `git commit`, 10 s per call and 2 minutes for `git commit`. No git call runs on the UI or IPC thread.
+- **Queue:** one commit at a time per working copy, in a queue keyed by the canonical project root, outside the project lock and the project's mutation queue, so that a slow hook never blocks other writes; the command answers after its commit.
+- **Changes in the app:** a Tauri command `set_atomic_commits {projectId, enabled}` runs in the project's mutation queue under the project lock and returns the new state or the error. There is no command-line field to change it.
+- **State in the app:** `ProjectStatus` carries `atomicCommits`: `enabled`, `unavailable` (the reason it cannot be turned on, absent when it can), sent with `project-state`; `unavailable` is computed when the project opens and each time the Settings view is shown.
+- **Notices:** a History write by a job of the project whose `commit.status` is `not-committed` sends the Board a notice with the entry's title and the reason (`requirements/ui#atomic-commits`). A write made by the command line while the app is not running only prints the result.
+- **`.weaver` vanishes:** on `PROJECT_FOLDER_REMOVED` the state went with the folder; nothing else is done.

@@ -168,6 +168,20 @@ describe("columns", () => {
     const titles = within(active()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(titles).toEqual(["Second", "First"]);
   });
+
+  it("shows a Draft Chat writes as a card in Backlog, in the backend's order, counted with the others", async () => {
+    const chatDraft: BoardCard = { kind: "proposal", head: head("cccccccc", "P2", "Chat idea"), standing: "chat-draft", proposalKind: "change", view: proposalView() };
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart"), chatDraft, drift("dddddddd", "D1", "Cart total")] }));
+    await show();
+    expect(backlog().querySelector("h2")).toHaveTextContent("Backlog3");
+    const titles = within(backlog()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(titles).toEqual(["Add a cart", "Chat idea", "Cart total"]);
+    const shown = within(backlog().querySelector<HTMLElement>('[data-card-id="cccccccc"]')!);
+    expect(shown.getByText("draft")).toBeInTheDocument();
+    expect(shown.getByText("Chat")).toBeInTheDocument();
+    expect(shown.getByRole("button", { name: "Open Chat" })).toBeInTheDocument();
+    expect(shown.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
 });
 
 describe("ghosts", () => {
@@ -403,6 +417,26 @@ describe("a refused decision", () => {
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     await userEvent.setup().click(screen.getByRole("button", { name: "Close notice" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows each History entry Weaver did not commit as a notice with the reason, newest first, closed from the keyboard", async () => {
+    const user = userEvent.setup();
+    await show();
+    await act(async () => {
+      handlers.get("notice")?.({ projectId: PROJECT, id: "history-not-committed-hhhhhhhh", text: 'History entry "Cart" was not committed: the checks of the Run failed.' });
+      handlers.get("notice")?.({ projectId: PROJECT, id: "history-not-committed-iiiiiiii", text: 'History entry "Orders" was not committed: HEAD is detached.' });
+    });
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(2);
+    expect(within(alerts[0]!).getByText('History entry "Orders" was not committed: HEAD is detached.')).toBeInTheDocument();
+    expect(within(alerts[1]!).getByText('History entry "Cart" was not committed: the checks of the Run failed.')).toBeInTheDocument();
+
+    const close = within(alerts[0]!).getByRole("button", { name: "Close notice" });
+    close.focus();
+    await user.keyboard("{Enter}");
+    const left = screen.getAllByRole("alert");
+    expect(left).toHaveLength(1);
+    expect(within(left[0]!).getByText('History entry "Cart" was not committed: the checks of the Run failed.')).toBeInTheDocument();
   });
 });
 

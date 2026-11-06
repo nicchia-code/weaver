@@ -24,6 +24,14 @@ Sections: `General`, `proposal`, `question-round`
 
 File: `cards.md`
 
+## Chat instruction
+
+Use when changing the instruction Weaver gives omp in Chat (General): its fixed text and appended sentences.
+
+Sections: `general-chat`
+
+File: `chat-instructions.md`
+
 ## Files
 
 Use when implementing the limits of the File view, Assets and Notes: names, refused actions, binary files, images, size, tabs, line endings, the lock, the notes sheet.
@@ -48,11 +56,11 @@ Sections: `project`
 
 File: `skills.md`
 
-## Solo mode
+## Solo mode and Atomic commits
 
-Use when implementing Solo mode's block in git's local exclusions, its modes and paths, the list of Weaver's files git still tracks, or the git steps of Merge.
+Use when implementing Solo mode's block in git's local exclusions, its modes and paths, the list of Weaver's files git still tracks, the git steps of Merge, or the commits of Atomic commits.
 
-Sections: `solo-mode`, `solo-merge`
+Sections: `solo-mode`, `solo-merge`, `atomic-commits`
 
 File: `solo-mode.md`
 

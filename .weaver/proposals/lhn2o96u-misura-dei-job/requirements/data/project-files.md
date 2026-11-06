@@ -1,0 +1,145 @@
+---
+description: "Use when reading, writing or validating files under `.weaver/`: layout, card front matter, ids, encoding."
+---
+# Project files
+
+## General
+
+### Layout
+
+```
+.weaver/
+  model/                       system.md, actors/<actor>.md, <feature>/feature.md, <feature>/<machine>.md
+  requirements/<area>/         area.md and <fragment>.md
+  specs.yaml                   optional
+  proposals/<id>-<slug>/       one folder per Proposal (see `proposal`)
+  tasks/<id>-<slug>.md         live Tasks
+  drifts/<id>-<slug>.md        every Drift, decided ones included
+  history/<id>-<slug>.md       History entries
+  assets/<name>                the developer's assets, flat, files only (see `requirements/rules#asset-view`)
+  requests/                    local only: design requests (see `design-request`)
+  short-numbers/assigned       local only: short-number cache
+  task-images/<task id>/       local only: images tied to Tasks
+  notes/                       local only: the developer's notes, notes.md and its images (see `notes-view`)
+  solo/solo.json               local only: Solo mode of this working copy (see `solo-mode`)
+  merge/merge.json             local only: the merge in progress (see `solo-merge`)
+  timings/jobs.jsonl           local only: the measures of ended jobs (see `job`)
+```
+
+- `model/`, `requirements/`, `specs.yaml`, `proposals/`, `tasks/`, `drifts/`, `history/` and `assets/` are versioned with the project. Decided Proposals and Drifts are never deleted.
+- `assets/` is created only when the first asset is copied in, never at initialisation, and gets no `.gitignore`. Weaver never reads its files as Model, Requirement, Specs or card files, never puts them in the project picture, and never writes in it except through the Assets view.
+- `notes/` is created only when the sheet or an image is first written, never at initialisation. Like `assets/`, its files are never Model, Requirement, Specs or card files nor part of the project picture, and only the Notes view writes in it.
+- Local-only folders (`requests/`, `short-numbers/`, `task-images/`, `notes/`, `solo/`, `merge/`, `timings/`) each hold their own `.gitignore` containing `*`, written when the folder is created and written again whenever it is missing. Nothing else in `.weaver/` is ignored.
+- The Model, Requirements and Specs formats are exactly those of the `FORMAT.md` reference installed with the `weaver-design` skill. The core's parser and that file are tested together: every example in it parses, and every rule it states is enforced by `model check` or the hand-over.
+- Files and folders whose name starts with `.` are never read as Model, Requirement, Specs or card files.
+- A `.trama` folder, the project folder of earlier versions of Weaver, is never read, written, moved or deleted: without `.weaver/` the folder is not a project, and with both the project is `.weaver/`.
+
+### Identities and names
+
+- A card identity (Proposal, Task, Drift, History entry) and a job identity match `^[a-z0-9]{8}$`, drawn from a CSPRNG and drawn again when already used by one of the same type. Task identities are unique across `.weaver/tasks/`, the `cleared` copies in `history/` and the `tasks/` folders of every Proposal.
+- The identity of a card is read from its file or folder name, never from its content.
+- Slug: the title lowercased, diacritics removed, every run of characters outside `[a-z0-9]` turned into one `-`, leading and trailing `-` removed, cut at 40 characters without a trailing `-`; `untitled` when nothing is left. The slug is fixed when the file is created; a later title change never renames it.
+- Short numbers never appear in any versioned file. `short-numbers/assigned` holds one line per live card, `<P|T|D> <identity> <number>`, and is only a cache: missing, unreadable or conflicting, it is rebuilt and no command fails because of it.
+
+### Encoding and writes
+
+- Files are UTF-8 without BOM, written with LF line endings and a final newline. On read, a BOM is dropped and CRLF becomes LF before parsing, hashing or comparing, in one shared read function.
+- Timestamps are UTC ISO 8601 with milliseconds (`2026-11-02T07:07:19.522Z`), taken from the clock at the moment of the event. An epoch or other placeholder value is never written.
+- Front matter is YAML between two `---` lines, keys in the order listed in this fragment; absent optional keys are not written. Unknown keys are ignored and kept when the file is rewritten.
+- Every write is atomic: a temporary file `.<name>.<random>.tmp` in the same folder, flushed to disk, then renamed over the target. On Windows a rename failing with a sharing or access-denied error is retried every 50 ms for at most 1 s, then fails.
+- A file that cannot be read or parsed is reported as a diagnostic with its path and reason (in the project window and in the output of the CLI command that met it). It is never dropped silently, never rewritten automatically, and the other files still load.
+
+## proposal
+
+A Proposal is the folder `.weaver/proposals/<id>-<slug>/` holding `proposal.md` and the full new version of every file it changes at the path it has under `.weaver/`: `model/…`, `requirements/<area>/…`, `specs.yaml`, plus `tasks/<id>-<slug>.md` for its Tasks. The folder of a decided Proposal stays as it was when decided.
+
+`proposal.md` front matter:
+
+| Key | Content |
+|---|---|
+| `status` | `draft`, `open`, `refining`, `approved`, `rejected` or `discarded` |
+| `kind` | `change`, `setup`, `import` or `resolution` |
+| `requires` | list of Proposal identities; may be empty |
+| `base` | map from each changed or deleted path to the SHA-256 (lowercase hex) of its LF-normalised content when first made editable, or `new` when it did not exist |
+| `delete` | list of paths the Proposal removes |
+| `created` | creation instant |
+| `request` | optional: id of the design request it is bound to |
+| `reworks` | optional: identity of the rejected Proposal it takes the place of |
+| `reworkRequested` | optional: `true` on a Proposal rejected with Rework |
+| `label` | optional: the short label, one line |
+| `refining` | optional: `true` from the moment a refinement starts on it until it is handed over again; a `draft` carrying it was left half-way by a refinement |
+| `job` | optional: identity of the Weaver job that created it |
+| `drifts` | resolutions only: list of `{drift, decision, option?, note?}`, `decision` being `fix-code`, `proposal` or `dismissed`, `option` counted from 1 and only with `fix-code` |
+
+- The model the developer chose for a Proposal is never written in the repository, so that a cloned project cannot choose models for the developer: the app keeps it in its local data, `proposal-models/<project hash>.json`, a map from Proposal identity to model value, and drops an entry once no Task of that Proposal is in To do or In progress. It reaches omp only as one argument of a process started without a shell, and choosing it never sends the Proposal back to Draft.
+- Body: one H1 with the title, then prose saying why. `## Feedback` is appended on rejection only when the feedback has non-blank text. `## Already present` holds one line per element the code already implements, ``- `<ref>` — <where in the code>``.
+- A Task file of a Proposal has front matter with only `technical` (default `false`) and `refs` (element references and Requirement sections), then an H1 title and a body. It has no `base` and never makes the Proposal stale.
+
+## task
+
+`.weaver/tasks/<id>-<slug>.md`, front matter:
+
+| Key | Content |
+|---|---|
+| `column` | `todo`, `doing` or `done` |
+| `technical` | `true` or `false` |
+| `refs` | element references and Requirement sections |
+| `proposal` | optional: identity of the Proposal whose design it belongs to |
+| `drift` | optional: identity of the Drift whose fix Task it is |
+| `job` | optional: identity of the job that filed it |
+| `holder` | only in `doing`: identity of the job that holds it |
+| `created` | creation instant (for Tasks born with a Proposal, the approval instant) |
+| `finished` | only in `done`: the instant it reached Done |
+| `unchanged` | only for a fix Task closed without changes: the note of what was checked |
+
+- Body: one H1 title, then what must be true when it is done, in domain words. A fix Task's body also carries both sides of the Drift, the chosen option, the developer's note and Where in the code.
+- A `holder` naming a job that is unknown to this computer's job registry, or `doing` without `holder`, counts as a job that ended: the Task goes back to To do when the project is opened.
+- A Task that becomes Recorded in History or Forgotten has its file deleted, together with `task-images/<id>/`.
+- `task-images/<task id>/` holds copies of the images tied to a Task, referenced from its body by relative path.
+
+## drift
+
+`.weaver/drifts/<id>-<slug>.md`, front matter:
+
+| Key | Content |
+|---|---|
+| `status` | `open`, `code-to-be-fixed`, `fixed`, `proposal-accepted` or `dismissed` |
+| `refs` | element references and Requirement sections, at least one |
+| `origin` | optional: identity of the Task during which it was found |
+| `previous` | optional: identity of the earlier Drift it repeats |
+| `proposal` | optional: identity of the attached Proposal |
+| `task` | after `code-to-be-fixed`: identity of its fix Task |
+| `option` | after a code fix decision: the chosen fix option, from 1 |
+| `note` | optional: the developer's note on the decision |
+| `job` | optional: identity of the job that filed it |
+| `merge` | optional: `true` when it comes from a merge; written only by `drift new`, never changed |
+| `created` | creation instant |
+| `decided` | the instant of the decision, once decided |
+
+Body, in this order:
+
+1. one H1 title;
+2. `## What happens` and `## What should happen`, Markdown in behaviour words;
+3. `## Fix options`, one `### <title>` per option followed by its text, the recommended option first; the section is absent when the Drift offers none;
+4. `## Where in the code`: files and code names;
+5. optional `## Prepared question`: exactly one fenced `json` block `{question, decisions, fingerprint, prepared}`, where `question` is one question of `weaver question new` whose `id` is the Drift identity and `multi` is `false`, `decisions` has one `{decision, option?}` per option in the same order, `fingerprint` is `sha256:<hex>` of the text fingerprint of the Drift's references at preparation, and `prepared` is the instant. A block that does not parse counts as no prepared question and is reported.
+
+## history-entry
+
+`.weaver/history/<id>-<slug>.md`, front matter:
+
+- `created`: when it was first written; `updated`: when it was last written or updated (the entry's date).
+- `summary`: one line of 1 to 280 characters, inline Markdown only.
+- `tasks`: identities of the Tasks it cites, no duplicates, never shrinking.
+- `cleared`: map from Task identity to the copy kept when that Task left `.weaver/tasks/`: `{title, refs, technical, proposal?, label?, finished, body}`. A copy is written once and never changed; writing it does not change `updated`.
+
+Body: one H1 title, then the text in Markdown.
+
+## design-request
+
+- A request is `.weaver/requests/<id>.md`, Markdown with no front matter. `<id>` is the local time of creation as `YYYY-MM-DDTHH-MM-SS`, with `-2`, `-3`, … appended when that name is taken.
+- Images pasted or dropped into it are copied into `.weaver/requests/<id>.images/` and linked by relative path; images already inside the project are linked where they are, not copied. Accepted types: PNG, JPEG, GIF, WebP.
+- Title: the first H1 outside code fences; otherwise the first non-empty line that is not only images; otherwise the id.
+- Empty: nothing left after removing whitespace. A request made only of images is not empty.
+- `.weaver/requests/.state.json` records the requests that were sent (`{sent: {<id>: <job id>}, consumed: [<id>]}`), written by the app only. An id listed as consumed is never shown or sent again, even if a file with that name reappears.
+- Consuming or discarding a request deletes `<id>.md` and `<id>.images/` in one step.

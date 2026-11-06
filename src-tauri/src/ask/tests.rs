@@ -14,6 +14,8 @@ use crate::rounds::view::QuestionRoundChanged;
 use crate::rounds::Rounds;
 
 const PROJECT: &str = "0123456789abcdef";
+/// The identity of the live Chat of `PROJECT` while a turn is in progress.
+const CHAT: &str = "cccccccc";
 
 struct NoHost;
 
@@ -23,6 +25,11 @@ impl RoundsHost for NoHost {
     }
     fn round_opened(&self, _job: &str) {}
     fn round_closed(&self, _job: &str) {}
+    fn chat(&self, token: &str) -> Option<String> {
+        (token == CHAT).then(|| PROJECT.to_owned())
+    }
+    fn chat_round_opened(&self, _project_id: &str) {}
+    fn chat_round_closed(&self, _project_id: &str) {}
     fn focus_project(&self, _project_id: &str) {}
     fn changed(&self, _change: &QuestionRoundChanged) {}
 }
@@ -393,6 +400,40 @@ fn the_question_in_view_is_read_from_the_presented_round_with_the_identity_of_it
             found.instruction
         );
     }
+}
+
+#[test]
+fn the_question_of_a_round_of_the_chat_names_the_chat() {
+    let f = fixture();
+    let mut request = weaver_core::protocol::Request::new(
+        "secret",
+        weaver_core::question::KIND,
+        serde_json::json!({ "questions": [{
+            "id": "a", "question": "Which one?", "recommended": 0, "multi": false,
+            "options": [{ "label": "x", "description": "first" }, { "label": "y", "description": "second" }],
+        }]}),
+    );
+    request.general = Some(CHAT.into());
+    let rounds = f.rounds.clone();
+    let waiting = std::thread::spawn(move || {
+        rounds.handle(request, weaver_core::ipc::Peer::default())
+    });
+    let round = loop {
+        if let Some(view) = f.rounds.view(PROJECT) {
+            break view.id;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let found = built(&f, AskTarget::Question { round, index: 0 }, None).unwrap();
+    assert!(
+        found.instruction.contains("Asked by the Chat\n"),
+        "{}",
+        found.instruction
+    );
+    assert!(!found.instruction.contains("Asked by the job"));
+    assert!(!found.instruction.contains("weaver drift show"));
+    f.rounds.window_closed(PROJECT);
+    waiting.join().unwrap();
 }
 
 #[test]

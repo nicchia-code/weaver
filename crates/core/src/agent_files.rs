@@ -562,6 +562,61 @@ mod tests {
         }
     }
 
+    /// `requirements/rules#project`, **History texts**: `commit` with the entries, no git by the
+    /// agent, the files the sub-agent reports.
+    #[test]
+    fn the_history_texts_pass_commit_and_never_run_git_add_or_commit() {
+        let skill = text_of(".agents/skills/weaver-implement/SKILL.md");
+        for needle in [
+            "`{\"tasks\":[\"<id>\"],\"commit\":{\"files\":[\"<path>\"],\"message\":\"<message>\",\"checksFailed\":false}}`",
+            "\"tasks\":[\"<id>\"],\"commit\":{\"files\":[\"<path>\"],\"message\":\"<message>\",\"checksFailed\":false}}`, listing in `tasks`",
+            "**Pass `commit`** with every `history new` and with every `history edit` that adds Tasks, whether Atomic commits is on or not",
+            "created, changed or removed for the Tasks of that entry and no others",
+            "its first line says in at most 72 characters what the feature does",
+            "`checksFailed` is `true` when the final check of step 6 failed",
+            "**Never run `git add` or `git commit` yourself.**",
+            "each entry that was not committed, with the reason the command printed",
+            "the sub-agent reports the files of the code it created, changed or removed",
+        ] {
+            assert!(skill.contains(needle), "the skill lacks {needle:?}");
+        }
+        let implementer = text_of(".omp/agents/weaver-implementer.md");
+        assert!(
+            implementer.contains("the files of the code you created, changed or removed"),
+            "the sub-agent does not report its files"
+        );
+        assert!(implementer.len() < SUBAGENT_DEFINITION_LIMIT);
+    }
+
+    /// `requirements/rules#project`, **Chat texts**: `weaver-design` and `weaver-resolve-drifts`.
+    #[test]
+    fn the_design_and_resolve_skills_have_the_chat_section_and_no_longer_exclude_chat() {
+        for name in ["weaver-design", "weaver-resolve-drifts"] {
+            let skill = text_of(&format!(".agents/skills/{name}/SKILL.md"));
+            assert!(
+                skill.contains("\n## Writing from Chat\n"),
+                "{name} lacks the section"
+            );
+            let section = skill
+                .split("\n## Writing from Chat\n")
+                .nth(1)
+                .and_then(|rest| rest.split("\n## ").next())
+                .expect("the section");
+            for needle in [
+                "The conversation",
+                "asked in your reply",
+                "only when the developer asked to be asked that way",
+                "No announcement and no job note",
+                "`reworks`",
+                "summarise the Proposal in a few lines and stop",
+            ] {
+                assert!(section.contains(needle), "{name}: {needle:?}");
+            }
+            assert!(!skill.contains("never in Chat"), "{name}");
+            assert!(!skill.contains("+ Work Item"), "{name}");
+        }
+    }
+
     #[test]
     fn every_skill_points_to_the_reference_and_has_the_sections_the_instructions_name() {
         for name in SKILL_NAMES {

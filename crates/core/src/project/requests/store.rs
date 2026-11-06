@@ -10,8 +10,14 @@
 //! `.state.json` is written by the app only: `{"sent": {<id>: <job id>}, "consumed": [<id>]}`.
 //! An id listed as consumed is never shown, written or sent again, even if a file with that name
 //! reappears.
+//!
+//! A request is held by Chat (`RequestState::HeldByChat`) while a `draft` Proposal with
+//! `chatWriting: true` names it in `request`; nothing is recorded for it, so it is the Proposals
+//! that are read ([`RequestStore::state_of`], [`RequestStore::list`]). A held request cannot be
+//! saved, sent or discarded, and the hand-over of that Proposal consumes it
+//! ([`RequestStore::consume`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -25,7 +31,8 @@ use super::title;
 use crate::atomic;
 use crate::job_instruction::Job;
 use crate::paths;
-use crate::project::layout::{self, REQUESTS_DIR};
+use crate::project::frontmatter;
+use crate::project::layout::{self, PROPOSALS_DIR, PROPOSAL_FILE, REQUESTS_DIR};
 use crate::project::model::Model;
 use crate::project::text;
 
@@ -42,6 +49,10 @@ pub enum RequestError {
     /// The request was sent: it can be read, not changed, sent again or discarded.
     #[error("the request was sent to the agent and cannot change")]
     NotWriting,
+    /// The agent of Chat is writing a Proposal bound to it: it can be read, not changed, sent or
+    /// discarded.
+    #[error("Chat is writing a Proposal from the request and it cannot change")]
+    HeldByChat,
     /// The name is not the id of a request.
     #[error("`{0}` is not the id of a request")]
     NotAnId(String),
@@ -70,7 +81,7 @@ pub struct RequestEntry {
     pub title: String,
     /// The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
     pub created: String,
-    /// `Writing` or `Sent`.
+    /// `Writing`, `Sent` or `HeldByChat`.
     pub state: RequestState,
     /// The job that received it, when it was sent.
     pub job_id: Option<String>,
@@ -113,6 +124,12 @@ fn without_final_newline(mut content: String) -> String {
         content.pop();
     }
     content
+}
+
+/// The state of a request in `state` once a Proposal is bound to it, `by_chat` being whether the
+/// agent of Chat opened it: the Machine decides (`agent.OPEN_PROPOSAL`); the Draft is the record.
+fn opened_by_chat(state: RequestState, by_chat: bool) -> RequestState {
+    step(state, RequestEvent::OpenProposal { by_chat }).state
 }
 
 #[derive(Debug, Clone)]
@@ -188,18 +205,64 @@ impl RequestStore {
         (located, exists)
     }
 
+    /// [`Self::locate`] that also tells a request held by Chat from one being written. It reads the
+    /// Proposals, so an operation that does not need the difference uses `locate`.
+    fn locate_held(
+        &self,
+        id: &str,
+        state: &RequestsState,
+    ) -> Result<(RequestState, bool), RequestError> {
+        let (located, exists) = self.locate(id, state);
+        if located == RequestState::Writing {
+            let held = self.held_by_chat()?.contains(id);
+            return Ok((opened_by_chat(located, held), exists));
+        }
+        Ok((located, exists))
+    }
+
+    /// The ids of the requests held by Chat: a `draft` Proposal with `chatWriting: true` names each in
+    /// `request`. Nothing else records it (`requirements/data#design-request`), so it ends by itself
+    /// when that Draft is handed over or discarded. A Proposal file that cannot be read says nothing.
+    fn held_by_chat(&self) -> Result<BTreeSet<String>, RequestError> {
+        let folder = layout::weaver_dir(&self.project_root).join(PROPOSALS_DIR);
+        let listing = match fs::read_dir(&folder) {
+            Ok(listing) => listing,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut held = BTreeSet::new();
+        for item in listing {
+            let Ok(content) = text::read_text(&item?.path().join(PROPOSAL_FILE)) else {
+                continue;
+            };
+            let Ok(document) = frontmatter::parse(&content) else {
+                continue;
+            };
+            let front = &document.front;
+            if frontmatter::get_str(front, "status") == Some("draft")
+                && frontmatter::get_bool(front, "chatWriting") == Some(true)
+            {
+                if let Some(request) = frontmatter::get_str(front, "request") {
+                    held.insert(request.to_owned());
+                }
+            }
+        }
+        Ok(held)
+    }
+
     /// The state of request `id`.
     pub fn state_of(&self, id: &str) -> Result<RequestState, RequestError> {
         self.checked(id)?;
-        Ok(self.locate(id, &self.state()?).0)
+        Ok(self.locate_held(id, &self.state()?)?.0)
     }
 
     // --- the requests ---
 
-    /// The open requests (writing or sent), newest first. A consumed id is never listed, and
-    /// neither is a sent one whose file is gone.
+    /// The open requests (writing, sent or held by Chat), newest first. A consumed id is never
+    /// listed, and neither is a sent one whose file is gone.
     pub fn list(&self) -> Result<Vec<RequestEntry>, RequestError> {
         let state = self.state()?;
+        let held = self.held_by_chat()?;
         let listing = match fs::read_dir(self.dir()) {
             Ok(listing) => listing,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -227,15 +290,16 @@ impl RequestStore {
                 }
             };
             let job_id = state.sent.get(request).cloned();
+            let listed = if job_id.is_some() {
+                RequestState::Sent
+            } else {
+                opened_by_chat(RequestState::Writing, held.contains(request))
+            };
             entries.push(RequestEntry {
                 id: request.to_owned(),
                 title: title::title_of(&content, request),
                 created: created.iso(),
-                state: if job_id.is_some() {
-                    RequestState::Sent
-                } else {
-                    RequestState::Writing
-                },
+                state: listed,
                 job_id,
                 empty: title::is_empty(&content),
             });
@@ -295,9 +359,10 @@ impl RequestStore {
     /// (and is recorded as such), a sent request cannot change.
     fn require_writing(&self, id: &str) -> Result<(), RequestError> {
         let state = self.state()?;
-        let (located, exists) = self.locate(id, &state);
+        let (located, exists) = self.locate_held(id, &state)?;
         match located {
             RequestState::Writing => Ok(()),
+            RequestState::HeldByChat => Err(RequestError::HeldByChat),
             RequestState::Sent if exists => Err(RequestError::NotWriting),
             RequestState::Sent => {
                 self.apply_deleted(id)?;
@@ -364,7 +429,7 @@ impl RequestStore {
     pub fn discard(&self, id: &str) -> Result<(), RequestError> {
         self.checked(id)?;
         let state = self.state()?;
-        let (located, exists) = self.locate(id, &state);
+        let (located, exists) = self.locate_held(id, &state)?;
         match located {
             RequestState::Writing => {
                 let outcome = step(located, RequestEvent::DiscardRequest);
@@ -372,6 +437,7 @@ impl RequestStore {
                 self.delete_files(id)?;
                 Ok(())
             }
+            RequestState::HeldByChat => Err(RequestError::HeldByChat),
             RequestState::Sent if exists => Err(RequestError::NotWriting),
             RequestState::Sent => self.apply_deleted(id),
             RequestState::Consumed | RequestState::Discarded | RequestState::NotWritten => Ok(()),
@@ -380,10 +446,15 @@ impl RequestStore {
 
     /// `proposal.SUBMITTED` of a Proposal bound to request `id`: the first one consumes the
     /// request (files deleted, id recorded as consumed). Returns whether this call consumed it.
-    pub fn consume(&self, id: &str) -> Result<bool, RequestError> {
+    ///
+    /// `from_chat` is whether the Proposal was a Draft the agent of Chat was writing (`chatWriting`)
+    /// before the hand-over: that Draft is what held the request, and it is a Draft no longer when
+    /// this is called.
+    pub fn consume(&self, id: &str, from_chat: bool) -> Result<bool, RequestError> {
         self.checked(id)?;
         let mut state = self.state()?;
-        let (located, _) = self.locate(id, &state);
+        let (mut located, _) = self.locate(id, &state);
+        located = opened_by_chat(located, from_chat);
         let outcome = step(located, RequestEvent::ProposalSubmitted);
         if outcome.state != RequestState::Consumed || outcome.effect != Effect::DeleteFiles {
             return Ok(false);
@@ -629,7 +700,7 @@ mod tests {
         let (_dir, store) = store();
         let id = written(&store, 9, "x");
         store.record_sent(&id, "jjjjjjjj").unwrap();
-        assert!(store.consume(&id).unwrap());
+        assert!(store.consume(&id, false).unwrap());
         assert_eq!(store.create(&at(9)).unwrap(), "2026-11-02T07-05-09-2");
     }
 
@@ -822,7 +893,7 @@ mod tests {
         store.record_sent(&id, "jjjjjjjj").unwrap();
         let folder = dir.path().join(".weaver/requests");
 
-        assert!(store.consume(&id).unwrap());
+        assert!(store.consume(&id, false).unwrap());
         assert!(!folder.join(format!("{id}.md")).exists());
         assert!(!folder.join(format!("{id}.images")).exists());
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
@@ -833,7 +904,7 @@ mod tests {
         );
 
         // The second Proposal bound to it finds nothing to consume.
-        assert!(!store.consume(&id).unwrap());
+        assert!(!store.consume(&id, false).unwrap());
         assert_eq!(store.state().unwrap().consumed.len(), 1);
     }
 
@@ -841,9 +912,134 @@ mod tests {
     fn a_request_being_written_is_not_consumed_by_a_proposal() {
         let (_dir, store) = store();
         let id = written(&store, 9, "x");
-        assert!(!store.consume(&id).unwrap());
+        assert!(!store.consume(&id, false).unwrap());
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Writing);
-        assert!(!store.consume("2026-11-02T07-05-10").unwrap());
+        assert!(!store.consume("2026-11-02T07-05-10", false).unwrap());
+    }
+
+    /// A `proposal.md` with `status`, `chatWriting` as given and `request` bound to it.
+    fn proposal(dir: &Path, folder: &str, status: &str, chat_writing: Option<bool>, request: &str) {
+        let path = dir.join(".weaver/proposals").join(folder);
+        fs::create_dir_all(&path).unwrap();
+        let writing = chat_writing.map_or(String::new(), |on| format!("chatWriting: {on}\n"));
+        fs::write(
+            path.join("proposal.md"),
+            format!("---\nstatus: {status}\nkind: change\nrequest: {request}\n{writing}---\n\nBody\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_draft_of_chat_holds_the_request_it_names_and_only_while_it_is_a_draft() {
+        let (dir, store) = store();
+        let held = written(&store, 9, "# Held");
+        let free = written(&store, 10, "# Free");
+        let other = written(&store, 11, "# Other");
+        // Chat writes one for `held`; a job's Draft (no `chatWriting`) and a Proposal that is
+        // not a Draft do not hold anything.
+        proposal(dir.path(), "aaaaaaaa-held", "draft", Some(true), &held);
+        proposal(dir.path(), "bbbbbbbb-job", "draft", None, &free);
+        proposal(dir.path(), "cccccccc-open", "open", Some(true), &other);
+
+        assert_eq!(store.state_of(&held).unwrap(), RequestState::HeldByChat);
+        assert_eq!(store.state_of(&free).unwrap(), RequestState::Writing);
+        assert_eq!(store.state_of(&other).unwrap(), RequestState::Writing);
+        let states: Vec<(String, RequestState)> = store
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|entry| (entry.id, entry.state))
+            .collect();
+        assert_eq!(
+            states,
+            [
+                (other, RequestState::Writing),
+                (free, RequestState::Writing),
+                (held, RequestState::HeldByChat),
+            ]
+        );
+        // Nothing is recorded: the app writes no `.state.json` for it.
+        assert!(!dir.path().join(".weaver/requests/.state.json").exists());
+    }
+
+    #[test]
+    fn a_request_held_by_chat_can_be_read_but_not_saved_sent_discarded_or_given_images() {
+        let (dir, store) = store();
+        let id = written(&store, 9, "Add orders");
+        proposal(dir.path(), "aaaaaaaa-held", "draft", Some(true), &id);
+
+        assert!(matches!(
+            store.save(&id, "changed"),
+            Err(RequestError::HeldByChat)
+        ));
+        assert!(matches!(
+            store.plan_send(&id, false),
+            Err(RequestError::HeldByChat)
+        ));
+        assert!(matches!(
+            store.record_sent(&id, "jjjjjjjj"),
+            Err(RequestError::HeldByChat)
+        ));
+        assert!(matches!(
+            store.discard(&id),
+            Err(RequestError::HeldByChat)
+        ));
+        assert!(matches!(
+            store.add_image(&id, &PNG),
+            Err(RequestError::HeldByChat)
+        ));
+        assert_eq!(store.read(&id).unwrap(), "Add orders");
+        assert!(dir
+            .path()
+            .join(format!(".weaver/requests/{id}.md"))
+            .is_file());
+        assert!(store.state().unwrap().sent.is_empty());
+    }
+
+    #[test]
+    fn discarding_the_draft_of_chat_gives_the_request_back() {
+        let (dir, store) = store();
+        let id = written(&store, 9, "Add orders");
+        proposal(dir.path(), "aaaaaaaa-held", "draft", Some(true), &id);
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::HeldByChat);
+
+        proposal(dir.path(), "aaaaaaaa-held", "discarded", Some(true), &id);
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::Writing);
+        store.save(&id, "Add orders and carts").unwrap();
+        assert!(matches!(
+            store.plan_send(&id, false).unwrap(),
+            SendPlan::Start(_)
+        ));
+    }
+
+    #[test]
+    fn the_hand_over_of_the_draft_of_chat_consumes_the_request_it_held() {
+        let (dir, store) = store();
+        let id = written(&store, 9, "Add orders");
+        store.add_image(&id, &PNG).unwrap();
+        proposal(dir.path(), "aaaaaaaa-held", "draft", Some(true), &id);
+        let folder = dir.path().join(".weaver/requests");
+
+        // The hand-over made it an Open Proposal without `chatWriting`: the app says it came from Chat.
+        proposal(dir.path(), "aaaaaaaa-held", "open", None, &id);
+        assert!(store.consume(&id, true).unwrap());
+        assert!(!folder.join(format!("{id}.md")).exists());
+        assert!(!folder.join(format!("{id}.images")).exists());
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
+        assert_eq!(store.state().unwrap().consumed, std::slice::from_ref(&id));
+        assert!(!store.consume(&id, true).unwrap(), "only once");
+    }
+
+    #[test]
+    fn a_held_request_whose_file_is_deleted_from_outside_is_discarded() {
+        let (dir, store) = store();
+        let id = written(&store, 9, "x");
+        proposal(dir.path(), "aaaaaaaa-held", "draft", Some(true), &id);
+        fs::remove_file(dir.path().join(format!(".weaver/requests/{id}.md"))).unwrap();
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::Discarded);
+        assert!(store.list().unwrap().is_empty());
+        assert!(matches!(store.read(&id), Err(RequestError::Gone)));
+        assert!(!store.consume(&id, false).unwrap());
     }
 
     #[test]
@@ -882,7 +1078,7 @@ mod tests {
         assert!(store.job_ended("jjjjjjjj", true).unwrap().is_empty());
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Sent);
         // A job that ends after the request was consumed finds nothing.
-        assert!(store.consume(&id).unwrap());
+        assert!(store.consume(&id, false).unwrap());
         assert!(store.job_ended("jjjjjjjj", false).unwrap().is_empty());
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
     }
@@ -927,7 +1123,7 @@ mod tests {
         assert!(store.job_ended("jjjjjjjj", false).unwrap().is_empty());
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Discarded);
         // Nothing is consumed either: it was discarded, not consumed.
-        assert!(!store.consume(&id).unwrap());
+        assert!(!store.consume(&id, false).unwrap());
         assert!(store.state().unwrap().consumed.is_empty());
     }
 
@@ -936,7 +1132,7 @@ mod tests {
         let (dir, store) = store();
         let id = written(&store, 9, "x");
         store.record_sent(&id, "jjjjjjjj").unwrap();
-        assert!(store.consume(&id).unwrap());
+        assert!(store.consume(&id, false).unwrap());
         // An editor saves the file again.
         fs::write(
             dir.path().join(format!(".weaver/requests/{id}.md")),
@@ -951,7 +1147,7 @@ mod tests {
         ));
         assert!(matches!(store.save(&id, "more"), Err(RequestError::Gone)));
         assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
-        assert!(!store.consume(&id).unwrap());
+        assert!(!store.consume(&id, false).unwrap());
     }
 
     #[test]

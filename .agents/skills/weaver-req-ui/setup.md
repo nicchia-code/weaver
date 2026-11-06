@@ -49,6 +49,7 @@
 - **Send:** primary `Send` (`SendHorizontal`), also `Ctrl/Cmd+Enter`; disabled while the text is empty after trimming, tooltip `Write the request first.`
 - **Discard:** `Discard` (`Trash2`), AlertDialog `Discard this request?` / `Its file and images are deleted.`, `Discard` (destructive) and `Cancel` (focus).
 - **Sent:** read-only rendered view with a banner `Sent to the agent · <job name>` and `Open conversation`. Back in writing after its job ended without a Proposal: banner `The job ended without a Proposal. Change the request and send it again.`
+- **Held by Chat:** listed with a `Chat` badge in place of `Draft`; read-only rendered view with a banner `Chat is writing a Proposal from this request` and `Open Chat`, without `Send` or `Discard`. When that Draft is discarded, the request is editable again as before.
 - **Images:** PNG, JPEG, GIF or WebP pasted or dropped into the text are saved in the request's images folder next to it as `image-<n>.<ext>` (next free number), and `![](<images folder>/image-<n>.<ext>)` is inserted at the cursor. At most 10 MB per image; anything else is refused with an error toast `Only PNG, JPEG, GIF or WebP images up to 10 MB.` The preview shows images only from that folder.
 
 ## developer.CHANGE_SETTINGS
@@ -59,7 +60,7 @@
   3. `Agents`: `Max parallel sub-agents` (whole number ≥ 1, default 20), `Language of the agent's texts` (empty = English).
   4. `Editor`: preset Select (`VS Code`, `Cursor`, `Zed`, `JetBrains`, `Sublime Text`, `Custom command`); with `Custom command`, a text field that must contain `{file}` (`{line}` optional).
   5. `Appearance`: `Theme` as a segmented control `Auto` / `Light` / `Dark`, applied live to every window.
-  6. `Project`: `Solo mode` (`requirements/ui#solo-mode`), then `Update skills` (`project`).
+  6. `Project`: `Solo mode` (`requirements/ui#solo-mode`), then `Atomic commits` (`requirements/ui#atomic-commits`), then `Update skills` (`project`).
 - **Model roles:** a Combobox each: free typing, suggestions filtered while typing, the models omp lists (omp's order, `<selector>` with the readable name when different), plus `omp default` (empty value). A thinking-level Select (`Default` + the levels omp lists for that model) sits right of the Combobox only when omp lists levels; the field shows the model only, the value is stored as `<model>:<level>`, split on the last `:` only when the level is one omp lists. Model names are never validated. When the list is unavailable, a secondary line says why: `omp not found at <path>`, `omp did not answer within 15 s`, `omp exited with code <N>`, `omp did not return a valid list`.
 - **Saving:** at once, no confirmation: selects on choice, text and number fields on blur or `Enter`. An invalid value is not saved; the field keeps the typed text and says why under it (`Enter a whole number of at least 1.`, `The command must contain {file}.`). A failed write shows `Could not save <title>: <reason>.` under the field and puts back the stored value.
 - A change from another window shows everywhere at once, except in a field that has focus, which takes it on blur if the developer did not change it.

@@ -70,11 +70,19 @@ Sections: `file-view`, `file-tab`, `file-lock`, `assets`, `notes-view`
 
 File: `files.md`
 
+## Git
+
+Use when building or testing what Weaver does with git: Solo mode's exclusions, Merge, or the commits of Atomic commits.
+
+Sections: `solo-mode`, `solo-merge`, `atomic-commits`
+
+File: `git.md`
+
 ## Quality
 
 Use when building anything that must stay fast, reliable, logged, accessible or tested.
 
-Sections: `General`, `solo-mode`, `solo-merge`
+Sections: `General`
 
 File: `main.md`
 

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SettingChange } from "@/bindings/SettingChange";
 import type { SettingField } from "@/bindings/SettingField";
+import type { AtomicCommitsStatus } from "@/bindings/AtomicCommitsStatus";
 import type { SettingsSnapshot } from "@/bindings/SettingsSnapshot";
 import type { SystemCertificatesStatus } from "@/bindings/SystemCertificatesStatus";
 import type { ProjectStatus } from "@/bindings/ProjectStatus";
@@ -12,6 +13,7 @@ import type { SoloChange } from "@/bindings/SoloChange";
 import type { SoloMode } from "@/bindings/SoloMode";
 import { SettingsView, type ModelCatalog } from "@/components/settings-view";
 import { SoloModeSetting } from "@/components/project/solo-mode";
+import { AtomicCommitsSetting } from "@/components/project/atomic-commits";
 import { ProjectStatusProvider } from "@/components/project/use-project-status";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SettingsProvider } from "@/hooks/use-settings";
@@ -112,6 +114,7 @@ let pushStatus: (next: ProjectStatus) => void;
 let project: ProjectStatus;
 let trackedFiles: () => Promise<string[]>;
 let changeSolo: (args: { mode: SoloMode }) => Promise<SoloChange>;
+let changeAtomic: (args: { enabled: boolean }) => Promise<AtomicCommitsStatus>;
 
 const PROJECT = "0123456789abcdef";
 
@@ -124,6 +127,7 @@ function projectStatus(patch: Partial<ProjectStatus> = {}): ProjectStatus {
     folderHasFiles: false,
     check: { opening: 1, outcome: { kind: "none" } },
     solo: { mode: "off" },
+    atomicCommits: { enabled: false },
     ...patch,
   };
 }
@@ -140,6 +144,10 @@ function install(initial: SettingsSnapshot) {
     project = { ...project, revision: project.revision + 1, solo: { mode } };
     return Promise.resolve({ solo: { mode }, tracked: [] });
   };
+  changeAtomic = ({ enabled }) => {
+    project = { ...project, revision: project.revision + 1, atomicCommits: { enabled } };
+    return Promise.resolve({ enabled });
+  };
   vi.mocked(on).mockImplementation(((name: string, handler: (next: never) => void) => {
     if (name === "settings-changed") push = handler as unknown as typeof push;
     if (name === "project-state") pushStatus = handler as unknown as typeof pushStatus;
@@ -151,6 +159,8 @@ function install(initial: SettingsSnapshot) {
     if (name === "project_status") return Promise.resolve(project);
     if (name === "solo_tracked_files") return trackedFiles();
     if (name === "set_solo_mode") return changeSolo(args as unknown as { mode: SoloMode });
+    if (name === "check_atomic_commits") return Promise.resolve(project.atomicCommits);
+    if (name === "set_atomic_commits") return changeAtomic(args as unknown as { enabled: boolean });
     const change = args.change!;
     saved.push(change);
     if (change.key === "maxParallelAgents" && !/^[1-9][0-9]*$/.test(change.value)) {
@@ -722,5 +732,213 @@ describe("Solo mode in Settings", () => {
     await vi.waitFor(() => expect(screen.getByRole("radio", { name: "Off" })).toBeEnabled());
     expect(screen.queryByText(reason)).not.toBeInTheDocument();
     expect(control).toHaveAccessibleDescription(`${NOTE} ${VERSIONED_NOWHERE}`);
+  });
+});
+
+/** The Settings view with `Solo mode`, `Atomic commits` and then `Update skills`, as the project window composes it. */
+async function showAtomic(visible = true) {
+  const view = (shown: boolean) => (
+    <TooltipProvider>
+      <SettingsProvider>
+        <ProjectStatusProvider projectId={PROJECT}>
+          <ViewShownContext.Provider value={shown}>
+            <SettingsView
+              projectSlot={
+                <>
+                  <SoloModeSetting />
+                  <AtomicCommitsSetting />
+                  <p>Update skills box</p>
+                </>
+              }
+            />
+          </ViewShownContext.Provider>
+        </ProjectStatusProvider>
+      </SettingsProvider>
+    </TooltipProvider>
+  );
+  const rendered = render(view(visible));
+  await screen.findByRole("heading", { name: "omp" });
+  await screen.findByRole("switch", { name: "Atomic commits" });
+  return { show: (shown: boolean) => rendered.rerender(view(shown)) };
+}
+
+const ATOMIC_NOTE = "Applies only to this working copy: after each History entry, Weaver commits the code the agent wrote for it.";
+
+describe("Atomic commits in Settings", () => {
+  it("sits in the Project group between Solo mode and Update skills", async () => {
+    await showAtomic();
+    const group = screen.getByRole("region", { name: "Project" });
+    const solo = within(group).getByRole("radiogroup", { name: "Solo mode" });
+    const atomic = within(group).getByRole("switch", { name: "Atomic commits" });
+    const skills = within(group).getByText("Update skills box");
+    expect(solo.compareDocumentPosition(atomic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(atomic.compareDocumentPosition(skills) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(group).getByText("Atomic commits").tagName).toBe("LABEL");
+  });
+
+  it("is a Switch, off by default and enabled, with the note as its description", async () => {
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    expect(control).not.toBeChecked();
+    expect(control).toBeEnabled();
+    expect(control).toHaveAccessibleDescription(ATOMIC_NOTE);
+    expect(screen.getByText(ATOMIC_NOTE)).toBeInTheDocument();
+  });
+
+  it("asks the backend whether git is there each time the view is shown, and not while it is hidden", async () => {
+    const view = await showAtomic(false);
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("project_status", { projectId: PROJECT }));
+    expect(call).not.toHaveBeenCalledWith("check_atomic_commits", expect.anything());
+    view.show(true);
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("check_atomic_commits", { projectId: PROJECT }));
+    const asked = () => vi.mocked(call).mock.calls.filter(([name]) => name === "check_atomic_commits").length;
+    const before = asked();
+    view.show(false);
+    view.show(true);
+    await vi.waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("is disabled and off in a folder that is not a project yet, and says what to do first", async () => {
+    project = projectStatus({ state: "not-initialised", atomicCommits: { enabled: true } });
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    expect(control).toBeDisabled();
+    expect(control).not.toBeChecked();
+    expect(screen.getByText("Initialise the project to use Atomic commits.")).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(`${ATOMIC_NOTE} Initialise the project to use Atomic commits.`);
+    expect(call).not.toHaveBeenCalledWith("check_atomic_commits", expect.anything());
+  });
+
+  it.each([
+    ["git was not found", "Atomic commits needs git: git was not found."],
+    ["this folder is not in a git repository", "Atomic commits needs git: this folder is not in a git repository."],
+    ["git did not answer within 10 s", "Atomic commits needs git: git did not answer within 10 s."],
+    ["git failed: fatal: bad object", "Atomic commits needs git: git failed: fatal: bad object."],
+  ])("is disabled while off without git (%s) and gives the reason as its description", async (reason, text) => {
+    project = projectStatus({ atomicCommits: { enabled: false, unavailable: reason } });
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    expect(control).toBeDisabled();
+    expect(control).not.toBeChecked();
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(`${ATOMIC_NOTE} ${text}`);
+  });
+
+  it("stays usable while on without git, so that it can be turned off", async () => {
+    const user = userEvent.setup();
+    project = projectStatus({ atomicCommits: { enabled: true, unavailable: "git was not found" } });
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    expect(control).toBeChecked();
+    expect(control).toBeEnabled();
+    expect(screen.queryByText(/needs git/)).not.toBeInTheDocument();
+    await user.click(control);
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("set_atomic_commits", { projectId: PROJECT, enabled: false }));
+  });
+
+  it("is never stored as a setting: turning it on asks the backend and writes no settings", async () => {
+    const user = userEvent.setup();
+    await showAtomic();
+    await user.click(screen.getByRole("switch", { name: "Atomic commits" }));
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("set_atomic_commits", { projectId: PROJECT, enabled: true }));
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked());
+    expect(saved).toEqual([]);
+    expect(vi.mocked(call).mock.calls.some(([name]) => name === "settings_set")).toBe(false);
+    expect(JSON.stringify(snapshot().schema)).not.toMatch(/atomic/i);
+  });
+
+  it("changes at once with no confirmation, and is disabled while the change runs", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    changeAtomic = ({ enabled }) =>
+      new Promise((resolve) => {
+        finish = () => {
+          project = { ...project, revision: project.revision + 1, atomicCommits: { enabled } };
+          resolve({ enabled });
+        };
+      });
+    await showAtomic();
+    await user.click(screen.getByRole("switch", { name: "Atomic commits" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeDisabled());
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked();
+
+    await act(async () => finish());
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeEnabled());
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked();
+  });
+
+  it("turns off at once too", async () => {
+    const user = userEvent.setup();
+    project = projectStatus({ atomicCommits: { enabled: true } });
+    await showAtomic();
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked();
+    await user.click(screen.getByRole("switch", { name: "Atomic commits" }));
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("set_atomic_commits", { projectId: PROJECT, enabled: false }));
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).not.toBeChecked());
+  });
+
+  it("shows `Could not change Atomic commits: <reason>.` in the error colour and puts back the project's value", async () => {
+    const user = userEvent.setup();
+    changeAtomic = () => Promise.reject({ code: "refused", message: "could not write /r/.weaver/commits/commits.json: Permission denied (os error 13)" });
+    await showAtomic();
+    await user.click(screen.getByRole("switch", { name: "Atomic commits" }));
+    const failure = await screen.findByRole("alert");
+    const text = "Could not change Atomic commits: could not write /r/.weaver/commits/commits.json: Permission denied (os error 13).";
+    expect(failure).toHaveTextContent(text);
+    expect(failure).toHaveClass("text-red-600");
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeEnabled());
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).toHaveAccessibleDescription(`${ATOMIC_NOTE} ${text}`);
+    // The next change clears it.
+    changeAtomic = ({ enabled }) => {
+      project = { ...project, revision: project.revision + 1, atomicCommits: { enabled } };
+      return Promise.resolve({ enabled });
+    };
+    await user.click(screen.getByRole("switch", { name: "Atomic commits" }));
+    await vi.waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("follows the status another window or the backend sends", async () => {
+    await showAtomic();
+    act(() => pushStatus(projectStatus({ revision: 2, atomicCommits: { enabled: false, unavailable: "git was not found" } })));
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeDisabled());
+    expect(screen.getByText("Atomic commits needs git: git was not found.")).toBeInTheDocument();
+    act(() => pushStatus(projectStatus({ revision: 3, atomicCommits: { enabled: true } })));
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked());
+    expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeEnabled();
+    expect(screen.queryByText(/needs git/)).not.toBeInTheDocument();
+  });
+
+  it("works from the keyboard: Tab reaches it, Space turns it on", async () => {
+    const user = userEvent.setup();
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    control.focus();
+    expect(control).toHaveFocus();
+    await user.keyboard(" ");
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("set_atomic_commits", { projectId: PROJECT, enabled: true }));
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked());
+  });
+});
+
+describe("Atomic commits file that cannot be used", () => {
+  it("counts as off and says which file and why, as part of the description of the switch", async () => {
+    const diagnostic = ".weaver/commits/commits.json: `enabled` must be `true`";
+    project = projectStatus({ atomicCommits: { enabled: false, diagnostic } });
+    await showAtomic();
+    const control = screen.getByRole("switch", { name: "Atomic commits" });
+    const text = `The Atomic commits file counts as off: ${diagnostic}.`;
+    expect(control).not.toBeChecked();
+    expect(control).toBeEnabled();
+    const line = screen.getByText(text);
+    expect(line).toHaveClass("text-amber-600");
+    expect(line.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
+    expect(control).toHaveAccessibleDescription(`${ATOMIC_NOTE} ${text}`);
+    // The next change rewrites the file: the project's status then carries no diagnostic.
+    const user = userEvent.setup();
+    await user.click(control);
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeChecked());
+    await vi.waitFor(() => expect(screen.queryByText(text)).not.toBeInTheDocument());
   });
 });

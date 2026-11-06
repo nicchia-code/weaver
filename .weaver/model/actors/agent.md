@@ -1,6 +1,6 @@
 # Agent
 
-The coding agent, omp, working inside a job or in General that Weaver started. It reaches Weaver only through the `weaver` command line, which knows the job it belongs to; what it reports there are the facts below. Only an agent of a job Weaver started can hold a Task, announce a card or ask a question round; a command run outside such a job is refused for those. The agent reads, analyses and writes the developer's code; Weaver only reads and writes the files the developer opens and changes in the File view.
+The coding agent, omp, working inside a job or in General that Weaver started. It reaches Weaver only through the `weaver` command line, which knows the job or the General it belongs to; what it reports there are the facts below. Only an agent of a job Weaver started can hold a Task or announce a card, and only an agent of a job or of General can ask a question round; a command run outside them is refused for those. The agent reads, analyses and writes the developer's code; Weaver only reads and writes the files the developer opens and changes in the File view.
 
 ## Events
 
@@ -9,6 +9,9 @@ The agent says it is preparing a Proposal, a Task or a Drift, with a short title
 
 ### DECLARE_NOTE
 The agent says in one line what it is doing and why.
+
+### OPEN_PROPOSAL
+The agent opens a new Proposal, as a Draft, possibly bound to a written request or taking the place of a rejected Proposal.
 
 ### EDIT_PROPOSAL
 The agent changes a Proposal: it writes or removes one of its files or Tasks, marks a file for deletion, changes its label, records a decision on a Drift in a resolution, or binds it to a Drift.

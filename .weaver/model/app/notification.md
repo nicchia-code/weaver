@@ -1,12 +1,13 @@
 # Notification
 
-A system notification that tells the developer it is his turn: a job of a project finished, stopped abnormally, or waits for his answers or his permission; or Weaver turned on System Certificates by itself. A job's notification is shown at once, and only when that project's window is not in the foreground; otherwise nothing is shown. It names the project, the job and what happened, never what the agent wrote, asked or did. Jobs the developer stopped himself, and General, never notify. A notification changes nothing in the project, the jobs or the rounds.
+A system notification that tells the developer it is his turn: a job of a project finished, stopped abnormally, or waits for his answers or his permission; General waits for his answers to its round; or Weaver turned on System Certificates by itself. A notification of a job or of General is shown at once, and only when that project's window is not in the foreground; otherwise nothing is shown. It names the project, the job or Chat and what happened, never what the agent wrote, asked or did. Jobs the developer stopped himself never notify, and General notifies only a wait for the answers of its round. A notification changes nothing in the project, the jobs or the rounds.
 
 ## States
 
 ### Not shown (initial)
 - `job.ENDED` → Shown: when the job finished or failed and the project's window is not in the foreground.
 - `job.WAITING` → Shown: when the project's window is not in the foreground.
+- `general-chat.WAITING` → Shown: when the project's window is not in the foreground.
 - `system-certificates.AUTO_ENABLED` → Shown: always, also when a Weaver window is in the foreground; it belongs to no project.
 
 ### Shown

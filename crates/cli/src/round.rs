@@ -3,7 +3,9 @@
 //!
 //! It does not use the request kind `command`: that kind runs inside the project's queue under
 //! the project lock, and a round waits for the developer for as long as he needs. The request is
-//! its own kind ([`KIND`]), routed only by the job identity of the caller.
+//! its own kind ([`KIND`]), routed only by the job identity of the caller (`WEAVER_JOB`) or,
+//! without it, by the identity of the Chat (`WEAVER_GENERAL`); the request carries the ones the
+//! caller has.
 //!
 //! Outcomes, never conflated: `answered` (exit 0), `unavailable` (exit 0, returned at once when no
 //! round can be submitted), `interrupted` and `cancelled` (exit 1), `invalid-input` (exit 2).
@@ -51,9 +53,16 @@ pub fn run(
     dirs: Option<&AppDirs>,
     interrupts: &dyn Interrupts,
 ) -> Result<CommandReply, Failure> {
-    let (Some(job), Some(dirs)) = (env.job.as_deref(), dirs) else {
+    // Without an identity or without `WEAVER_ENDPOINT` nobody can have started this command for
+    // an app to answer: unavailable at once.
+    let (Some(dirs), Some(_), true) = (
+        dirs,
+        env.endpoint.as_deref(),
+        env.job.is_some() || env.general.is_some(),
+    ) else {
         return Ok(unavailable());
     };
+    let (job, general) = (env.job.as_deref(), env.general.as_deref());
     // The rules of a round again, from the one source the app uses: nothing is sent that it would refuse.
     let input = Value::Object(input);
     let problems = question::problems(&input);
@@ -72,7 +81,8 @@ pub fn run(
         Err(_) => return Ok(unavailable()),
     };
     let mut request = Request::new(secret, KIND, input);
-    request.job = Some(job.to_owned());
+    request.job = job.map(str::to_owned);
+    request.general = general.map(str::to_owned);
     if let Err(ProtocolError::TooLarge) = protocol::encode(&request).map(drop) {
         return Err(Failure::invalid(
             "the round is larger than 1 MiB: shorten the texts",

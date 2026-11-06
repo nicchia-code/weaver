@@ -1,5 +1,5 @@
 ---
-description: "Use when reading or writing Weaver's settings, recent projects, job registry, General sessions, the System Certificates bundle, the Solo mode state of a working copy or the merge in progress."
+description: "Use when reading or writing Weaver's settings, recent projects, job registry, General sessions or the System Certificates bundle."
 ---
 # Settings and local state
 
@@ -49,10 +49,17 @@ description: "Use when reading or writing Weaver's settings, recent projects, jo
   - `state`, `reason` (for Failed), `created`, `ended`;
   - `sessionId` (omp's ACP session), `omp` (program path), `args` and `env` (the arguments and the Weaver-set environment variables it was started with; never inherited variables, and never the System Certificates variables, which are computed again at every start and resume);
   - `announcements`: `{id, kind, title}` of each card it announced, plus `card` (`{kind, id}`) once the card was filed with that announcement, so that after a restart Weaver still knows which announced cards already arrived; an announcement waits until its card is on the Board, and all are withdrawn when the job ends;
-  - `notes`: its last notes with their instants.
+  - `notes`: its last notes with their instants;
+  - `running`: only for a measured job (`design`, `rework`, `refinement`, `run`), the milliseconds it has spent in Running so far and, while it is Running, the instant it entered Running, updated at each change of its state, so that a resumed job goes on counting; `runningIncomplete: true` once Weaver found it Running or Waiting for the developer after stopping unexpectedly (crash or forced quit): the time since its last change of state is unknown and never counted.
 - No conversation text is stored by Weaver: omp keeps it in its own session files, and Weaver reloads it from there.
 - Records of ended jobs are kept for the Jobs list: the 50 most recent per project; older ones are deleted.
 - A record that cannot be read is reported and ignored; its job counts as ended (holdings released when its project opens).
+- **Measure** of an ended measured job: one line of JSON appended to `.weaver/timings/jobs.jsonl` in the project, in the local-only folder `timings/` (`requirements/data#General`), created with the first line. One line per job, written once when the job ends (Done, Failed or Stopped), never rewritten; Weaver never deletes or shortens the file. Other files in `timings/` are never read or touched. Fields, in this order:
+  - `job`, `kind`, `name`, `target` (when any), `state` (`done`, `failed`, `stopped`), `created`, `ended`;
+  - `durationMs`: from `created` to `ended`; `activeMs`: the time spent in Running only, without Queued, Waiting for the developer and Suspended; `activeIncomplete: true` only when the record carries `runningIncomplete`;
+  - `main`, `subAgents`, `advisors` (Runs only): each `{reads, files, searches, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}`, plus `count` (the number of transcripts summed) for `subAgents` and `advisors`; `files` across all parts at the top level too, as the distinct files read by the whole job;
+  - `unavailable`: instead of the parts and the top-level `files`, the reason why the session could not be read (`requirements/tech#job`, **Measure**).
+- `reads` counts the calls of omp's `read` tool; `files` the distinct paths they read, without a line selector, project-relative with `/` inside the project and as given otherwise (internal URLs included); `searches` the calls of `grep` and `glob`. Shell commands never count.
 
 ## general-chat
 
@@ -66,15 +73,3 @@ description: "Use when reading or writing Weaver's settings, recent projects, jo
 - Turning the setting off keeps the file on disk, unused.
 - `state.json` also holds `systemCertificates`: `{autoEnabledAt}`, the UTC instant (ISO 8601) when Weaver turned the setting on by itself because Zscaler is installed. Present means Weaver never does it again; it is never removed by Weaver. A `state.json` that cannot be read counts as without it.
 - The marker files of omp's installer live in `omp-install/` in the local data folder: `<nonce>.code`, decimal exit code as text (`requirements/tech#omp-setup`). Starting the installer deletes every earlier marker; omp being found deletes them too.
-
-## solo-mode
-
-- Solo mode is not a setting: it is never in `settings.json` and never in the settings schema. Its state is `.weaver/solo/solo.json` in the working copy, `{"mode": "folders"}` or `{"mode": "files"}`, UTF-8, LF, written atomically like every project file, in the local-only folder `solo/` with its `.gitignore` containing `*` (`requirements/data#General`).
-- No file means Solo mode is off. Turning it off deletes the whole `solo/` folder. A file that cannot be read or holds another value counts as off and is reported as a diagnostic with its path and reason (`requirements/data#General`); it is rewritten only by the next change of Solo mode.
-- At initialisation with Solo mode chosen, `solo/solo.json` is written with the rest of `.weaver/`, after the block (`requirements/rules#solo-mode`); a failure removes both.
-
-## solo-merge
-
-- The merge in progress is `.weaver/merge/merge.json` in the working copy, in the local-only folder `merge/` with its `.gitignore` containing `*` (`requirements/data#General`): `{"branch", "current", "start", "incoming", "started"}`, the chosen branch as shown, the current branch's short name, the full hashes of the starting and incoming commits, and the instant it was written. UTF-8, LF, written atomically like every project file. It is never in `settings.json`, in the job registry or in the repository.
-- No file means no merge in progress. The file is deleted at every end of the merge (`requirements/rules#solo-merge`); the `merge/` folder stays with its `.gitignore`.
-- A file that cannot be read or lacks a field counts as a merge in progress that Weaver cannot follow: it is reported as a diagnostic with its path and reason, the check of the merge treats it as forgotten, and it is deleted.

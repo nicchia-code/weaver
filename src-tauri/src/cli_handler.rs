@@ -22,6 +22,31 @@ use crate::mutations::MutationQueues;
 use crate::server::Handler;
 use crate::state::AppState;
 
+/// The notice of the Board for a History entry a job wrote and Weaver did not commit
+/// (`requirements/ui#atomic-commits`): `History entry "<title>" was not committed: <reason>.` A
+/// write made by the command line while the app is not running only prints the result.
+pub fn not_committed_notice(
+    request: &CommandRequest,
+    reply: &weaver_core::command::CommandReply,
+    by_job: bool,
+) -> Option<crate::events::Notice> {
+    if !by_job
+        || request.object != "history"
+        || !matches!(request.verb.as_str(), "new" | "edit")
+        || reply.json["commit"]["status"] != "not-committed"
+    {
+        return None;
+    }
+    let id = reply.json["id"].as_str()?;
+    let title = reply.json["title"].as_str()?;
+    let reason = reply.json["commit"]["reason"].as_str()?;
+    Some(crate::events::Notice {
+        project_id: project_hash_of_canonical(Path::new(&request.root)),
+        id: format!("history-not-committed-{id}"),
+        text: format!("History entry \"{title}\" was not committed: {reason}."),
+    })
+}
+
 /// The handler of the socket server. The identities a command carries are vouched for by the
 /// authority of the jobs ([`crate::jobs::app_authority`]).
 pub fn handler(app: AppHandle) -> Handler {
@@ -36,6 +61,7 @@ pub fn handler(app: AppHandle) -> Handler {
         }
         let state = app.state::<AppState>();
         let payload = request.payload.clone();
+        let by_job = request.job.is_some();
         let response = handle(&state.mutations, &authority, request);
         if response.error.is_none() {
             let command = serde_json::from_value::<CommandRequest>(payload);
@@ -43,7 +69,9 @@ pub fn handler(app: AppHandle) -> Handler {
                 response.payload.clone(),
             );
             if let (Ok(command), Ok(reply)) = (command, reply) {
-                if let Some(notice) = crate::proposals::notice_of_command(&command, &reply) {
+                let notice = crate::proposals::notice_of_command(&command, &reply)
+                    .or_else(|| not_committed_notice(&command, &reply, by_job));
+                if let Some(notice) = notice {
                     let _ = crate::events::emit_notice(&app, &notice);
                 }
             }
@@ -76,18 +104,21 @@ pub fn handle(
     let caller = Caller {
         job: request.job,
         general: command.general.clone(),
+        ask: command.ask.clone(),
         run: None,
         task: None,
         ..Caller::default()
     };
     let hash = project_hash_of_canonical(Path::new(&command.root));
+    let root = command.root.clone();
     let authority = authority.clone();
     // This runs on the blocking pool, never on the main thread or the thread that serves Tauri IPC.
     let outcome = tauri::async_runtime::block_on(queues.run(&hash, move || {
         Ok(exec::execute(&command, &caller, authority.as_ref()))
     }));
     match outcome {
-        Ok(Ok(reply)) => match serde_json::to_value(&reply) {
+        // The project's queue is free: a commit that follows a History entry is made now.
+        Ok(Ok(reply)) => match serde_json::to_value(exec::settle(Path::new(&root), reply)) {
             Ok(payload) => Response::ok(payload),
             Err(e) => Response::failure(code::FAILED, format!("the answer cannot be encoded: {e}")),
         },
@@ -172,6 +203,47 @@ mod tests {
 
     fn nobody() -> Arc<dyn Authority + Send + Sync> {
         Arc::new(exec::NoJobs)
+    }
+
+    #[test]
+    fn a_history_entry_a_job_wrote_and_weaver_did_not_commit_is_a_notice_of_its_project() {
+        let f = fixture();
+        let reply = |commit: Value| CommandReply {
+            markdown: String::new(),
+            json: json!({ "id": "hhhhhhhh", "title": "The cart", "commit": commit }),
+            exit: 0,
+            note: None,
+        };
+        let command = |verb: &str| CommandRequest {
+            object: "history".into(),
+            verb: verb.into(),
+            root: f.root.to_string_lossy().into_owned(),
+            card: None,
+            state: None,
+            input: Map::new(),
+            general: None,
+            ask: None,
+        };
+        let refused = reply(json!({ "status": "not-committed", "reason": "HEAD is detached" }));
+        let notice = not_committed_notice(&command("new"), &refused, true).expect("a notice");
+        assert_eq!(notice.project_id, project_hash_of_canonical(&f.root));
+        assert_eq!(notice.id, "history-not-committed-hhhhhhhh");
+        assert_eq!(
+            notice.text,
+            "History entry \"The cart\" was not committed: HEAD is detached."
+        );
+        assert!(not_committed_notice(&command("edit"), &refused, true).is_some());
+
+        // A write by the command line alone, another status or another command: no notice.
+        assert!(not_committed_notice(&command("new"), &refused, false).is_none());
+        for status in [
+            json!({ "status": "committed", "hash": "abc" }),
+            json!({ "status": "none" }),
+            json!({ "status": "off" }),
+        ] {
+            assert!(not_committed_notice(&command("new"), &reply(status), true).is_none());
+        }
+        assert!(not_committed_notice(&command("show"), &refused, true).is_none());
     }
 
     #[test]
@@ -264,6 +336,74 @@ mod tests {
         // An accepted job gets past the gate and meets the card: no such Task.
         let error = asked(Some("jobjobjo"), &one).error.unwrap();
         assert_eq!(error.code, code::REFUSED, "{}", error.message);
+    }
+
+    /// Accepts the identity of the Chat `chattoken` and nothing else.
+    struct OneChat;
+
+    impl Authority for OneChat {
+        fn accepts_job(&self, _root: &Path, _job: &str) -> bool {
+            false
+        }
+
+        fn accepts_general(&self, _root: &Path, token: &str) -> bool {
+            token == "chattoken"
+        }
+    }
+
+    /// The `proposal.md` that `proposal new` wrote for a caller carrying `general`.
+    fn proposal_new_from(
+        f: &Fixture,
+        queues: &MutationQueues,
+        authority: &Arc<dyn Authority + Send + Sync>,
+        general: Option<&str>,
+    ) -> String {
+        let mut request = request(
+            &f.root,
+            None,
+            "proposal",
+            "new",
+            None,
+            None,
+            json!({ "title": "Cancel an order" }),
+        );
+        let mut command: CommandRequest = serde_json::from_value(request.payload).unwrap();
+        command.general = general.map(Into::into);
+        request.payload = serde_json::to_value(command).unwrap();
+        let response = handle(queues, authority, request);
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let reply: CommandReply = serde_json::from_value(response.payload).unwrap();
+        let id = reply.json["id"].as_str().unwrap().to_owned();
+        let folder = fs::read_dir(f.root.join(".weaver/proposals"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.file_name().unwrap().to_string_lossy().starts_with(&id))
+            .unwrap();
+        fs::read_to_string(folder.join("proposal.md")).unwrap()
+    }
+
+    #[test]
+    fn the_chat_is_the_caller_only_when_the_authority_recognises_its_identity() {
+        let f = fixture();
+        let queues = MutationQueues::new(f.dirs.clone());
+        handle(
+            &queues,
+            &nobody(),
+            request(&f.root, None, "project", "new", None, None, json!({})),
+        );
+        let chat: Arc<dyn Authority + Send + Sync> = Arc::new(OneChat);
+        // Recognised: the Draft is the Chat's, marked as created and written by it.
+        let text = proposal_new_from(&f, &queues, &chat, Some("chattoken"));
+        assert!(text.contains("chat: true\nchatWriting: true\n"), "{text}");
+        // An identity the app does not recognise counts as none, and so does no app at all.
+        for (authority, general) in [
+            (&chat, Some("forged")),
+            (&chat, None),
+            (&nobody(), Some("chattoken")),
+        ] {
+            let text = proposal_new_from(&f, &queues, authority, general);
+            assert!(!text.contains("chat"), "{general:?}: {text}");
+        }
     }
 
     #[test]

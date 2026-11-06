@@ -37,6 +37,13 @@ pub trait RoundsHost: Send + Sync + 'static {
     fn round_opened(&self, job: &str);
     /// `question-round.CLOSED`, received by the job.
     fn round_closed(&self, job: &str);
+    /// The project of the live Chat whose identity (`WEAVER_GENERAL`) is `token`: only while its
+    /// project is open and a turn of the Chat is in progress.
+    fn chat(&self, token: &str) -> Option<String>;
+    /// `question-round.OPENED`, received by the Chat of the project (only a round of the Chat).
+    fn chat_round_opened(&self, project_id: &str);
+    /// `question-round.CLOSED`, received by the Chat of the project (only a round of the Chat).
+    fn chat_round_closed(&self, project_id: &str);
     /// The window of the project comes to the front.
     fn focus_project(&self, project_id: &str);
     /// The round on screen in a project changed.
@@ -273,16 +280,21 @@ impl Rounds {
             }
         };
         let unavailable = || Response::failure(code::UNAVAILABLE, question::UNAVAILABLE_REASON);
-        let Some(job) = request.job else {
-            return unavailable();
-        };
-        let Some(facts) = self.host.job(&job).filter(|facts| facts.accepting) else {
+        let (project_id, origin) = if let Some(job) = request.job {
+            // The job identity decides: a Chat identity next to it is never looked at.
+            let Some(facts) = self.host.job(&job).filter(|facts| facts.accepting) else {
+                return unavailable();
+            };
+            (facts.project_id, Origin::Agent { job })
+        } else if let Some(project) = request.general.as_deref().and_then(|t| self.host.chat(t)) {
+            (project.clone(), Origin::Chat { project })
+        } else {
             return unavailable();
         };
 
-        let (id, outcome) = self.submit(&facts.project_id, Origin::Agent { job }, round.clone());
+        let (id, outcome) = self.submit(&project_id, origin, round.clone());
         // The connection closing is `agent.STOP_WAITING`.
-        let (rounds, project) = (self.clone(), facts.project_id);
+        let (rounds, project) = (self.clone(), project_id);
         peer.on_close(move || rounds.abandon(&project, id));
         match outcome.recv() {
             Ok(Outcome::Answered(answers)) => {
@@ -309,14 +321,16 @@ impl Rounds {
         let changed = force || !effects.is_empty();
         for effect in effects {
             match effect {
-                Effect::Closed { origin, .. } => {
-                    if let Some(job) = origin.job() {
-                        self.host.round_closed(job);
-                    }
-                }
+                Effect::Closed { origin, .. } => match &origin {
+                    Origin::Agent { job } => self.host.round_closed(job),
+                    Origin::Chat { project } => self.host.chat_round_closed(project),
+                    Origin::Drift { .. } => {}
+                },
                 Effect::Opened { origin, .. } => {
-                    if let Some(job) = origin.job() {
-                        self.host.round_opened(job);
+                    match &origin {
+                        Origin::Agent { job } => self.host.round_opened(job),
+                        Origin::Chat { project } => self.host.chat_round_opened(project),
+                        Origin::Drift { .. } => {}
                     }
                     self.host.focus_project(project_id);
                 }

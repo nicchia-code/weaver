@@ -26,6 +26,9 @@ pub struct Request {
     /// Job identity (`WEAVER_JOB`), when the request comes from a job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<String>,
+    /// Chat identity (`WEAVER_GENERAL`), when the request comes from the agent of the Chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub general: Option<String>,
     /// What is asked, for example `question.new`.
     pub kind: String,
     #[serde(default)]
@@ -39,6 +42,7 @@ impl Request {
             version: PROTOCOL_VERSION,
             secret: secret.into(),
             job: None,
+            general: None,
             kind: kind.into(),
             payload,
         }

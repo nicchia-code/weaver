@@ -8,6 +8,7 @@ import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 
 import type { AppError } from "@/bindings/AppError";
 import type { AppInfo } from "@/bindings/AppInfo";
+import type { AtomicCommitsStatus } from "@/bindings/AtomicCommitsStatus";
 import type { BoardSnapshot } from "@/bindings/BoardSnapshot";
 import type { CommandName } from "@/bindings/CommandName";
 import type { EventName } from "@/bindings/EventName";
@@ -217,6 +218,10 @@ export interface Commands {
   set_solo_mode: { args: { projectId: string; mode: SoloMode }; result: SoloChange };
   /** The files git tracks that Solo mode's block excludes, computed now: asked each time Settings is shown. */
   solo_tracked_files: { args: { projectId: string }; result: string[] };
+  /** **Atomic commits** of the working copy: the new state, or the reason it could not change (only Settings changes it). */
+  set_atomic_commits: { args: { projectId: string; enabled: boolean }; result: AtomicCommitsStatus };
+  /** Atomic commits with git asked whether it can be turned on: asked each time Settings is shown. */
+  check_atomic_commits: { args: { projectId: string }; result: AtomicCommitsStatus };
   /**
    * The state of **Merge** worked out again (the Board is shown), in the project's background work; `null` while Solo mode is
    * off. Also arrives with every `project-state` as `ProjectStatus.merge`.

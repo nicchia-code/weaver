@@ -16,6 +16,8 @@ use crate::rounds::view::OriginView;
 struct FakeHost {
     jobs: Mutex<HashMap<String, JobFacts>>,
     log: Mutex<Vec<String>>,
+    /// The live Chats with a turn in progress: identity to project.
+    chats: Mutex<HashMap<String, String>>,
     changes: Mutex<Option<Sender<QuestionRoundChanged>>>,
 }
 
@@ -40,6 +42,18 @@ impl RoundsHost for FakeHost {
 
     fn round_closed(&self, job: &str) {
         self.push(format!("closed {job}"));
+    }
+
+    fn chat(&self, token: &str) -> Option<String> {
+        self.chats.lock().unwrap().get(token).cloned()
+    }
+
+    fn chat_round_opened(&self, project_id: &str) {
+        self.push(format!("chat opened {project_id}"));
+    }
+
+    fn chat_round_closed(&self, project_id: &str) {
+        self.push(format!("chat closed {project_id}"));
     }
 
     fn focus_project(&self, project_id: &str) {
@@ -72,6 +86,11 @@ fn fixture() -> Fixture {
         jobs.insert("job2".into(), facts("p1", "Run", true));
         jobs.insert("job3".into(), facts("p2", "Other project", true));
         jobs.insert("idle".into(), facts("p1", "Finished", false));
+    }
+    {
+        let mut chats = host.chats.lock().unwrap();
+        chats.insert("chat1".into(), "p1".into());
+        chats.insert("chat2".into(), "p2".into());
     }
     let (sender, changes) = mpsc::channel();
     *host.changes.lock().unwrap() = Some(sender);
@@ -215,6 +234,139 @@ fn a_round_is_presented_answered_and_closed_for_its_job() {
         }})
     );
     assert_eq!(f.host.log(), ["opened job1", "focus p1", "closed job1"]);
+}
+
+/// Asks a round as the agent of the Chat does and waits until it is in its queue.
+fn ask_as_chat(f: &Fixture, token: &str, ids: &[&str]) -> JoinHandle<Response> {
+    let rounds = f.rounds.clone();
+    let mut request = request(None, payload(ids));
+    request.general = Some(token.into());
+    let handle = thread::spawn(move || rounds.handle(request, Peer::default()));
+    f.changes
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("the round was not submitted");
+    handle
+}
+
+#[test]
+fn the_chat_during_a_turn_asks_a_round_that_belongs_to_it_and_its_project() {
+    let f = fixture();
+    let waiting = ask_as_chat(&f, "chat1", &["a"]);
+    let view = presented(&f, "p1");
+    assert_eq!(view.origin, OriginView::Chat);
+    assert_eq!(view.project_id, "p1");
+    // The Chat hears of the opening, not a job; the window of the project comes forward.
+    assert_eq!(f.host.log(), ["chat opened p1", "focus p1"]);
+    assert!(f.rounds.view("p2").is_none(), "no other project shows it");
+
+    let seen = f.rounds.question_in_view("p1", view.id, 0).unwrap();
+    assert_eq!(seen.origin, Origin::Chat { project: "p1".into() });
+    assert_eq!(seen.job, None);
+
+    f.rounds
+        .act("p1", view.id, Action::Go(Position::Question { index: 0 }))
+        .unwrap();
+    f.rounds
+        .act(
+            "p1",
+            view.id,
+            Action::Draft {
+                index: 0,
+                selected: vec![1],
+                text: String::new(),
+            },
+        )
+        .unwrap();
+    f.rounds
+        .act("p1", view.id, Action::Confirm { index: 0 })
+        .unwrap();
+    f.rounds.act("p1", view.id, Action::Send).unwrap();
+
+    let response = waiting.join().unwrap();
+    assert!(response.error.is_none());
+    assert_eq!(
+        response.payload,
+        json!({ "status": "answered", "answers": { "a": { "status": "answered", "selected": ["b"] } } })
+    );
+    // The close reaches the Chat, with no job in between.
+    assert_eq!(
+        f.host.log(),
+        ["chat opened p1", "focus p1", "chat closed p1"]
+    );
+}
+
+#[test]
+fn a_chat_identity_that_is_not_the_live_one_or_has_no_turn_is_unavailable() {
+    let f = fixture();
+    // Unknown, or known with no turn in progress: the host does not vouch for it.
+    for token in ["nobody", "chat-without-turn"] {
+        let mut asking = request(None, payload(&["a"]));
+        asking.general = Some(token.into());
+        let response = f.rounds.handle(asking, Peer::default());
+        assert_eq!(code_of(&response), "unavailable", "{token}");
+        assert_eq!(
+            response.error.unwrap().message,
+            question::UNAVAILABLE_REASON
+        );
+    }
+    // The job identity decides: an unknown job is not saved by a live Chat identity.
+    let mut both = request(Some("nobody"), payload(&["a"]));
+    both.general = Some("chat1".into());
+    assert_eq!(
+        code_of(&f.rounds.handle(both, Peer::default())),
+        "unavailable"
+    );
+    assert!(f.host.log().is_empty() && f.rounds.view("p1").is_none());
+}
+
+#[test]
+fn a_job_and_the_chat_of_a_project_share_its_queue_and_each_hears_of_its_own_round() {
+    let f = fixture();
+    let job = ask(&f, "job1", &["j"]);
+    let chat = ask_as_chat(&f, "chat1", &["c"]);
+    let first = presented(&f, "p1");
+    assert_eq!(
+        (first.origin.clone(), first.waiting),
+        (
+            OriginView::Agent {
+                job_name: "Scan".into()
+            },
+            1
+        )
+    );
+    assert_eq!(f.host.log(), ["opened job1", "focus p1"]);
+
+    // The Chat's round is presented when the job's closes, and only then does the Chat hear of it.
+    f.rounds.abandon("p1", first.id);
+    assert_eq!(job.join().unwrap().error.unwrap().code, "cancelled");
+    assert_eq!(presented(&f, "p1").origin, OriginView::Chat);
+    assert_eq!(
+        f.host.log(),
+        ["opened job1", "focus p1", "closed job1", "chat opened p1", "focus p1"]
+    );
+
+    // Closing the window interrupts the Chat's round and tells the Chat.
+    f.rounds.window_closed("p1");
+    assert_eq!(chat.join().unwrap().error.unwrap().code, "interrupted");
+    assert_eq!(
+        f.host.log().last().map(String::as_str),
+        Some("chat closed p1")
+    );
+}
+
+#[test]
+fn the_end_of_a_connection_of_the_chat_closes_its_round_for_the_chat() {
+    let f = fixture();
+    let waiting = ask_as_chat(&f, "chat1", &["a"]);
+    let id = presented(&f, "p1").id;
+    // Stop, Clear or an exit of omp end the command: its connection closes.
+    f.rounds.abandon("p1", id);
+    assert_eq!(waiting.join().unwrap().error.unwrap().code, "cancelled");
+    assert_eq!(
+        f.host.log(),
+        ["chat opened p1", "focus p1", "chat closed p1"]
+    );
+    assert!(f.rounds.view("p1").is_none());
 }
 
 #[test]

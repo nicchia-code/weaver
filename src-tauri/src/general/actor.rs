@@ -288,7 +288,10 @@ impl Actor {
         });
         let language =
             Some(settings.language.trim().to_owned()).filter(|language| !language.is_empty());
-        let instruction = machine::instruction(language.as_deref());
+        // Built at every start with the sub-agent limit and the language of the Settings of that
+        // moment.
+        let instruction =
+            machine::instruction(settings.max_parallel_agents.max(1), language.as_deref());
         self.asks = args
             .windows(2)
             .any(|pair| pair[0] == "--approval-mode" && pair[1] == "always-ask");

@@ -105,9 +105,9 @@ Example: `weaver project show`
 
 Files a Proposal as a Draft.
 
-`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, and `request` is refused together with `reworks`.
+`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, `request` is refused together with `reworks`, and `setup` and `import` are refused from the agent of Chat, which writes only a `change` or a `resolution`; a Proposal the agent of Chat files carries `chat: true` and is marked as written by Chat until it is handed over.
 
-`request` binds the Proposal to a written design request only if no Proposal is bound to it yet, and `reworks` only a Proposal rejected with Rework that nothing replaced; otherwise the Proposal is created unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.
+`request` and `reworks` bind only as Weaver allows for the caller: a setup or design job binds only the request its instruction names, and only with its first Proposal; a rework job only the Proposal its instruction names; the agent of Chat binds a request that is written, not sent, not consumed and not held by another Draft, with a `change`, and any rejected `change` or `resolution` (with or without Rework) that nothing replaced and no rework job works on, with a Proposal of the same kind; any other caller binds nothing. A binding that is not allowed leaves the Proposal unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.
 
 Input:
 
@@ -154,7 +154,7 @@ Example: `weaver proposal list`
 
 Edits a Proposal: makes files editable, records Drift decisions and images.
 
-Every call, even without input, sends an Open Proposal back to Draft and says so.
+Every call, even without input, sends an Open Proposal back to Draft and says so. From the agent of Chat it also marks the Proposal as written by Chat (`chatWriting: true`) until it is handed over, a Proposal it did not create included.
 
 `edit` makes paths editable (`model/...`, `requirements/<area>/<fragment>.md`, `specs.yaml`, `tasks/<slug>.md`), copying the current content and recording `base` the first time, and prints the path to write for each. A new Task gets its identity here; Task paths are refused in `import` and `resolution`. `delete` is refused for a path the Proposal holds. `drifts` and `removeDrifts` apply only to a resolution; `option` and `note` go only with `fix-code`. `images` copies files into `.weaver/task-images/<task>/`. `rebase: true`, for any kind, attached to a Drift or not, drops broken `requires` and, in a resolution, the rows of Drifts no longer open, then records `base` again and sets `refining`; it prints what it dropped.
 
@@ -187,7 +187,7 @@ Example: `weaver proposal edit p3 --input '{"edit":["model/checkout/order.md"]}'
 
 Hands a Proposal over, or decides it.
 
-`open` hands the Proposal over and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.
+`open` hands the Proposal over, clears the mark of a Proposal written by Chat, and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: any caller can run them under the same conditions, and the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.
 
 - Argument `<id>`: the card, by identity, unique identity prefix or short number (`P3`, `t3`: a letter and digits is always a short number, and its letter must match the type).
 - Argument `open|approved|rejected|discarded`: the state to move to: `open`, `approved`, `rejected`, `discarded`.
@@ -399,14 +399,20 @@ Records a History entry for finished Tasks.
 
 A Task cited for the first time is recorded in the entry at once: its copy is written into every entry that cites it and its file is deleted.
 
+`commit` is always given, whether Atomic commits is on or off. While it is on, Weaver commits with git the files named, what the developer already staged and, outside Solo mode, the entry and the removal of the files of the Tasks it records, with your message; it never amends, pushes or fetches. A path outside the project, ignored by git, or missing and not tracked by git refuses the whole command and nothing is written. The entry is written whatever happens to the commit, and `commit.status` says how it ended. While it is off, `commit` is only checked for its shape.
+
 Input:
 
 - `title`, string (not blank, one line), required: The title, on one line.
 - `summary`, string (not blank, one line, at most 280 characters), required: One line of 1 to 280 characters.
 - `body`, string, optional: More detail, in Markdown.
 - `tasks`, list of string (not blank, one line) (at least 1), required: The Done Tasks the entry records.
+- `commit`, object, required: The commit of the code of this entry's feature.
+  - `files`, list of string (not blank, one line), required: Paths of the code of this entry's feature, relative to the project root with `/`, without duplicates; may be empty.
+  - `message`, string, required: The commit message in English: a first line of at most 72 characters, optionally followed by a blank line and a body.
+  - `checksFailed`, boolean, optional: `true` when the final checks of the Run failed; default `false`.
 
-Output with `--json`: `id`, `number`, `title`, `file`, `recorded`, `kept`. `--help` gives their types.
+Output with `--json`: `id`, `number`, `title`, `file`, `recorded`, `kept`, `commit`. `--help` gives their types.
 
 Example: `weaver history new --input -`
 
@@ -416,6 +422,8 @@ Changes a History entry: replaces fields and adds Tasks.
 
 Replaces the fields given and adds the Tasks given; it never removes a Task. The date of the entry becomes the moment of the edit.
 
+`commit` is required when `tasks` adds at least one Task the entry did not cite, and ignored otherwise. An edit that adds Tasks makes a new commit while Atomic commits is on and never changes the earlier one; an edit that adds none makes no commit.
+
 - Argument `<id>`: the card, by identity, unique identity prefix or short number (`P3`, `t3`: a letter and digits is always a short number, and its letter must match the type).
 
 Input:
@@ -424,8 +432,12 @@ Input:
 - `summary`, string (not blank, one line, at most 280 characters), optional: One line of 1 to 280 characters.
 - `body`, string, optional: More detail, in Markdown.
 - `tasks`, list of string (not blank, one line), optional: Tasks to add.
+- `commit`, object, optional: The commit of the code of the feature of the Tasks added; required when the edit adds Tasks.
+  - `files`, list of string (not blank, one line), required: Paths of the code of this entry's feature, relative to the project root with `/`, without duplicates; may be empty.
+  - `message`, string, required: The commit message in English: a first line of at most 72 characters, optionally followed by a blank line and a body.
+  - `checksFailed`, boolean, optional: `true` when the final checks of the Run failed; default `false`.
 
-Output with `--json`: `id`, `number`, `title`, `file`, `recorded`, `kept`. `--help` gives their types.
+Output with `--json`: `id`, `number`, `title`, `file`, `recorded`, `kept`, `commit`. `--help` gives their types.
 
 Example: `weaver history edit <id> --input -`
 
@@ -537,9 +549,11 @@ Prints only JSON on standard output, always. The input is validated whole before
 
 Write every text so that it stands alone: the developer sees only the round, not the conversation. Texts are Markdown except labels. Use no first person and no "Other" option: a free answer is always offered.
 
-Results: `{"status":"answered","answers":{<id>:{"status":"answered","selected":[...],"text":...}|{"status":"skipped"}}}` (exit 0); `{"status":"unavailable","reason":...}` (exit 0) when the caller is not in a working Weaver job or no Weaver answers before the round is submitted: stop and tell the developer; `{"error":{"code":"invalid-input"|"interrupted"|"cancelled","message":...}}`, exit 2 for `invalid-input` and 1 for the others.
+In Chat, use it only when the developer asked to be asked with a round; otherwise ask in your replies.
 
-Who: Only the agent of a job Weaver started can use it (Weaver sets `WEAVER_JOB` in the environment of that agent). For any other caller the outcome is `unavailable`, with exit 0.
+Results: `{"status":"answered","answers":{<id>:{"status":"answered","selected":[...],"text":...}|{"status":"skipped"}}}` (exit 0); `{"status":"unavailable","reason":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the round is submitted: stop and tell the developer; `{"error":{"code":"invalid-input"|"interrupted"|"cancelled","message":...}}`, exit 2 for `invalid-input` and 1 for the others.
+
+Who: Only the agent of a job Weaver started or the agent of the project's Chat during a turn can use it (Weaver sets `WEAVER_JOB` or `WEAVER_GENERAL` in the environment of that agent). For any other caller the outcome is `unavailable`, with exit 0.
 
 Input:
 

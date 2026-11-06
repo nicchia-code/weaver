@@ -167,7 +167,9 @@ pub enum Access {
     /// Only the agent of a Weaver job (`WEAVER_JOB`, accepted by the app); refused for any other
     /// caller.
     Job,
-    /// Like [`Access::Job`], but any other caller gets the outcome `unavailable` (exit 0).
+    /// Only the agent of a Weaver job (`WEAVER_JOB`) or, without it, of the project's working
+    /// General during a turn (`WEAVER_GENERAL`), both accepted by the app; any other caller gets
+    /// the outcome `unavailable` (exit 0).
     JobOrUnavailable,
     /// Only the agent of the project's working General (`WEAVER_GENERAL`) or of a working Ask more
     /// conversation of the project (`WEAVER_ASK`).
@@ -213,6 +215,18 @@ pub struct Call<'a> {
     pub caller: &'a Caller,
 }
 
+/// Who the app vouches the caller is (`requirements/cli#agent`): the agent of a Weaver job
+/// (`WEAVER_JOB` accepted), the agent of the project's live Chat (`WEAVER_GENERAL` recognised),
+/// or anybody else: no identity, one the app does not recognise, or no app answering (a command
+/// the CLI runs itself vouches for nobody).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Who {
+    #[default]
+    Other,
+    Job,
+    Chat,
+}
+
 /// Who runs the command, from the environment of the process that typed it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Caller {
@@ -231,6 +245,9 @@ pub struct Caller {
     pub agent: weaver_core::project::board::AgentFacts,
     /// The registry record of `WEAVER_JOB`, when the job has one that could be read.
     pub job_record: Option<weaver_core::jobs::JobRecord>,
+    /// Who the app vouches the caller is, set by [`crate::exec::execute`] from the identities above;
+    /// `Other` until then.
+    pub who: Who,
 }
 
 /// A command that did not do its work.

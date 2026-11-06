@@ -33,6 +33,8 @@ const COMMANDS: &[&str] = &[
     "update_skills",
     "set_solo_mode",
     "solo_tracked_files",
+    "set_atomic_commits",
+    "check_atomic_commits",
     "merge_refresh",
     "merge_branches",
     "merge_start",

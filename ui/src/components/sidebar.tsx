@@ -11,6 +11,8 @@ interface EntryCount {
   value: number;
   meaning: string;
   warning: boolean;
+  /** What the number says on hover and focus, when it needs more than its accessible text. */
+  tooltip?: string;
 }
 
 function countOf(view: ViewId, counts: ShellCounts): EntryCount | null {
@@ -19,6 +21,9 @@ function countOf(view: ViewId, counts: ShellCounts): EntryCount | null {
   }
   if (view === "jobs" && counts.jobsWaiting > 0) {
     return { value: counts.jobsWaiting, meaning: counts.jobsWaiting === 1 ? "job waiting for you" : "jobs waiting for you", warning: true };
+  }
+  if (view === "general" && counts.chatWaiting) {
+    return { value: 1, meaning: "round waiting for your answers", warning: true, tooltip: "Chat is waiting for your answers" };
   }
   return null;
 }
@@ -74,13 +79,17 @@ function Item({
       ) : null}
     </button>
   );
-  // Names are tooltips only while they are not visible; sidebar entries have none otherwise.
-  if (!compact) return <li>{button}</li>;
+  // Names are tooltips only while they are not visible; sidebar entries have none otherwise, but a
+  // number may carry one.
+  if (!compact && !count?.tooltip) return <li>{button}</li>;
   return (
     <li>
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent side="right">{label}</TooltipContent>
+        <TooltipContent side="right">
+          {compact && <div>{label}</div>}
+          {count?.tooltip && <div>{count.tooltip}</div>}
+        </TooltipContent>
       </Tooltip>
     </li>
   );

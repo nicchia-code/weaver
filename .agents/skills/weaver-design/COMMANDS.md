@@ -81,7 +81,7 @@ Updates the installed skills, or changes Solo mode.
 
 Without input, Update skills: writes again every installed file that differs from the one this version of Weaver carries, creates the starting Requirement Areas when the Requirements are missing, and generates the Requirement skills again. It always reports what it changed, or the error.
 
-With `solo`, only Solo mode changes: `off`, `folders` or `files`. Weaver writes or removes its block in git's local exclusions at once and prints `solo`. A change that fails (no git, not in a repository, exclusions not writable) changes nothing and says why. Files git already tracks are not hidden: they are listed in `solo.tracked`.
+With `solo`, only Solo mode changes: `off`, `folders` or `files`. Weaver writes or removes its block in git's local exclusions at once and prints `solo`. A change that fails (no git, not in a repository, exclusions not writable) changes nothing and says why. Files git already tracks are not hidden: they are listed in `solo.tracked`. While a merge of Weaver is in progress (the Board shows it), Solo mode cannot change in any way: the command is refused with `Finish or abort the merge in progress first.` and nothing changes.
 
 Input:
 
@@ -289,7 +289,7 @@ Example: `weaver task delete t3`
 
 Files a Drift: the code and the Model or the Requirements disagree.
 
-`options` are 2 to 5 fix options, the recommended first; they may be left out only with `proposal` (a Draft or Open Proposal no other Drift holds). `task` is the Task the Drift was found in; `previous` is set automatically when that Task is a fix Task. `announcement` is the identity printed by `weaver announcement new`. The job that files it is recorded when `WEAVER_JOB` is set.
+`options` are 2 to 5 fix options, the recommended first; they may be left out only with `proposal` (a Draft or Open Proposal no other Drift holds). `task` is the Task the Drift was found in; `previous` is set automatically when that Task is a fix Task. `merge` is only `true` and only for the agent of a scan job started after a merge (the instruction says so), for a Drift whose difference lies in the files the merge brought; from any other caller it is refused and nothing is written, and no command changes it afterwards. `announcement` is the identity printed by `weaver announcement new`. The job that files it is recorded when `WEAVER_JOB` is set.
 
 Input:
 
@@ -304,9 +304,10 @@ Input:
 - `task`, string (not blank, one line), optional: The Task the Drift was found in.
 - `proposal`, string (not blank, one line), optional: A Draft or Open Proposal that resolves it.
 - `previous`, string (not blank, one line), optional: The Drift this one follows.
+- `merge`, boolean, optional: `true` when the difference lies in the files the merge brought; only from a scan after a merge.
 - `announcement`, string (not blank, one line), optional: The announcement of the card.
 
-Output with `--json`: `id`, `number`, `title`, `status`. `--help` gives their types.
+Output with `--json`: `id`, `number`, `title`, `status`, `merge`. `--help` gives their types.
 
 Example: `weaver drift new --input -`
 
@@ -318,7 +319,7 @@ Prints a Drift with its options, Task, Proposal and prepared question.
 
 - Argument `<id>`: the card, by identity, unique identity prefix or short number (`P3`, `t3`: a letter and digits is always a short number, and its letter must match the type).
 
-Output with `--json`: `id`, `number`, `title`, `status`, `refs`, `happens`, `should`, `where`, `options`, `created`, `origin`, `previous`, `proposal`, `task`, `job`, `decided`, `prepared`. `--help` gives their types.
+Output with `--json`: `id`, `number`, `title`, `status`, `merge`, `refs`, `happens`, `should`, `where`, `options`, `created`, `origin`, `previous`, `proposal`, `task`, `job`, `decided`, `prepared`. `--help` gives their types.
 
 Example: `weaver drift show d3`
 
@@ -490,7 +491,7 @@ Example: `weaver job new --input '{"kind":"scan"}'`
 
 Prints the job of the caller, or the job `<id>`.
 
-Without `<id>` it reads only the environment and the registry record of the job of the caller: `id`, `kind`, `target`, whether the session is a Run (`WEAVER_RUN`) and its `task` (`WEAVER_TASK`); outside a job it says so, with exit 0. `<id>` asks Weaver.
+Without `<id>` it reads only the environment and the registry record of the job of the caller: `id`, `kind`, `target`, `merged` (only for a scan after a merge: the files the merge brought, relative to the project root, sorted), whether the session is a Run (`WEAVER_RUN`) and its `task` (`WEAVER_TASK`); outside a job it says so, with exit 0. `<id>` asks Weaver.
 
 - Argument `<id>`: a job identity. Without it, the job of the caller is shown.
 

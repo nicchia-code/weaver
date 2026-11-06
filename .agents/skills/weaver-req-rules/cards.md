@@ -21,7 +21,7 @@
 - Coverage: each entry is covered by a Task reference equal to it or containing it (`task` covers `task/To do`; a section by that section or its Area; `specs#<field>` by itself or `specs`), or by a body line under `## Already present`, ``- `<ref>` — <where in the code>``, with the same rule. `removed, its container` entries are covered by removal Tasks: one per topmost removed Model element, ``Remove code of `<ref>` ``, referencing the nearest surviving container; a removed Feature or Actor gives a Technical Task with no reference.
 - Staleness: `base` records per touched file the SHA-256 (lowercase hex) of its LF-normalised content when first registered, or `new`. A file is stale when its current content, with required Proposals applied below in dependency order, hashes differently, when a `new` file now exists, or when a hashed file is gone. Editing again keeps `base`; only the refinement's rebase rewrites it. Task files and `proposal.md` never count.
 - Reasons Approve is refused, all of them, in this order:
-  1. `The agent is still finishing`;
+  1. `The agent is still finishing`: the job in `job` is still working or, for a Proposal with `chat` or `chatWriting`, a turn of the project's Chat is in progress;
   2. `A run is in progress`;
   3. each required Proposal in `requires` order: still being written, not approved yet, was rejected, was discarded, missing, forms a cycle;
   4. stale, naming each file;
@@ -34,6 +34,10 @@
 - Refinement rebase (`rebase: true`), in this order: drop from `requires` every entry that was rejected (except one rejected with Rework whose rework has not been handed over: it counts as still being written), discarded or is missing, and every entry of this Proposal that forms a cycle; the other Proposals of the cycle are not touched. For a resolution, drop the `drifts` rows whose Drift is no longer open. Then record `base` again with the remaining required Proposals applied below. The output lists each dropped requirement and row.
 - Hand-over of a refined Proposal (`refining: true`): attached to a Drift, always Open, never Approved nor waiting for a Run; otherwise Approved when nothing blocks it, waiting for the Run when only reason 2 blocks it, Open with its reasons when a required Proposal still blocks it. A refined setup keeps its kind: its approval still starts Run all.
 - Label: required when carrying Tasks; 1–30 characters after trimming, one line.
+- Bindings, checked by `proposal new` against the caller; a binding not allowed leaves the Proposal unbound with a note saying why:
+  - `request`: a setup or design job binds only the request its instruction named, and only its first Proposal; Chat's agent binds only a request that is written, not sent, not consumed and not held by another Draft, with a `change` Proposal; any other caller binds none.
+  - `reworks`: a rework job binds only the Proposal its instruction named; Chat's agent binds any rejected `change` or `resolution` Proposal, with or without Rework, that no other Proposal replaced and on which no rework job is working, with a Proposal of the same kind; any other caller binds none. The bound Proposal takes the place of the rejected one in the order of the Board and in the `requires` of the Proposals that waited for it, as for a rework.
+- Chat's Drafts: Chat's agent creates only `change` and `resolution` Proposals. Clear of Chat discards, after its turn stopped, every `draft` with `chat: true` that is not `refining`, as a discard of the developer; each request it held goes back to Writing. A `draft` with `chatWriting: true` but without `chat` stays.
 - Tag colour: FNV-1a 32-bit hash of the label's UTF-8 bytes modulo 6 picks `blue`, `green`, `amber`, `violet`, `cyan`, `pink`, in this order (pink, not red, so that no Task border looks like a Drift's).
 
 ## question-round

@@ -79,6 +79,15 @@ impl JobKind {
     pub fn is_run(self) -> bool {
         self == JobKind::Run
     }
+
+    /// Whether Weaver measures the job when it ends (`requirements/data#job`): design, rework,
+    /// refinement and Run.
+    pub fn is_measured(self) -> bool {
+        matches!(
+            self,
+            JobKind::Design | JobKind::Rework | JobKind::Refinement | JobKind::Run
+        )
+    }
 }
 
 /// The state of a job (the Machine `job`).

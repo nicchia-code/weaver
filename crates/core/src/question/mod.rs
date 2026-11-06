@@ -1,5 +1,6 @@
-//! Question rounds (Machine `question-round`): a group of decisions the agent of a job asks the
-//! developer at once, or the prepared question of a Drift that Weaver asks itself.
+//! Question rounds (Machine `question-round`): a group of decisions the agent of a job, or of the
+//! project's Chat when the developer asked to be asked that way, asks the developer at once, or the
+//! prepared question of a Drift that Weaver asks itself.
 //!
 //! The logic is pure and in memory; nothing of a round is written to the project or to a log.
 //!
@@ -10,7 +11,9 @@
 //! | [`queue`]   | The rounds of a project: one presented, the others first in, first out |
 //!
 //! The wire: `weaver question new` validates its input, then sends one request of kind [`KIND`] whose
-//! payload is the input object; the app answers with a reply carrying the result (`answered`) or a
+//! payload is the input object and which carries the identities of the caller (`job` for the
+//! agent of a job, `general` for the agent of the Chat; the job decides when both are there); the
+//! app answers with a reply carrying the result (`answered`) or a
 //! failure whose code is one of [`code`]. The connection stays open, with no time limit, until a
 //! result exists; closing it is `agent.STOP_WAITING`.
 
@@ -34,7 +37,8 @@ pub const UNAVAILABLE_REASON: &str =
 
 /// Codes of the failures of a round, in `Response::error` and in `{error: {code, message}}`.
 pub mod code {
-    /// No round can be shown: the caller is not a working job, or Weaver is not at hand.
+    /// No round can be shown: the caller is neither a working job nor the Chat during a turn, or
+    /// Weaver is not at hand.
     pub const UNAVAILABLE: &str = "unavailable";
     /// The round is invalid: the message names every bad field by path.
     pub const INVALID_INPUT: &str = crate::command::code::INVALID_INPUT;

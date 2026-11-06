@@ -27,6 +27,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
 use ts_rs::TS;
+use weaver_core::atomic_commits;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project_files::folder_tree::{self, TreeEntry};
 use weaver_core::project_files::schedule::{Run, Runs, Want};
@@ -126,6 +127,8 @@ pub struct ProjectStatus {
     pub folder_has_files: bool,
     pub check: SkillsCheck,
     pub solo: SoloStatus,
+    /// Atomic commits of the working copy (`requirements/data#atomic-commits`).
+    pub atomic_commits: AtomicCommitsStatus,
     /// Merge of Solo mode; absent while Solo mode is off (`requirements/tech#solo-merge`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -160,6 +163,46 @@ impl SoloStatus {
         self.problem = problem;
         changed
     }
+}
+
+/// Atomic commits of the working copy as the window shows it. The choice lives only in the working
+/// copy (`.weaver/commits/commits.json`), never in Weaver's settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AtomicCommitsStatus {
+    pub enabled: bool,
+    /// The reason it cannot be turned on (no git, or the folder is not in a repository); absent
+    /// when it can. Worked out when the project opens and each time Settings is shown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub unavailable: Option<String>,
+    /// The state file cannot be read or holds another value, so Atomic commits counts as off:
+    /// `<path>: <reason>`, the path relative to the project folder. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnostic: Option<String>,
+}
+
+impl AtomicCommitsStatus {
+    fn read(state: &atomic_commits::State) -> Self {
+        Self {
+            enabled: state.enabled,
+            unavailable: None,
+            diagnostic: state.diagnostic.as_ref().map(shown_diagnostic),
+        }
+    }
+
+    fn inspected(inspection: &atomic_commits::Inspection) -> Self {
+        Self {
+            enabled: inspection.enabled,
+            unavailable: inspection.unavailable.as_ref().map(ToString::to_string),
+            diagnostic: inspection.diagnostic.as_ref().map(shown_diagnostic),
+        }
+    }
+}
+
+fn shown_diagnostic(diagnostic: &weaver_core::project::diagnostic::Diagnostic) -> String {
+    format!(".weaver/{}: {}", diagnostic.path, diagnostic.message)
 }
 
 /// What a change of Solo mode answers: the new state and the tracked files the block excludes.
@@ -239,6 +282,7 @@ struct Entry {
     folder_has_files: bool,
     check: SkillsCheck,
     solo: SoloStatus,
+    atomic: AtomicCommitsStatus,
     /// Merge of Solo mode; absent while Solo mode is off.
     merge: Option<MergeStatus>,
     runs: Runs,
@@ -259,6 +303,7 @@ impl Entry {
             folder_has_files: self.folder_has_files,
             check: self.check.clone(),
             solo: self.solo.clone(),
+            atomic_commits: self.atomic.clone(),
             merge: self.merge.clone(),
         }
     }
@@ -292,11 +337,12 @@ fn folder_has_files(root: &Path) -> bool {
 
 /// What the disk and the picture say of a folder: its state, whether it holds files of its own and
 /// the mode of Solo mode remembered in `.weaver/solo/solo.json` (no git is called).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Measured {
     state: ProjectState,
     folder_has_files: bool,
     solo: Mode,
+    atomic: AtomicCommitsStatus,
 }
 
 fn measure(root: &Path, image: &ProjectImage) -> Measured {
@@ -306,6 +352,7 @@ fn measure(root: &Path, image: &ProjectImage) -> Measured {
         state,
         folder_has_files: folder_has_files(root),
         solo,
+        atomic: read_atomic_commits(root, state),
     }
 }
 
@@ -323,6 +370,23 @@ fn read_solo_mode(root: &Path, state: ProjectState) -> Mode {
         );
     }
     read.mode
+}
+
+/// Atomic commits as the folder remembers it (no git is called); a file that cannot be read counts
+/// as off, is logged and comes back as the `diagnostic` of the status.
+fn read_atomic_commits(root: &Path, state: ProjectState) -> AtomicCommitsStatus {
+    if !state.is_initialised() {
+        return AtomicCommitsStatus::default();
+    }
+    let read = atomic_commits::read_state(root);
+    if let Some(diagnostic) = &read.diagnostic {
+        log_warn!(
+            "{} counts as Atomic commits off: {}",
+            diagnostic.path,
+            diagnostic.message
+        );
+    }
+    AtomicCommitsStatus::read(&read)
 }
 
 /// What one run did: the installed files (`None` when the run only repairs Solo mode) and the
@@ -426,6 +490,7 @@ impl ProjectSetup {
                 mode: measured.solo,
                 ..SoloStatus::default()
             },
+            atomic: measured.atomic,
             runs: Runs::default(),
             waiting: Vec::new(),
             serving: Vec::new(),
@@ -453,6 +518,8 @@ impl ProjectSetup {
             if entry.state == measured.state
                 && entry.folder_has_files == measured.folder_has_files
                 && entry.solo.mode == measured.solo
+                && entry.atomic.enabled == measured.atomic.enabled
+                && entry.atomic.diagnostic == measured.atomic.diagnostic
             {
                 return;
             }
@@ -466,6 +533,11 @@ impl ProjectSetup {
                     ..SoloStatus::default()
                 });
             }
+            // What was said of git stays: only the file was read again.
+            entry.atomic = AtomicCommitsStatus {
+                unavailable: entry.atomic.unavailable.take(),
+                ..measured.atomic
+            };
             entry.revision += 1;
             (entry.status(project_id), turned_on)
         };
@@ -733,6 +805,84 @@ impl ProjectSetup {
         self.env.emit(&status);
     }
 
+    /// `developer.CHANGE_ATOMIC_COMMITS`: in the project's queue, under the project lock, like the
+    /// other writes. A change that fails changes nothing: the reason comes back as the error, and
+    /// when it says git cannot do its part it also becomes the `unavailable` of the status.
+    pub async fn set_atomic_commits(
+        &self,
+        project_id: &str,
+        enabled: bool,
+    ) -> Result<AtomicCommitsStatus, AppError> {
+        let (root, _) = self
+            .env
+            .picture(project_id)
+            .ok_or_else(|| Self::not_open(project_id))?;
+        let git = self.git.clone();
+        let outcome = locked(self.env.as_ref(), project_id, move || {
+            atomic_commits::set_enabled(&git, &root, enabled)
+        })
+        .await
+        .map_err(|reason| AppError::new(ErrorCode::ProjectBusy, reason))?;
+        match outcome {
+            Ok(inspection) => {
+                let atomic = AtomicCommitsStatus::inspected(&inspection);
+                self.follow_atomic(project_id, &atomic);
+                log_info!(
+                    "Atomic commits is now {}",
+                    if atomic.enabled { "on" } else { "off" }
+                );
+                Ok(atomic)
+            }
+            Err(reason) => {
+                if reason.is_unavailable() {
+                    let mut atomic = self
+                        .entries()
+                        .get(project_id)
+                        .map(|entry| entry.atomic.clone())
+                        .unwrap_or_default();
+                    atomic.unavailable = Some(reason.to_string());
+                    self.follow_atomic(project_id, &atomic);
+                }
+                Err(AppError::new(ErrorCode::Refused, reason.to_string()))
+            }
+        }
+    }
+
+    /// Atomic commits as it stands now, with git asked whether it can be turned on: the Settings view
+    /// calls it each time it is shown, and the opening of the project does. Never on the thread of the
+    /// window; git is not asked anywhere else.
+    pub async fn check_atomic_commits(
+        &self,
+        project_id: &str,
+    ) -> Result<AtomicCommitsStatus, AppError> {
+        let (root, _) = self
+            .env
+            .picture(project_id)
+            .ok_or_else(|| Self::not_open(project_id))?;
+        let git = self.git.clone();
+        let inspection = blocking::disk(move || atomic_commits::inspect(&git, &root)).await?;
+        let atomic = AtomicCommitsStatus::inspected(&inspection);
+        self.follow_atomic(project_id, &atomic);
+        Ok(atomic)
+    }
+
+    /// Records Atomic commits' status and tells the window when it differs.
+    fn follow_atomic(&self, project_id: &str, atomic: &AtomicCommitsStatus) {
+        let status = {
+            let mut entries = self.entries();
+            let Some(entry) = entries.get_mut(project_id) else {
+                return;
+            };
+            if &entry.atomic == atomic {
+                return;
+            }
+            entry.atomic = atomic.clone();
+            entry.revision += 1;
+            entry.status(project_id)
+        };
+        self.env.emit(&status);
+    }
+
     /// The Requirements changed: the Requirement skills are generated again 1 s after the last change.
     fn regenerate_later(&self, project_id: &str) {
         let generation = {
@@ -776,6 +926,7 @@ impl ProjectSetup {
                     mode: measured.solo,
                     ..SoloStatus::default()
                 },
+                atomic: measured.atomic,
                 runs: Runs::default(),
                 waiting: Vec::new(),
                 serving: Vec::new(),
@@ -787,6 +938,15 @@ impl ProjectSetup {
             status
         };
         self.env.emit(&status);
+        // Whether Atomic commits can be turned on: asked once at the opening, in the background.
+        if let Some(me) = self.arc() {
+            let id = project_id.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = me.check_atomic_commits(&id).await {
+                    log_warn!("Atomic commits could not be checked: {}", error.message);
+                }
+            });
+        }
         match measured.state {
             // The check of the installed files and the repair of Solo mode's block, in one run.
             ProjectState::HasModel => {
@@ -1064,6 +1224,29 @@ pub async fn solo_tracked_files(
 ) -> Result<Vec<String>, AppError> {
     let setup = setup.inner().clone();
     setup.solo_tracked_files(&project_id).await
+}
+
+/// `developer.CHANGE_ATOMIC_COMMITS`: the new state, or the reason it could not change. The only way
+/// to change it: no command of the command line does.
+#[tauri::command]
+pub async fn set_atomic_commits(
+    setup: State<'_, Arc<ProjectSetup>>,
+    project_id: String,
+    enabled: bool,
+) -> Result<AtomicCommitsStatus, AppError> {
+    let setup = setup.inner().clone();
+    setup.set_atomic_commits(&project_id, enabled).await
+}
+
+/// Atomic commits with git asked whether it can be turned on: the Settings view calls it each time
+/// it is shown.
+#[tauri::command]
+pub async fn check_atomic_commits(
+    setup: State<'_, Arc<ProjectSetup>>,
+    project_id: String,
+) -> Result<AtomicCommitsStatus, AppError> {
+    let setup = setup.inner().clone();
+    setup.check_atomic_commits(&project_id).await
 }
 
 /// `developer.UPDATE_SKILLS`: the same structured report the command line prints.
@@ -1973,6 +2156,157 @@ mod tests {
         assert_eq!(
             serde_json::to_value(SoloStatus::default()).unwrap(),
             serde_json::json!({ "mode": "off" })
+        );
+    }
+
+    #[tokio::test]
+    async fn atomic_commits_turns_on_in_a_repository_writes_its_state_and_turns_off_deleting_the_folder() {
+        let (_dir, root) = git_repo();
+        initialise(&root, false, Mode::Off, &Git::system()).unwrap();
+        let env = FakeEnvironment::new(&root);
+        let setup = setup(&env);
+        open(&setup, &root);
+        until(&env, |all| !all.is_empty()).await;
+        assert_eq!(env.last().unwrap().atomic_commits, AtomicCommitsStatus::default());
+        assert!(!root.join(".weaver/commits").exists());
+
+        let on = setup.set_atomic_commits(ID, true).await.unwrap();
+        assert_eq!(on, AtomicCommitsStatus { enabled: true, unavailable: None, diagnostic: None });
+        assert_eq!(
+            fs::read_to_string(root.join(".weaver/commits/commits.json")).unwrap(),
+            "{\"enabled\": true}\n"
+        );
+        assert_eq!(fs::read(root.join(".weaver/commits/.gitignore")).unwrap(), b"*\n");
+        assert!(env.last().unwrap().atomic_commits.enabled);
+        assert!(setup.check_atomic_commits(ID).await.unwrap().enabled);
+
+        let off = setup.set_atomic_commits(ID, false).await.unwrap();
+        assert_eq!(off, AtomicCommitsStatus::default());
+        assert!(!root.join(".weaver/commits").exists());
+        assert!(!env.last().unwrap().atomic_commits.enabled);
+    }
+
+    #[tokio::test]
+    async fn atomic_commits_is_refused_without_git_with_the_reason_and_nothing_written() {
+        let (_dir, root) = git_repo();
+        initialise(&root, false, Mode::Off, &Git::system()).unwrap();
+        let env = FakeEnvironment::new(&root);
+        let setup = with_git(&env, no_git());
+        open(&setup, &root);
+        until(&env, |all| {
+            all.last().is_some_and(|s| s.atomic_commits.unavailable.is_some())
+        })
+        .await;
+        assert_eq!(
+            env.last().unwrap().atomic_commits,
+            AtomicCommitsStatus {
+                enabled: false,
+                unavailable: Some("git was not found".to_owned()),
+                diagnostic: None
+            }
+        );
+
+        let error = setup.set_atomic_commits(ID, true).await.unwrap_err();
+        assert_eq!(error.message, "git was not found");
+        assert!(!root.join(".weaver/commits").exists());
+        assert!(!env.last().unwrap().atomic_commits.enabled);
+    }
+
+    #[tokio::test]
+    async fn atomic_commits_is_refused_outside_a_repository_and_checked_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = weaver_core::paths::canonical_root(dir.path()).unwrap();
+        initialise(&root, false, Mode::Off, &Git::system()).unwrap();
+        let env = FakeEnvironment::new(&root);
+        let setup = setup(&env);
+        open(&setup, &root);
+        until(&env, |all| !all.is_empty()).await;
+
+        let error = setup.set_atomic_commits(ID, true).await.unwrap_err();
+        assert_eq!(error.message, "this folder is not in a git repository");
+        assert!(!root.join(".weaver/commits").exists());
+        let checked = setup.check_atomic_commits(ID).await.unwrap();
+        assert_eq!(
+            checked,
+            AtomicCommitsStatus {
+                enabled: false,
+                unavailable: Some("this folder is not in a git repository".to_owned()),
+                diagnostic: None
+            }
+        );
+        until(&env, |all| {
+            all.last().is_some_and(|s| s.atomic_commits.unavailable.is_some())
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn atomic_commits_turns_off_without_git_and_the_state_is_read_when_the_project_opens() {
+        let (_dir, root) = git_repo();
+        initialise(&root, false, Mode::Off, &Git::system()).unwrap();
+        atomic_commits::set_enabled(&Git::system(), &root, true).unwrap();
+        let env = FakeEnvironment::new(&root);
+        let setup = with_git(&env, no_git());
+        open(&setup, &root);
+        until(&env, |all| {
+            all.last().is_some_and(|s| s.atomic_commits.enabled)
+        })
+        .await;
+
+        let off = setup.set_atomic_commits(ID, false).await.unwrap();
+        assert!(!off.enabled);
+        assert!(!root.join(".weaver/commits").exists());
+        assert!(!env.last().unwrap().atomic_commits.enabled);
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_atomic_commits_file_counts_as_off_and_is_not_rewritten() {
+        let (_dir, root) = git_repo();
+        initialise(&root, false, Mode::Off, &Git::system()).unwrap();
+        let folder = root.join(".weaver/commits");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("commits.json"), "{\"enabled\": 3}\n").unwrap();
+        let env = FakeEnvironment::new(&root);
+        let setup = setup(&env);
+        open(&setup, &root);
+        until(&env, |all| !all.is_empty()).await;
+        let atomic = env.last().unwrap().atomic_commits;
+        assert!(!atomic.enabled);
+        // The window is told which file counts as off and why.
+        assert_eq!(
+            atomic.diagnostic.as_deref(),
+            Some(".weaver/commits/commits.json: `enabled` must be `true`")
+        );
+        assert_eq!(
+            fs::read_to_string(folder.join("commits.json")).unwrap(),
+            "{\"enabled\": 3}\n"
+        );
+
+        // Only the next change rewrites it.
+        let on = setup.set_atomic_commits(ID, true).await.unwrap();
+        assert!(on.enabled);
+        assert_eq!(on.diagnostic, None);
+        assert_eq!(env.last().unwrap().atomic_commits.diagnostic, None);
+        assert_eq!(
+            fs::read_to_string(folder.join("commits.json")).unwrap(),
+            "{\"enabled\": true}\n"
+        );
+    }
+
+    #[test]
+    fn the_status_names_its_atomic_commits_fields_in_camel_case_and_leaves_an_absent_reason_out() {
+        assert_eq!(
+            serde_json::to_value(AtomicCommitsStatus::default()).unwrap(),
+            serde_json::json!({ "enabled": false })
+        );
+        assert_eq!(
+            serde_json::to_value(AtomicCommitsStatus {
+                enabled: false,
+                unavailable: Some("git was not found".to_owned()),
+                diagnostic: None
+            })
+            .unwrap(),
+            serde_json::json!({ "enabled": false, "unavailable": "git was not found" })
         );
     }
 }

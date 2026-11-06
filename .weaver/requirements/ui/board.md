@@ -35,7 +35,7 @@ description: "Use when building or changing the Board: columns, footers, ghosts,
 
 ### Details dialogs and notices
 - A details dialog follows its card: each new picture updates it in place without moving the focus. When the card leaves the Board (decided, Done, deleted, gathered into a resolution) the dialog closes by itself and the focus goes to the column the card was in.
-- Notices sit at the top of the Board, above both columns, newest first, each an `Alert` with a close button, until closed or the window closes: decisions refused when applied (`Could not delete T4: the agent that filed it is still working.`) and Proposals sent back to Draft while the developer was deciding them.
+- Notices sit at the top of the Board, above both columns, newest first, each an `Alert` with a close button, until closed or the window closes: decisions refused when applied (`Could not delete T4: the agent that filed it is still working.`), Proposals sent back to Draft while the developer was deciding them, and History entries Weaver did not commit (`requirements/ui#atomic-commits`).
 - History warnings sit under the notices, above both columns: one amber `Alert` with `TriangleAlert` for each cited Task whose copy in History could not be made (`Could not record T3 in History: <reason>. The Task stays until its copy can be made.`), each with a close button (`X`, accessible name and tooltip `Close`). A closed warning stays hidden while the window stays open, even when the Board changes; it shows again at the next opening of the window if it is still true. A new warning, or one whose text changed, shows at once.
 
 ## task

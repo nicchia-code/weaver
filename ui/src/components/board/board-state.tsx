@@ -25,7 +25,7 @@ export interface BoardState {
   approveProposal: (proposalId: string, label: string) => Promise<void>;
   /** `Reject` (the optional reason) and, with `rework`, `Rework with feedback…`. */
   rejectProposal: (proposalId: string, label: string, feedback: string | null, rework: boolean) => Promise<void>;
-  /** `Discard` on a Draft a refinement left half-way. */
+  /** `Discard` on a Draft a refinement left half-way or one Chat is writing. */
   discardProposal: (proposalId: string, label: string) => Promise<void>;
   /** The model control: a model of omp, or `null` for the Settings models. */
   chooseProposalModel: (proposalId: string, label: string, model: string | null) => Promise<void>;
