@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-06
+
 ### Added
 
 - A new `Atomic commits` switch in Settings → Project, off by default and kept for each working copy, makes Weaver commit with git the code of every History entry the agent writes, one commit per entry with an English message written by the agent, so that the repository's history follows the work feature by feature.
