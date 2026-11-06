@@ -32,6 +32,8 @@ const snapshot: BoardSnapshot = {
   backlog: [
     { kind: "proposal", head: head("pppppppp", "P1", "Add a cart"), standing: "open", proposalKind: "change", view: proposalView() },
     { kind: "drift", head: head("dddddddd", "D1", "Cart total"), origin: null, view: driftView() },
+    // A Draft the agent of Chat is writing has its card, but it is not a real card of Backlog.
+    { kind: "proposal", head: head("cccccccc", "P2", "Written in Chat"), standing: "chat-draft", proposalKind: "change", view: proposalView() },
   ],
   active: [],
   gathered: [],
@@ -41,10 +43,18 @@ const snapshot: BoardSnapshot = {
   warnings: [],
 };
 
+// Whether the Chat of the project waits for the answers of its round, as its snapshot tells.
+let chatWaiting = false;
+
 beforeEach(() => {
+  chatWaiting = false;
   vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as unknown as typeof on);
   vi.mocked(call).mockImplementation(((name: string) => {
     if (name === "board_snapshot") return Promise.resolve(snapshot);
+    if (name === "general_snapshot") {
+      const state = { projectId: PROJECT, working: chatWaiting, starting: false, loading: false, kept: false, waiting: chatWaiting };
+      return Promise.resolve({ state, chatDrafts: 0, seq: 0, entries: [] });
+    }
     if (name === "startup_failures") return Promise.resolve([]);
     if (name === "update_status") return Promise.resolve({ available: null, downloading: false });
     return Promise.reject(new Error(`unexpected command ${name}`));
@@ -52,7 +62,7 @@ beforeEach(() => {
 });
 
 describe("ProjectContent", () => {
-  it("shows the Board and puts the number of its real Backlog cards, ghosts not counted, in the sidebar", async () => {
+  it("shows the Board and puts the number of its real Backlog cards in the sidebar: ghosts and the Draft cards of Chat not counted", async () => {
     render(
       <TooltipProvider>
         <ProjectContent projectId={PROJECT} />
@@ -61,6 +71,17 @@ describe("ProjectContent", () => {
     const backlog = await screen.findByRole("region", { name: "Backlog" });
     expect(within(backlog).getByRole("button", { name: "Add a cart" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Board, 2 cards in Backlog" })).toBeInTheDocument();
+  });
+
+  it("puts 1 on the Chat entry while the Chat waits for the answers of its round, and nothing on Jobs", async () => {
+    chatWaiting = true;
+    render(
+      <TooltipProvider>
+        <ProjectContent projectId={PROJECT} />
+      </TooltipProvider>,
+    );
+    expect(await screen.findByRole("button", { name: "Chat, 1 round waiting for your answers" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs" })).not.toHaveTextContent(/\d/);
   });
 
   it("opens the conversation of a ghost's job in Jobs", async () => {

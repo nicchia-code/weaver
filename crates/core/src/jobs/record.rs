@@ -15,6 +15,7 @@ use super::kinds::{JobKind, JobState};
 use super::notes::Note;
 use crate::atomic;
 use crate::paths::AppDirs;
+use crate::project::clock::parse_instant;
 
 /// How many finished records the registry keeps per project.
 pub const KEPT_FINISHED: usize = 50;
@@ -101,6 +102,29 @@ pub struct JobRecord {
     /// reloaded.
     #[serde(default)]
     pub overlay: String,
+    /// Only for a measured job: the time spent in Running (`requirements/data#job`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<RunningTime>,
+    /// Weaver was found stopped unexpectedly while the job was Running or Waiting for the
+    /// developer: the time since its last change of state is unknown and never counted.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub running_incomplete: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// The time a measured job has spent in Running, so that a job suspended and resumed goes on
+/// counting.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningTime {
+    /// The milliseconds spent in Running before `since`.
+    pub ms: u64,
+    /// The instant the job entered Running, while it is Running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
 }
 
 impl JobRecord {
@@ -122,6 +146,43 @@ impl JobRecord {
     /// The latest note, when there is one.
     pub fn latest_note(&self) -> Option<&Note> {
         self.notes.last()
+    }
+
+    /// The job enters Running at `now`: for a measured job, the time starts to count.
+    pub fn entered_running(&mut self, now: &str) {
+        if self.kind.is_measured() {
+            self.running.get_or_insert_with(RunningTime::default).since = Some(now.to_owned());
+        }
+    }
+
+    /// The job leaves Running at `now`: the time since it entered is added. When that time cannot
+    /// be told, it is not counted and the record says so.
+    pub fn left_running(&mut self, now: &str) {
+        let Some(running) = self.running.as_mut() else {
+            return;
+        };
+        let Some(since) = running.since.take() else {
+            return;
+        };
+        match (parse_instant(&since), parse_instant(now)) {
+            (Some(from), Some(to)) => {
+                running.ms = running.ms.saturating_add(u64::try_from(to - from).unwrap_or(0));
+            }
+            _ => self.running_incomplete = true,
+        }
+    }
+
+    /// Weaver was found stopped unexpectedly while the job was Running or Waiting for the
+    /// developer: what it counted so far stays, and the time since its last change of state is
+    /// never counted.
+    pub fn running_interrupted(&mut self) {
+        if !self.kind.is_measured() {
+            return;
+        }
+        if let Some(running) = self.running.as_mut() {
+            running.since = None;
+        }
+        self.running_incomplete = true;
     }
 }
 
@@ -300,6 +361,8 @@ mod tests {
             pid_started: Some("Mon Nov  2 07:00:00 2026".to_owned()),
             empty_model_at_start: false,
             overlay: "bash:\n".to_owned(),
+            running: None,
+            running_incomplete: false,
         }
     }
 
@@ -399,5 +462,68 @@ mod tests {
         let deleted = store.prune_finished("/p").unwrap();
         assert_eq!(deleted, ["job00001", "job00000"]);
         assert_eq!(store.read_all().records.len(), KEPT_FINISHED + 1);
+    }
+
+    fn measured(kind: JobKind) -> JobRecord {
+        JobRecord {
+            kind,
+            ..record("jjjjjjjj", "/p", JobState::Queued, None)
+        }
+    }
+
+    #[test]
+    fn the_time_in_running_is_added_at_each_stay_and_a_resumed_job_goes_on_counting() {
+        let mut record = measured(JobKind::Run);
+        record.entered_running("2026-11-02T07:00:10.000Z");
+        assert_eq!(
+            record.running,
+            Some(RunningTime {
+                ms: 0,
+                since: Some("2026-11-02T07:00:10.000Z".into())
+            })
+        );
+        record.left_running("2026-11-02T07:00:15.250Z");
+        // Waiting, Suspended and Queued time is never counted: only the next stay is added.
+        record.entered_running("2026-11-02T07:10:00.000Z");
+        record.left_running("2026-11-02T07:10:02.000Z");
+        let running = record.running.clone().unwrap();
+        assert_eq!((running.ms, running.since), (7250, None));
+        assert!(!record.running_incomplete);
+        // Leaving Running twice counts nothing more.
+        record.left_running("2026-11-02T08:00:00.000Z");
+        assert_eq!(record.running.unwrap().ms, 7250);
+    }
+
+    #[test]
+    fn a_stop_of_weaver_while_running_keeps_what_was_counted_and_marks_the_record() {
+        let mut record = measured(JobKind::Design);
+        record.entered_running("2026-11-02T07:00:00.000Z");
+        record.left_running("2026-11-02T07:00:03.000Z");
+        record.entered_running("2026-11-02T07:05:00.000Z");
+        record.running_interrupted();
+        let running = record.running.clone().unwrap();
+        assert_eq!((running.ms, running.since), (3000, None));
+        assert!(record.running_incomplete);
+        let text = serde_json::to_string(&record).unwrap();
+        assert!(text.contains("\"running\":{\"ms\":3000}") && text.contains("\"runningIncomplete\":true"));
+    }
+
+    #[test]
+    fn only_measured_kinds_count_their_time() {
+        for kind in JobKind::ALL {
+            let mut record = measured(kind);
+            record.entered_running("2026-11-02T07:00:00.000Z");
+            record.left_running("2026-11-02T07:00:01.000Z");
+            record.running_interrupted();
+            let measured = matches!(
+                kind,
+                JobKind::Design | JobKind::Rework | JobKind::Refinement | JobKind::Run
+            );
+            assert_eq!(kind.is_measured(), measured, "{kind:?}");
+            assert_eq!(record.running.is_some(), measured, "{kind:?}");
+            assert_eq!(record.running_incomplete, measured, "{kind:?}");
+            let text = serde_json::to_string(&record).unwrap();
+            assert_eq!(text.contains("running\""), measured, "{kind:?}");
+        }
     }
 }

@@ -67,6 +67,8 @@ pub struct TestHost {
     pub missing: Mutex<Vec<Option<String>>>,
     pub board_changes: Mutex<usize>,
     pub ready: Mutex<bool>,
+    /// While `false`, omp does not become ready: the jobs stay Queued until it opens.
+    pub gate: tokio::sync::watch::Sender<bool>,
     /// The agent lock of the File view, fed by the actors of the jobs and of General.
     pub file_locks: Arc<FileLockService>,
     /// What the agent lock told the UI.
@@ -98,6 +100,7 @@ impl TestHost {
             missing: Mutex::default(),
             board_changes: Mutex::new(0),
             ready: Mutex::new(true),
+            gate: tokio::sync::watch::channel(true).0,
             _base: base,
             assets: Mutex::default(),
         })
@@ -167,7 +170,9 @@ impl Host for TestHost {
     }
 
     fn omp_ready(&self) -> BoxFuture<Arc<ReadyOmp>> {
-        Box::pin(async {
+        let mut gate = self.gate.subscribe();
+        Box::pin(async move {
+            let _ = gate.wait_for(|open| *open).await;
             Arc::new(ReadyOmp {
                 omp: fake_agent(),
                 omp_path: String::new(),

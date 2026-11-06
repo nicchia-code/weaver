@@ -13,6 +13,7 @@ Read nothing else about the project: not the General Requirements of other Areas
 
 1. Run `weaver model show <machine>`: it prints the Machine (the State tree, the Events with their receivers, the Transitions) followed by the Requirement sections that apply to it. When the instruction gives `refs`, compare only those references, each of which must belong to the Machine. If the command refuses (unknown Machine or reference), report it and stop.
 2. Run `weaver task list` once for the open Tasks and `weaver drift list --input -` with `{"all":true,"refs":["<ref>"]}` for the references of the Machine, to know what is already filed. A Drift the developer dismissed, whose text has not changed since, is marked in that list.
+3. Before reading the code, record the commit it is read on: run `git rev-parse HEAD` once and keep the hash for the Code notes of the Tasks you file; when the instruction already gives the commit, use that one. Outside a git repository the command fails and there is no commit to record.
 
 ## Compare
 
@@ -46,9 +47,10 @@ File each with `weaver task new --input -` and `{"title":"<what to implement>","
 
 - One Task per coherent unit of work, as specific as possible in `refs`: Model elements and Requirement sections (`order/Paid/user.CANCEL`, `requirements/ui#order/Paid`).
 - Skip what an open Task already covers.
-- The body says *what* must be true when done, in domain words, not which files to touch, with the conditions and consequences as the Model states them.
+- The body says *what* must be true when done, in domain words, not which files to touch, with the conditions and consequences as the Model states them. The files to touch go only in the Code notes below.
 - The body of a Task is understood without the conversation that produced it.
 - A Task that only applies Requirements without changing behaviour is technical: `technical: true`.
+- End every Task you file, a fix Task excepted, with a section `## Code notes` for whoever implements it, made only of what you already read of the code while comparing: never read code only to write them. First line `Commit: <full hash>`, the hash recorded in Read (no such line when the project is not in a git repository); then short Markdown, about 1,500 characters at most: where to look (files in backticks, relative to the project with `/`, and names in the code), the conventions to follow, the pitfalls seen and what can be reused. They are hints, never part of what must be true. In the `body` JSON string the section is written after the domain text, with `\n\n## Code notes\n\nCommit: <hash>\n\n…`.
 
 ## Drifts
 

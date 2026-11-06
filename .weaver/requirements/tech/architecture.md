@@ -68,24 +68,24 @@ description: "Use when building the app structure, backend state, the project's 
 
 ## question-round
 - **Transport:**
-  - `weaver question new` validates the request with `weaver-core`, then connects to `WEAVER_ENDPOINT` and sends `{secret, job, request}`.
+  - `weaver question new` validates the request with `weaver-core`, then connects to `WEAVER_ENDPOINT` and sends `{secret, job, general, request}`, with the identities it has.
   - It blocks reading the reply. Neither side has a timeout.
 - **Routing:**
-  - Only by the job identity in `WEAVER_JOB`, never by cwd, focus or path. Rounds from sub-agents and git worktrees reach the job's project.
-  - The app accepts a round only for a job it launched that is Running or Waiting for the developer.
+  - Only by the job identity in `WEAVER_JOB` or, without it, by Chat's identity in `WEAVER_GENERAL`, never by cwd, focus or path. Rounds from sub-agents and git worktrees reach the job's or Chat's project.
+  - The app accepts a round only for a job it launched that is Running or Waiting for the developer, or for the live Chat of an open project while a turn is in progress. A round of Chat moves Chat to Waiting for answers and back when it closes.
   - Each project has one round queue, created when it opens and never recreated while it is open.
 - **Outcomes:** exactly one JSON document on stdout:
   - `answered`: exit 0.
   - `unavailable` with a reason: exit 0, returned at once when:
-    - `WEAVER_JOB` or `WEAVER_ENDPOINT` is missing;
+    - both `WEAVER_JOB` and `WEAVER_GENERAL`, or `WEAVER_ENDPOINT`, are missing;
     - the runtime file is missing or names another endpoint;
     - the connection fails;
     - the protocol version differs;
-    - the job is unknown or ended.
+    - the job is unknown or ended, or the Chat identity is not the live one or has no turn in progress.
   - `interrupted`: exit 1, with a code and message and no answers. Returned when the round is interrupted, or when the connection drops after submission, detected by end-of-stream at once.
   - `invalid-input`: exit 1, naming the question and field.
 
   These outcomes are never conflated.
 - **Abandoned:** the CLI closes the connection on SIGINT, SIGTERM or a closed stdout (Windows: Ctrl+C or pipe closure). End-of-stream on a queued or presented round is `agent.STOP_WAITING`.
 - Round state, drafts included, lives only in backend memory. Free-text drafts reach it debounced at 300 ms. Nothing of a round is written to disk or logged.
-- **Ask more:** the request names the round by its identity and the question by its position. The backend reads, from the presented round, its questions and options and either its asking job (name and identity) or, for a prepared question, the Drift's permanent identity, which the round keeps besides the short number it shows; it never reads the drafts. When another round, or none, is presented, nothing opens.
+- **Ask more:** the request names the round by its identity and the question by its position. The backend reads, from the presented round, its questions and options and either its asking job (name and identity), Chat for a round of Chat, or, for a prepared question, the Drift's permanent identity, which the round keeps besides the short number it shows; it never reads the drafts. When another round, or none, is presented, nothing opens.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-atomic-commits"
+description = "Enables the check_atomic_commits command without any pre-configured scope."
+commands.allow = ["check_atomic_commits"]
+
+[[permission]]
+identifier = "deny-check-atomic-commits"
+description = "Denies the check_atomic_commits command without any pre-configured scope."
+commands.deny = ["check_atomic_commits"]

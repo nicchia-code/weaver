@@ -128,6 +128,8 @@ pub struct HistoryEntryPart {
 pub enum QuestionOrigin {
     /// The agent of a job.
     Job { name: String, id: String },
+    /// The agent of the project's Chat, in a round the developer asked it to use.
+    Chat,
     /// Weaver itself: the prepared question of a Drift (permanent identity).
     Drift { id: String },
 }
@@ -445,6 +447,9 @@ fn question_part(out: &mut String, part: &QuestionPart<'_>) {
     match &part.origin {
         QuestionOrigin::Job { name, id } => {
             let _ = writeln!(out, "Asked by the job: {name} ({id})");
+        }
+        QuestionOrigin::Chat => {
+            out.push_str("Asked by the Chat\n");
         }
         QuestionOrigin::Drift { id } => {
             let _ = writeln!(out, "Prepared question of the Drift: {id}");

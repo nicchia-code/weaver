@@ -159,5 +159,5 @@ notes: |
 
 ## Tasks of a Proposal and Already present (`proposals/<id>-<slug>/`)
 
-- A Task is `tasks/<identity>-<slug>.md` in the Proposal folder, written with `weaver proposal edit <id> --input -` and `{"edit":["tasks/<slug>.md"]}`. Front matter: `technical` (default `false`) and `refs` (a list of element references and Requirement sections). No other field. H1: the title. Body: prose.
+- A Task is `tasks/<identity>-<slug>.md` in the Proposal folder, written with `weaver proposal edit <id> --input -` and `{"edit":["tasks/<slug>.md"]}`. Front matter: `technical` (default `false`) and `refs` (a list of element references and Requirement sections). No other field. H1: the title. Body: prose, which may end with a `## Code notes` section for whoever implements the Task: the line `Commit: <full hash>` (absent outside a git repository), then short Markdown with where to look, the conventions, the pitfalls and what can be reused (see the skill's step 5). It is a hint, never part of what must be true, and Weaver does not read or check it.
 - `## Already present` in `proposal.md`: one line per element already implemented, ``- `<ref>` — <where in the code>``.

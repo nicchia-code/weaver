@@ -17,6 +17,9 @@ pub type RoundId = u64;
 pub enum Origin {
     /// The agent of a job, through `weaver question new`.
     Agent { job: String },
+    /// The agent of the project's Chat (General), through `weaver question new`, when the
+    /// developer asked to be asked with a round. `project` is the project hash.
+    Chat { project: String },
     /// Weaver itself: the prepared question of a Drift. `id` is the Drift's permanent identity,
     /// `drift` how the developer names it (its short number) and `title` its title.
     Drift {
@@ -27,11 +30,19 @@ pub enum Origin {
 }
 
 impl Origin {
-    /// The job the round belongs to, when an agent asks.
+    /// The job the round belongs to, when the agent of a job asks.
     pub fn job(&self) -> Option<&str> {
         match self {
             Origin::Agent { job } => Some(job),
-            Origin::Drift { .. } => None,
+            Origin::Chat { .. } | Origin::Drift { .. } => None,
+        }
+    }
+
+    /// The project whose Chat the round belongs to, when the agent of the Chat asks.
+    pub fn chat(&self) -> Option<&str> {
+        match self {
+            Origin::Chat { project } => Some(project),
+            Origin::Agent { .. } | Origin::Drift { .. } => None,
         }
     }
 }

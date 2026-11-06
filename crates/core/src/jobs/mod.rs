@@ -14,6 +14,7 @@
 //! | [`launch`] | The command line, the environment and the overlay of omp |
 //! | [`notes`] | The notes of `weaver job edit` |
 //! | [`record`] | The registry record `jobs/<job id>.json` and its retention |
+//! | [`measure`] | The measure of an ended design, rework, refinement or Run: its line of `.weaver/timings/jobs.jsonl` |
 //! | [`subagents`] | Sub-agents read from the `task` tool call and from omp's session files |
 //! | [`general`] | General chat, which is not a job: the Machine `general-chat`, omp's command line, its record |
 //! | [`ask`] | Ask more conversations, which are not jobs: the instruction of Weaver for the chosen thing |
@@ -24,6 +25,7 @@ pub mod general;
 pub mod kinds;
 pub mod launch;
 pub mod machine;
+pub mod measure;
 pub mod names;
 pub mod notes;
 pub mod record;

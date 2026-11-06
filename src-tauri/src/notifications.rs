@@ -6,6 +6,9 @@
 //! and of a permission), to the focus of the windows, and to the clicks of the system, and sends
 //! through `tauri-plugin-notification`, called from Rust only. One notification belongs to the app,
 //! not to a project: System Certificates turned on ([`Notifications::system_certificates_turned_on`]).
+//! The Chat of a project (General) notifies only that it waits for the answers to its round
+//! ([`Notifications::chat_waiting`], withdrawn by [`Notifications::chat_round_closed`]); the
+//! Chat round hooks of the rounds host call them when the Chat enters and leaves `Waiting for answers`.
 //!
 //! * **Foreground test**, at send time: the project's window exists, is visible, is not minimised
 //!   and has the focus (`WindowEvent::Focused`, tracked here; `is_focused()` for a window whose
@@ -27,6 +30,7 @@
 //!
 //! Nothing here changes a project, a job or a round, and nothing the agent wrote reaches a notification.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use tauri::{AppHandle, Manager, WindowEvent};
@@ -36,10 +40,12 @@ use weaver_core::notification::{
     Notice, WindowFacts,
 };
 
+use crate::general::service::{ChatObserver, General};
 use crate::jobs::wire::{JobInfo, JobObserver};
 use crate::jobs::Jobs;
 use crate::log_warn;
 use crate::pictures::project_of_label;
+use crate::state::AppState;
 use crate::windows::manager::{ShowRequest, ShowView};
 use crate::windows::registry::label_of;
 use crate::windows::WindowManager;
@@ -63,6 +69,8 @@ pub trait Desktop: Send + Sync + 'static {
     fn can_remove(&self) -> bool;
     /// Removes delivered notifications; only called when [`Desktop::can_remove`].
     fn remove(&self, ids: &[i32]);
+    /// The folder of an open project; `None` when it is not open.
+    fn project_root(&self, project_id: &str) -> Option<PathBuf>;
     /// `notification.CLICKED`: the window of the project comes forward, showing what the click leads to.
     fn bring_forward(&self, click: &Click);
 }
@@ -79,9 +87,9 @@ pub struct Notifications {
 }
 
 /// The name of the project in a notification: the folder name.
-fn project_name(job: &JobInfo) -> String {
-    job.root.file_name().map_or_else(
-        || job.project_id.clone(),
+fn project_name(project_id: &str, root: &Path) -> String {
+    root.file_name().map_or_else(
+        || project_id.to_owned(),
         |name| name.to_string_lossy().into_owned(),
     )
 }
@@ -141,13 +149,31 @@ impl Notifications {
         }
     }
 
-    /// A job waits for the developer: shown when the project's window is in the background.
-    fn waiting(&self, job: &JobInfo, make: impl FnOnce(&mut Book, &str) -> Notice) {
-        if !decide_wait(!self.in_background(&job.project_id)) {
+    /// Whoever of a project waits for the developer: shown when the project's window is in the background.
+    fn waiting(&self, project_id: &str, make: impl FnOnce(&mut Book) -> Notice) {
+        if !decide_wait(!self.in_background(project_id)) {
             return;
         }
-        let notice = make(&mut self.state().book, &project_name(job));
+        let notice = make(&mut self.state().book);
         self.desktop.show(&notice);
+    }
+
+    /// `general-chat.WAITING`: the Chat of the project (General) waits for the answers to its
+    /// round. Shown when the project's window is in the background, never otherwise; it names the
+    /// project and the Chat, nothing the Chat asked.
+    pub fn chat_waiting(&self, project_id: &str) {
+        let project = self
+            .desktop
+            .project_root(project_id)
+            .map_or_else(|| project_id.to_owned(), |root| project_name(project_id, &root));
+        self.waiting(project_id, |book| book.chat_question(project_id, &project));
+    }
+
+    /// `question-round.CLOSED` of a round of the Chat, however it closed: the notification that
+    /// announced the round is withdrawn.
+    pub fn chat_round_closed(&self, project_id: &str) {
+        let ids = self.state().book.chat_round_closed(project_id);
+        self.withdrawn(&ids);
     }
 
     /// `desktop.NOTIFICATION_CLICKED`: a mapped id brings its project's window forward.
@@ -168,6 +194,28 @@ impl Notifications {
     }
 }
 
+impl ChatObserver for Notifications {
+    fn chat_waiting(&self, project_id: &str) {
+        Notifications::chat_waiting(self, project_id);
+    }
+
+    /// The round the Chat waited for ended without answers (its turn failed or ended, omp exited,
+    /// Stop, Clear or the window closing): `question-round.CLOSED`, whatever the cause.
+    fn chat_round_ended(&self, project_id: &str) {
+        Notifications::chat_round_closed(self, project_id);
+    }
+
+    /// The round the Chat waited for closed in the normal way (answers, Skip all).
+    fn chat_round_closed(&self, project_id: &str) {
+        Notifications::chat_round_closed(self, project_id);
+    }
+
+    /// The developer cleared the conversation: whatever round it waited for is gone.
+    fn chat_cleared(&self, project_id: &str) {
+        Notifications::chat_round_closed(self, project_id);
+    }
+}
+
 impl JobObserver for Notifications {
     fn job_ended(&self, job: &JobInfo) {
         // What the job announced about waiting is no longer true, whatever its end.
@@ -179,7 +227,7 @@ impl JobObserver for Notifications {
         let Some(kind) = decide_end(job.state, !self.in_background(&job.project_id)) else {
             return;
         };
-        let project = project_name(job);
+        let project = project_name(&job.project_id, &job.root);
         let notice = {
             let mut state = self.state();
             match kind {
@@ -198,8 +246,9 @@ impl JobObserver for Notifications {
     }
 
     fn round_opened(&self, job: &JobInfo) {
-        self.waiting(job, |book, project| {
-            book.question(&job.project_id, project, &job.id, &job.name)
+        let project = project_name(&job.project_id, &job.root);
+        self.waiting(&job.project_id, |book| {
+            book.question(&job.project_id, &project, &job.id, &job.name)
         });
     }
 
@@ -209,8 +258,9 @@ impl JobObserver for Notifications {
     }
 
     fn permission_asked(&self, job: &JobInfo, request: u64) {
-        self.waiting(job, |book, project| {
-            book.permission(&job.project_id, project, &job.id, &job.name, request)
+        let project = project_name(&job.project_id, &job.root);
+        self.waiting(&job.project_id, |book| {
+            book.permission(&job.project_id, &project, &job.id, &job.name, request)
         });
     }
 
@@ -266,6 +316,12 @@ impl Desktop for TauriDesktop {
         if let Err(error) = self.app.notification().remove_active(ids.to_vec()) {
             log_warn!("a notification could not be removed: {error}");
         }
+    }
+
+    fn project_root(&self, project_id: &str) -> Option<PathBuf> {
+        let state = self.app.try_state::<AppState>()?;
+        let picture = state.pictures.get(project_id).ok()?;
+        Some(picture.root)
     }
 
     fn bring_forward(&self, click: &Click) {
@@ -329,7 +385,8 @@ pub fn route_click(windows: &dyn Windows, click: &Click) {
             destination,
         } => {
             let show = match destination {
-                Destination::WindowOnly => None,
+                // The round of the Chat is the overlay of the window: it is there once the window is forward.
+                Destination::WindowOnly | Destination::Round => None,
                 Destination::Jobs { job_id } => Some(ShowRequest {
                     project_id: project_id.clone(),
                     view: ShowView::Jobs,
@@ -360,6 +417,10 @@ pub fn install(app: &AppHandle, jobs: &Arc<Jobs>) -> Arc<Notifications> {
         log_warn!("clicks on notifications are not heard: {error}");
     }
     jobs.observe(notifications.clone());
+    // General is installed with the jobs, before this runs.
+    if let Some(general) = app.try_state::<Arc<General>>() {
+        general.observe(notifications.clone());
+    }
     notifications
 }
 
@@ -437,6 +498,12 @@ mod tests {
         }
         fn remove(&self, ids: &[i32]) {
             self.removed.lock().unwrap().extend_from_slice(ids);
+        }
+        fn project_root(&self, project_id: &str) -> Option<PathBuf> {
+            Some(PathBuf::from(format!(
+                "/work/{}",
+                if project_id == ACME { "acme" } else { "other" }
+            )))
         }
         fn bring_forward(&self, click: &Click) {
             self.forward.lock().unwrap().push(click.clone());
@@ -617,6 +684,116 @@ mod tests {
             fake.removed.lock().unwrap().is_empty(),
             "nothing can be removed here"
         );
+        service.clicked(id);
+        assert_eq!(
+            *fake.forward.lock().unwrap(),
+            [Click::Project {
+                project_id: ACME.to_owned(),
+                destination: Destination::WindowOnly
+            }]
+        );
+    }
+
+    #[test]
+    fn the_chat_waiting_for_its_round_shows_the_exact_texts_only_in_the_background() {
+        let (service, fake) = service(true);
+        fake.set_window(ACME, true, false, true);
+        service.chat_waiting(ACME);
+        assert!(
+            fake.shown().is_empty(),
+            "in the foreground nothing is shown"
+        );
+        fake.set_window(ACME, true, false, false);
+        service.chat_waiting(ACME);
+        let shown = fake.shown();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].1, "acme – Chat asks a question");
+        assert_eq!(shown[0].2, "The agent is waiting for your answers.");
+    }
+
+    #[test]
+    fn a_project_without_a_window_has_nobody_to_notify_for_its_chat() {
+        let (service, fake) = service(true);
+        fake.windows.lock().unwrap().clear();
+        service.chat_waiting(ACME);
+        assert!(fake.shown().is_empty());
+    }
+
+    #[test]
+    fn the_close_of_the_chat_round_withdraws_its_notification_and_no_job_one() {
+        let (service, fake) = service(true);
+        service.round_opened(&job(ACME, "j1", "Import", JobState::Waiting));
+        service.chat_waiting(ACME);
+        let (job_id, chat_id) = (fake.shown()[0].0, fake.shown()[1].0);
+        service.chat_round_closed(OTHER);
+        assert!(fake.removed.lock().unwrap().is_empty());
+        service.chat_round_closed(ACME);
+        assert_eq!(*fake.removed.lock().unwrap(), vec![chat_id]);
+        service.chat_round_closed(ACME);
+        assert_eq!(
+            *fake.removed.lock().unwrap(),
+            vec![chat_id],
+            "withdrawn once"
+        );
+        service.round_closed(&job(ACME, "j1", "Import", JobState::Running));
+        assert_eq!(*fake.removed.lock().unwrap(), vec![chat_id, job_id]);
+    }
+
+    #[test]
+    fn the_chat_observer_shows_the_wait_and_withdraws_it_however_the_round_closes() {
+        type Close = fn(&dyn ChatObserver, &str);
+        let closes: [(&str, Close); 3] = [
+            ("ended without answers", |o, p| o.chat_round_ended(p)),
+            ("closed in the normal way", |o, p| o.chat_round_closed(p)),
+            ("cleared", |o, p| o.chat_cleared(p)),
+        ];
+        for (how, close) in closes {
+            let (service, fake) = service(true);
+            let observer: &dyn ChatObserver = &*service;
+            observer.chat_waiting(ACME);
+            let id = fake.shown()[0].0;
+            close(observer, ACME);
+            assert_eq!(*fake.removed.lock().unwrap(), vec![id], "{how}");
+        }
+    }
+
+    #[test]
+    fn a_notification_of_a_job_and_one_of_the_chat_of_the_same_project_have_different_ids() {
+        let (service, fake) = service(true);
+        service.round_opened(&job(ACME, "j1", "Import", JobState::Waiting));
+        service.chat_waiting(ACME);
+        let shown = fake.shown();
+        assert_ne!(shown[0].0, shown[1].0);
+        assert_eq!(shown[0].1, "acme – Import asks a question");
+        assert_eq!(shown[1].1, "acme – Chat asks a question");
+    }
+
+    #[test]
+    fn a_click_on_the_chat_notification_brings_the_window_forward_without_a_conversation() {
+        let (service, fake) = service(true);
+        let label = label_of(ACME);
+        *fake.routed.order.lock().unwrap() = vec![label.clone()];
+        *fake.routed.open.lock().unwrap() = vec![label.clone()];
+        service.chat_waiting(ACME);
+        service.clicked(fake.shown()[0].0);
+        assert_eq!(
+            *fake.forward.lock().unwrap(),
+            [Click::Project {
+                project_id: ACME.to_owned(),
+                destination: Destination::Round
+            }]
+        );
+        assert_eq!(fake.routed.log(), [format!("focus {label}")]);
+    }
+
+    #[test]
+    fn where_the_system_cannot_remove_it_a_withdrawn_chat_notification_only_brings_the_window_forward(
+    ) {
+        let (service, fake) = service(false);
+        service.chat_waiting(ACME);
+        let id = fake.shown()[0].0;
+        service.chat_round_closed(ACME);
+        assert!(fake.removed.lock().unwrap().is_empty());
         service.clicked(id);
         assert_eq!(
             *fake.forward.lock().unwrap(),

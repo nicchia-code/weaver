@@ -37,11 +37,13 @@
 pub mod agent_files;
 pub mod assets;
 pub mod atomic;
+pub mod atomic_commits;
 pub mod command;
 pub mod endpoint;
 pub mod file_lock;
 pub mod file_tab;
 pub mod file_view;
+pub mod history_commit;
 pub mod ipc;
 pub mod job_instruction;
 pub mod jobs;

@@ -358,6 +358,29 @@ mod tests {
     }
 
     #[test]
+    fn a_round_of_the_chat_is_no_job_s_and_its_opening_and_closing_name_the_chat() {
+        let chat = Origin::Chat {
+            project: "p1".into(),
+        };
+        assert_eq!((chat.job(), chat.chat()), (None, Some("p1")));
+        let mut queue = Queue::new();
+        queue.submit(agent(1, "job1"));
+        let effects = queue.submit(Round::new(2, chat.clone(), request()));
+        assert!(effects.is_empty(), "it waits behind the presented round");
+
+        // No job's end touches it.
+        let effects = queue.interrupt_job("job1");
+        assert_eq!(ended(&effects), [(1, Outcome::Interrupted)]);
+        assert!(effects.contains(&Effect::Opened {
+            id: 2,
+            origin: chat.clone()
+        }));
+
+        let effects = queue.finish(2, Ending::Abandoned);
+        assert!(effects.contains(&Effect::Closed { id: 2, origin: chat }));
+    }
+
+    #[test]
     fn closing_the_window_interrupts_every_round_including_a_prepared_question() {
         let mut queue = Queue::new();
         queue.submit(agent(1, "job1"));

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-atomic-commits"
+description = "Enables the set_atomic_commits command without any pre-configured scope."
+commands.allow = ["set_atomic_commits"]
+
+[[permission]]
+identifier = "deny-set-atomic-commits"
+description = "Denies the set_atomic_commits command without any pre-configured scope."
+commands.deny = ["set_atomic_commits"]

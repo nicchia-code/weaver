@@ -12,6 +12,8 @@ use crate::project::ids::{card_stem, draw_identity, slugify, split_card_stem};
 use crate::project::image::ProjectImage;
 use crate::project::layout::{self, classify, FileClass, PROPOSAL_FILE};
 use crate::project::random::RandomSource;
+use crate::project::requests::machine::RequestState;
+use crate::project::requests::store::RequestStore;
 use crate::project::shortnum::ShortNumbers;
 use crate::project::text;
 
@@ -24,6 +26,25 @@ use super::resolution;
 // ---------------------------------------------------------------------------------------------
 // new
 // ---------------------------------------------------------------------------------------------
+
+/// Who writes a Proposal, as far as `request`, `reworks` and the kind are concerned
+/// (`requirements/rules#proposal`, **Bindings**). Only what the app vouches for counts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Writer {
+    /// Nobody the app vouches for (no identity, one it does not recognise, or no app answering):
+    /// binds nothing.
+    #[default]
+    Other,
+    /// The agent of a working Weaver job. `request` is the request the instruction of a setup or
+    /// design job names, `reworks` the rejected Proposal the instruction of a rework job names.
+    Job {
+        request: Option<String>,
+        reworks: Option<String>,
+    },
+    /// The agent of the project's live Chat. `reworking` holds the rejected Proposals a working
+    /// rework job writes again.
+    Chat { reworking: BTreeSet<String> },
+}
 
 /// What `proposal new` was asked.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,6 +61,8 @@ pub struct NewProposal {
     pub reworks: Option<String>,
     /// The job that creates it.
     pub job: Option<String>,
+    /// Who writes it.
+    pub writer: Writer,
 }
 
 /// A Proposal about to be filed as a Draft.
@@ -62,13 +85,151 @@ fn bound_note(numbers: &ShortNumbers, what: &str, other: &Card) -> String {
     format!("The Proposal is not bound to {what}: Proposal {name} is.")
 }
 
+/// Binds `request`, or says in `note` why not: a setup or design job binds only the request its
+/// instruction names, Chat only a written request that nothing holds, with a `change`; any other
+/// caller binds none. Only the first Proposal binds a request.
+fn bind_request(
+    image: &ProjectImage,
+    numbers: &ShortNumbers,
+    writer: &Writer,
+    kind: Kind,
+    request: &str,
+    note: &mut Option<String>,
+) -> Option<String> {
+    let unbound = |why: &str| format!("The Proposal is not bound to the request {request}: {why}");
+    match writer {
+        Writer::Other => {
+            *note = Some(unbound(
+                "only the agent of the job that received the request, or the agent of Chat, binds a request.",
+            ));
+            return None;
+        }
+        Writer::Job { request: named, .. } if named.as_deref() != Some(request) => {
+            *note = Some(unbound("the job did not receive that request."));
+            return None;
+        }
+        Writer::Chat { .. } if kind != Kind::Change => {
+            *note = Some(unbound("only a `change` Proposal binds a request."));
+            return None;
+        }
+        _ => {}
+    }
+    let bound = image.cards_of(CardKind::Proposal).find(|p| {
+        data::request_of(p) == Some(request)
+            && !matches!(
+                data::status_of(p),
+                Some(Status::Rejected | Status::Discarded)
+            )
+    });
+    if let Some(other) = bound {
+        *note = Some(bound_note(numbers, "the request", other));
+        return None;
+    }
+    match writer {
+        Writer::Chat { .. } => match RequestStore::new(image.root()).state_of(request) {
+            Ok(RequestState::Writing) => Some(request.to_owned()),
+            Ok(RequestState::Sent) => {
+                *note = Some(unbound("it was already sent."));
+                None
+            }
+            Ok(RequestState::HeldByChat) => {
+                *note = Some(unbound("another Draft holds it."));
+                None
+            }
+            Ok(RequestState::Consumed) => {
+                *note = Some(unbound("it was already consumed."));
+                None
+            }
+            Ok(RequestState::NotWritten | RequestState::Discarded) | Err(_) => {
+                *note = Some(unbound("no such request."));
+                None
+            }
+        },
+        _ => {
+            if layout::absolute(image.root(), &format!("requests/{request}.md")).is_file() {
+                Some(request.to_owned())
+            } else {
+                *note = Some(unbound("no such request."));
+                None
+            }
+        }
+    }
+}
+
+/// Binds `reworks`, or says in `note` why not: a rework job binds only the Proposal its
+/// instruction names, rejected with Rework; Chat any rejected `change` or `resolution` that no
+/// rework job works on, with a Proposal of the same kind; any other caller binds none. A Proposal
+/// that something already replaced is bound by nobody.
+fn bind_reworks(
+    image: &ProjectImage,
+    numbers: &ShortNumbers,
+    writer: &Writer,
+    kind: Kind,
+    target: &str,
+    note: &mut Option<String>,
+) -> Option<String> {
+    let unbound = |why: &str| {
+        format!("The Proposal is not bound to the Proposal it reworks: {why}")
+    };
+    let rejected = image
+        .card(CardKind::Proposal, target)
+        .filter(|p| data::status_of(p) == Some(Status::Rejected));
+    match writer {
+        Writer::Other => {
+            *note = Some(unbound(
+                "only the agent of a rework job, or the agent of Chat, binds a Proposal.",
+            ));
+            return None;
+        }
+        Writer::Job { reworks, .. } => {
+            if reworks.as_deref() != Some(target) {
+                *note = Some(unbound("the job does not rework that Proposal."));
+                return None;
+            }
+            if !rejected.is_some_and(data::rework_requested) {
+                *note = Some(unbound("that one was not rejected with Rework."));
+                return None;
+            }
+        }
+        Writer::Chat { reworking } => {
+            let Some(rejected) = rejected else {
+                *note = Some(unbound("that one was not rejected."));
+                return None;
+            };
+            let rejected_kind = data::kind_of(rejected);
+            if !matches!(rejected_kind, Kind::Change | Kind::Resolution) || rejected_kind != kind {
+                *note = Some(unbound(&format!(
+                    "it is a {} and the Proposal is a {}: Chat replaces only a `change` or a `resolution`, with one of the same kind.",
+                    rejected_kind.as_str(),
+                    kind.as_str()
+                )));
+                return None;
+            }
+            if reworking.contains(target) {
+                *note = Some(unbound("a rework job is working on it."));
+                return None;
+            }
+        }
+    }
+    match image
+        .cards_of(CardKind::Proposal)
+        .find(|p| data::reworks_of(p) == Some(target))
+    {
+        Some(other) => {
+            *note = Some(bound_note(numbers, "the Proposal it reworks", other));
+            None
+        }
+        None => Some(target.to_owned()),
+    }
+}
+
 /// Plans a new Draft. Refused (nothing is written), with every reason: a `setup` on a Model that
-/// has a Feature or an Actor, `request` together with `reworks`, a label that is not valid, a
-/// title that is not one line.
+/// has a Feature or an Actor, a `setup` or `import` from Chat, `request` together with `reworks`,
+/// a label that is not valid, a title that is not one line.
 ///
-/// `request` binds only if no Proposal is bound to it yet (and the request exists); `reworks`
-/// only a Proposal rejected with Rework that nothing replaced; otherwise the Proposal is created
-/// unbound, with a note saying why.
+/// `request` and `reworks` bind only as [`Writer`] allows and as `requirements/rules#proposal`
+/// (**Bindings**) says; otherwise the Proposal is created unbound, with a note saying why. A
+/// Proposal the agent of Chat writes carries `chat: true` and `chatWriting: true`.
 pub fn plan_new(
     image: &ProjectImage,
     numbers: &ShortNumbers,
@@ -92,6 +253,12 @@ pub fn plan_new(
     if kind == Kind::Setup && !image.model().is_empty() {
         problems.push("kind: a `setup` is for a project whose Model has no Feature and no Actor; use `change`".to_owned());
     }
+    if matches!(input.writer, Writer::Chat { .. }) && matches!(kind, Kind::Setup | Kind::Import) {
+        problems.push(format!(
+            "kind: the agent of Chat writes only a `change` or a `resolution`, not a `{}`",
+            kind.as_str()
+        ));
+    }
     if input.request.is_some() && input.reworks.is_some() {
         problems.push("request: cannot go together with `reworks`".to_owned());
     }
@@ -101,51 +268,11 @@ pub fn plan_new(
 
     let mut note = None;
     let request = match input.request.as_deref() {
-        Some(request) => match image.cards_of(CardKind::Proposal).find(|p| {
-            data::request_of(p) == Some(request)
-                && !matches!(
-                    data::status_of(p),
-                    Some(Status::Rejected | Status::Discarded)
-                )
-        }) {
-            Some(other) => {
-                note = Some(bound_note(numbers, "the request", other));
-                None
-            }
-            None if !layout::absolute(image.root(), &format!("requests/{request}.md"))
-                .is_file() =>
-            {
-                note = Some(format!(
-                    "The Proposal is not bound to the request {request}: no such request."
-                ));
-                None
-            }
-            None => Some(request.to_owned()),
-        },
+        Some(request) => bind_request(image, numbers, &input.writer, kind, request, &mut note),
         None => None,
     };
     let reworks = match input.reworks.as_deref() {
-        Some(target) => {
-            let rejected = image.card(CardKind::Proposal, target).filter(|p| {
-                data::status_of(p) == Some(Status::Rejected) && data::rework_requested(p)
-            });
-            match rejected {
-                None => {
-                    note = Some("The Proposal is not bound to the Proposal it reworks: that one was not rejected with Rework.".to_owned());
-                    None
-                }
-                Some(_) => match image
-                    .cards_of(CardKind::Proposal)
-                    .find(|p| data::reworks_of(p) == Some(target))
-                {
-                    Some(other) => {
-                        note = Some(bound_note(numbers, "the Proposal it reworks", other));
-                        None
-                    }
-                    None => Some(target.to_owned()),
-                },
-            }
-        }
+        Some(target) => bind_reworks(image, numbers, &input.writer, kind, target, &mut note),
         None => None,
     };
 
@@ -175,6 +302,10 @@ pub fn plan_new(
     }
     if let Some(job) = &input.job {
         set(&mut front, "job", job.as_str());
+    }
+    if matches!(input.writer, Writer::Chat { .. }) {
+        set(&mut front, "chat", true);
+        set(&mut front, "chatWriting", true);
     }
     let body = input
         .body
@@ -224,6 +355,9 @@ pub struct EditRequest {
     /// Identities of Drifts to take out of the resolution.
     pub remove_drifts: Vec<String>,
     pub rebase: bool,
+    /// The agent of Chat edits: the Proposal is marked as written by Chat (`chatWriting`) until
+    /// it is handed over again.
+    pub chat: bool,
 }
 
 /// A file the Proposal now has room for.
@@ -578,6 +712,9 @@ pub fn plan_edit(
             }
             if request.rebase {
                 set(front, "refining", true);
+            }
+            if request.chat {
+                set(front, "chatWriting", true);
             }
             if kind == Kind::Resolution
                 && (!request.drifts.is_empty()

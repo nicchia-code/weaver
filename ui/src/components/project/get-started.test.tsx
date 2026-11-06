@@ -25,6 +25,7 @@ function status(patch: Partial<ProjectStatus> = {}): ProjectStatus {
     files: FILES,
     folderHasFiles: false,
     solo: { mode: "off" },
+    atomicCommits: { enabled: false },
     check: { opening: 0, outcome: { kind: "none" } },
     ...patch,
   };

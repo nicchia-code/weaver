@@ -32,6 +32,8 @@
     "allow-update-skills",
     "allow-set-solo-mode",
     "allow-solo-tracked-files",
+    "allow-set-atomic-commits",
+    "allow-check-atomic-commits",
     "allow-merge-refresh",
     "allow-merge-branches",
     "allow-merge-start",

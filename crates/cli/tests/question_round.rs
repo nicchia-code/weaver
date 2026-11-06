@@ -22,6 +22,7 @@ use weaver_core::protocol::{Request, Response};
 use weaver_core::runtime::{self, RuntimeInfo};
 
 const SECRET_JOB: &str = "abcd1234";
+const SECRET_CHAT: &str = "efgh5678";
 /// Long enough for any real stop to arrive, short enough for a test.
 const PATIENCE: Duration = Duration::from_secs(20);
 
@@ -186,11 +187,45 @@ fn in_job(endpoint: &str) -> Vec<(&str, &str)> {
     vec![("WEAVER_JOB", SECRET_JOB), ("WEAVER_ENDPOINT", endpoint)]
 }
 
+fn in_chat(endpoint: &str) -> Vec<(&str, &str)> {
+    vec![("WEAVER_GENERAL", SECRET_CHAT), ("WEAVER_ENDPOINT", endpoint)]
+}
+
 fn assert_unavailable(result: &Result) {
     assert_eq!(result.exit, Some(0), "{} {}", result.stdout, result.stderr);
     let found = result.json();
     assert_eq!(found["status"], "unavailable");
     assert_eq!(found["reason"], "Weaver cannot show questions for this command. Do not ask in any other way: stop and tell the developer.");
+}
+
+#[test]
+fn the_chat_submits_a_round_with_its_identity_and_no_job() {
+    let sandbox = sandbox();
+    let app = app(&sandbox, |_, _| Some(Response::ok(answered())));
+    let result = run(&sandbox, &in_chat(&app.endpoint.clone()), &round());
+    assert_eq!((result.exit, result.json()), (Some(0), answered()));
+
+    let request = app.seen.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(request.kind, "question.new");
+    assert_eq!(request.job, None);
+    assert_eq!(request.general.as_deref(), Some(SECRET_CHAT));
+    assert_eq!(request.payload, round());
+    app.done.join().unwrap();
+}
+
+#[test]
+fn a_caller_with_both_identities_sends_both() {
+    let sandbox = sandbox();
+    let app = app(&sandbox, |_, _| Some(Response::ok(answered())));
+    let endpoint = app.endpoint.clone();
+    let mut env = in_job(&endpoint);
+    env.push(("WEAVER_GENERAL", SECRET_CHAT));
+    assert_eq!(run(&sandbox, &env, &round()).exit, Some(0));
+
+    let request = app.seen.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(request.job.as_deref(), Some(SECRET_JOB));
+    assert_eq!(request.general.as_deref(), Some(SECRET_CHAT));
+    app.done.join().unwrap();
 }
 
 #[test]
@@ -231,8 +266,10 @@ fn the_app_that_cannot_show_questions_is_unavailable_with_exit_zero() {
 #[test]
 fn nothing_is_submitted_when_no_app_can_be_reached() {
     let sandbox = sandbox();
-    // Outside a job.
+    // Neither a job nor the Chat.
     assert_unavailable(&run(&sandbox, &[], &round()));
+    // The Chat, with no runtime file.
+    assert_unavailable(&run(&sandbox, &[("WEAVER_GENERAL", SECRET_CHAT)], &round()));
     // In a job, with no runtime file.
     assert_unavailable(&run(&sandbox, &[("WEAVER_JOB", SECRET_JOB)], &round()));
 
@@ -252,6 +289,16 @@ fn nothing_is_submitted_when_no_app_can_be_reached() {
 
     // A runtime file that names another endpoint than the one of the job.
     assert_unavailable(&run(&sandbox, &in_job("/another/endpoint"), &round()));
+}
+
+#[test]
+fn without_weaver_endpoint_nothing_is_submitted_even_when_an_app_runs() {
+    let sandbox = sandbox();
+    // An app that would fail the test if it were contacted.
+    let app = app(&sandbox, |_, _| panic!("the app must not be contacted"));
+    assert_unavailable(&run(&sandbox, &[("WEAVER_JOB", SECRET_JOB)], &round()));
+    assert_unavailable(&run(&sandbox, &[("WEAVER_GENERAL", SECRET_CHAT)], &round()));
+    assert!(app.seen.try_recv().is_err());
 }
 
 #[test]

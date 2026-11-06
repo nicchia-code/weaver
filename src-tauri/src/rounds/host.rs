@@ -2,11 +2,12 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::service::{JobFacts, RoundsHost};
 use super::view::QuestionRoundChanged;
 use crate::events::EventName;
+use crate::general::General;
 use crate::jobs::Jobs;
 use crate::{log_warn, windows};
 
@@ -18,6 +19,13 @@ pub struct TauriRoundsHost {
 impl TauriRoundsHost {
     pub fn new(app: AppHandle, jobs: Arc<Jobs>) -> Self {
         Self { app, jobs }
+    }
+
+    /// The Chat of the projects: installed after the rounds, so it is looked up when needed.
+    fn general(&self) -> Option<Arc<General>> {
+        self.app
+            .try_state::<Arc<General>>()
+            .map(|general| general.inner().clone())
     }
 }
 
@@ -43,6 +51,22 @@ impl RoundsHost for TauriRoundsHost {
         self.jobs.round_closed(job);
         self.jobs
             .tell(job, false, |observer, info| observer.round_closed(info));
+    }
+
+    fn chat(&self, token: &str) -> Option<String> {
+        self.general()?.chat_of(token)
+    }
+
+    fn chat_round_opened(&self, project_id: &str) {
+        if let Some(general) = self.general() {
+            general.round_opened(project_id);
+        }
+    }
+
+    fn chat_round_closed(&self, project_id: &str) {
+        if let Some(general) = self.general() {
+            general.round_closed(project_id);
+        }
     }
 
     fn focus_project(&self, project_id: &str) {

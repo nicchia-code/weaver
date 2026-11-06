@@ -113,12 +113,15 @@ impl RequestJobs for AppJobs {
     }
 }
 
-/// Whether a request is being written or was sent.
+/// Whether a request is being written, was sent or is held by Chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum RequestStatus {
     Writing,
     Sent,
+    /// The agent of Chat is writing a Proposal bound to it: it can be read, not changed, sent or
+    /// discarded.
+    HeldByChat,
 }
 
 /// A row of the list of open requests.
@@ -187,10 +190,10 @@ fn failed(error: RequestError) -> AppError {
 }
 
 fn status_of(state: RequestState) -> RequestStatus {
-    if state == RequestState::Sent {
-        RequestStatus::Sent
-    } else {
-        RequestStatus::Writing
+    match state {
+        RequestState::Sent => RequestStatus::Sent,
+        RequestState::HeldByChat => RequestStatus::HeldByChat,
+        _ => RequestStatus::Writing,
     }
 }
 
@@ -298,11 +301,7 @@ impl RequestsService {
         let store = RequestStore::new(root);
         let text = store.read(request)?;
         let job_id = store.state()?.sent.get(request).cloned();
-        let status = if job_id.is_some() {
-            RequestStatus::Sent
-        } else {
-            RequestStatus::Writing
-        };
+        let status = status_of(store.state_of(request)?);
         let job_name = job_id
             .as_deref()
             .and_then(|job| self.jobs().life(job))
@@ -372,9 +371,10 @@ impl RequestsService {
 }
 
 /// `proposal.SUBMITTED` of a Proposal bound to `request`: the first one consumes the request. Under
-/// the project lock, at the hand-over.
-pub fn proposal_submitted(root: &Path, request: &str) {
-    match RequestStore::new(root).consume(request) {
+/// the project lock, at the hand-over. `from_chat` is whether the Proposal was a Draft the agent of
+/// Chat was writing (`chatWriting`) until the hand-over: that Draft held the request.
+pub fn proposal_submitted(root: &Path, request: &str, from_chat: bool) {
+    match RequestStore::new(root).consume(request, from_chat) {
         Ok(true) => log_info!("the request {request} was consumed by a Proposal"),
         Ok(false) => {}
         Err(error) => log_warn!("the request {request} could not be recorded as consumed: {error}"),
@@ -391,14 +391,25 @@ pub fn emit_changed(app: &AppHandle, project_id: &str) {
     }
 }
 
-/// Whether a batch of file changes touches `.weaver/requests/`.
+/// Whether a batch of file changes touches what the requests are made of: `.weaver/requests/`, and
+/// the `proposal.md` of the Proposals, because a Draft of Chat that names a request holds it while
+/// it exists (so the Draft being created, discarded or handed over changes the request).
 pub fn touches_requests(root: &Path, batch: &Rebuild) -> bool {
     match batch {
         Rebuild::All => true,
         Rebuild::Paths(paths) => {
-            let folder = weaver_core::project::layout::weaver_dir(root)
-                .join(weaver_core::project::layout::REQUESTS_DIR);
-            paths.iter().any(|path| path.starts_with(&folder))
+            let weaver = weaver_core::project::layout::weaver_dir(root);
+            let requests = weaver.join(weaver_core::project::layout::REQUESTS_DIR);
+            let proposals = weaver.join(weaver_core::project::layout::PROPOSALS_DIR);
+            paths.iter().any(|path| {
+                path.starts_with(&requests)
+                    || path.strip_prefix(&proposals).is_ok_and(|inside| {
+                        let mut parts = inside.iter();
+                        let (_folder, file, rest) = (parts.next(), parts.next(), parts.next());
+                        rest.is_none()
+                            && file.is_none_or(|file| file == weaver_core::project::layout::PROPOSAL_FILE)
+                    })
+            })
         }
     }
 }
@@ -924,6 +935,136 @@ mod tests {
             .is_err());
     }
 
+    /// A `proposal.md` of the Draft Chat writes (or of a job when `chat_writing` is `false`) that
+    /// names `request`, with `status`.
+    fn proposal(f: &Fixture, status: &str, chat_writing: bool, request: &str) {
+        let writing = if chat_writing { "chatWriting: true\n" } else { "" };
+        put(
+            f.project.path(),
+            "proposals/pppppppp-cart/proposal.md",
+            &format!("---\nstatus: {status}\nkind: change\nrequest: {request}\n{writing}---\n\nBody\n"),
+        );
+    }
+
+    #[test]
+    fn a_request_the_draft_of_chat_names_is_held_and_refuses_save_send_and_discard() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal(&f, "draft", true, &id);
+        let store = RequestStore::new(f.project.path());
+
+        let view = f.service.view(P, f.project.path(), &id).unwrap();
+        assert_eq!(
+            (view.status, view.returned, view.text.as_str()),
+            (RequestStatus::HeldByChat, false, "Add a cart")
+        );
+        let listed = f.service.list_locked(P, f.project.path(), false).unwrap();
+        assert_eq!(
+            listed.requests.iter().map(|r| r.status).collect::<Vec<_>>(),
+            [RequestStatus::HeldByChat]
+        );
+
+        let error = f.service.send_locked(P, f.project.path(), &id).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Refused);
+        assert!(f.jobs.started.lock().unwrap().is_empty());
+        assert!(matches!(
+            store.save(&id, "other"),
+            Err(RequestError::HeldByChat)
+        ));
+        assert!(matches!(store.discard(&id), Err(RequestError::HeldByChat)));
+        assert_eq!(store.read(&id).unwrap(), "Add a cart");
+        // Nothing was written about it: the record stays what it was.
+        assert!(!f.project.path().join(".weaver/requests/.state.json").exists());
+    }
+
+    #[test]
+    fn a_draft_of_a_job_does_not_hold_the_request() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal(&f, "draft", false, &id);
+        let view = f.service.view(P, f.project.path(), &id).unwrap();
+        assert_eq!(view.status, RequestStatus::Writing);
+    }
+
+    #[test]
+    fn discarding_the_draft_of_chat_makes_the_request_writable_again() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal(&f, "draft", true, &id);
+        assert_eq!(
+            f.service.view(P, f.project.path(), &id).unwrap().status,
+            RequestStatus::HeldByChat
+        );
+
+        proposal(&f, "discarded", true, &id);
+        let view = f.service.view(P, f.project.path(), &id).unwrap();
+        // The job did not end: there is no "job ended" banner.
+        assert_eq!((view.status, view.returned), (RequestStatus::Writing, false));
+        RequestStore::new(f.project.path())
+            .save(&id, "Add a cart and a wishlist")
+            .unwrap();
+        assert!(f
+            .service
+            .send_locked(P, f.project.path(), &id)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn handing_over_the_draft_of_chat_consumes_the_request_it_held() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal(&f, "draft", true, &id);
+        // The hand-over: the Proposal is Open and `chatWriting` is gone; the call reads
+        // `chatWriting` before it happens.
+        proposal(&f, "open", false, &id);
+        proposal_submitted(f.project.path(), &id, true);
+
+        let store = RequestStore::new(f.project.path());
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::Consumed);
+        assert!(!f
+            .project
+            .path()
+            .join(format!(".weaver/requests/{id}.md"))
+            .exists());
+        assert!(f
+            .service
+            .list_locked(P, f.project.path(), false)
+            .unwrap()
+            .requests
+            .is_empty());
+    }
+
+    #[test]
+    fn a_request_being_written_is_not_consumed_by_a_proposal_that_is_not_from_chat() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal_submitted(f.project.path(), &id, false);
+        assert_eq!(
+            RequestStore::new(f.project.path()).state_of(&id).unwrap(),
+            RequestState::Writing
+        );
+    }
+
+    #[test]
+    fn a_held_request_deleted_from_outside_is_discarded() {
+        let f = fixture(true);
+        let id = written(&f, "Add a cart");
+        proposal(&f, "draft", true, &id);
+        fs::remove_file(f.project.path().join(format!(".weaver/requests/{id}.md"))).unwrap();
+        assert_eq!(
+            RequestStore::new(f.project.path()).state_of(&id).unwrap(),
+            RequestState::Discarded
+        );
+        assert!(f
+            .service
+            .list_locked(P, f.project.path(), false)
+            .unwrap()
+            .requests
+            .is_empty());
+        assert!(f.service.view(P, f.project.path(), &id).is_err());
+    }
+
     #[test]
     fn a_refused_job_leaves_the_request_being_written() {
         let f = fixture(true);
@@ -1014,7 +1155,7 @@ mod tests {
             .send_locked(P, f.project.path(), &id)
             .unwrap()
             .unwrap();
-        proposal_submitted(f.project.path(), &id);
+        proposal_submitted(f.project.path(), &id, false);
         let store = RequestStore::new(f.project.path());
         assert_eq!(store.state().unwrap().consumed, std::slice::from_ref(&id));
         assert!(!f
@@ -1037,7 +1178,7 @@ mod tests {
             .is_empty());
         assert!(f.service.view(P, f.project.path(), &id).is_err());
         // A second Proposal changes nothing.
-        proposal_submitted(f.project.path(), &id);
+        proposal_submitted(f.project.path(), &id, false);
         assert_eq!(store.state().unwrap().consumed, [id]);
     }
 
@@ -1117,6 +1258,29 @@ mod tests {
             root,
             &Rebuild::Paths(vec!["/p/.weaver/requests-old/a.md".into()])
         ));
+        // A Draft of Chat that names a request holds it: its `proposal.md` (and its folder) count,
+        // what else a Proposal holds does not.
+        for named in [
+            "/p/.weaver/proposals/pppppppp-cart/proposal.md",
+            "/p/.weaver/proposals/pppppppp-cart",
+            "/p/.weaver/proposals",
+        ] {
+            assert!(
+                touches_requests(root, &Rebuild::Paths(vec![named.into()])),
+                "{named}"
+            );
+        }
+        for other in [
+            "/p/.weaver/proposals/pppppppp-cart/tasks/a.md",
+            "/p/.weaver/proposals/pppppppp-cart/model/shop/feature.md",
+            "/p/.weaver/proposals/pppppppp-cart/notes.md",
+            "/p/.weaver/proposals-old/pppppppp-cart/proposal.md",
+        ] {
+            assert!(
+                !touches_requests(root, &Rebuild::Paths(vec![other.into()])),
+                "{other}"
+            );
+        }
     }
 
     #[tokio::test]

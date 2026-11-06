@@ -25,12 +25,14 @@ Everything Weaver keeps lives in files: the project's Model, Requirements, Specs
   notes/                       local only: the developer's notes, notes.md and its images (see `notes-view`)
   solo/solo.json               local only: Solo mode of this working copy (see `solo-mode`)
   merge/merge.json             local only: the merge in progress (see `solo-merge`)
+  timings/jobs.jsonl           local only: the measures of ended jobs (see `job`)
+  commits/commits.json         local only: Atomic commits of this working copy (see `atomic-commits`)
 ```
 
 - `model/`, `requirements/`, `specs.yaml`, `proposals/`, `tasks/`, `drifts/`, `history/` and `assets/` are versioned with the project. Decided Proposals and Drifts are never deleted.
 - `assets/` is created only when the first asset is copied in, never at initialisation, and gets no `.gitignore`. Weaver never reads its files as Model, Requirement, Specs or card files, never puts them in the project picture, and never writes in it except through the Assets view.
 - `notes/` is created only when the sheet or an image is first written, never at initialisation. Like `assets/`, its files are never Model, Requirement, Specs or card files nor part of the project picture, and only the Notes view writes in it.
-- Local-only folders (`requests/`, `short-numbers/`, `task-images/`, `notes/`, `solo/`, `merge/`) each hold their own `.gitignore` containing `*`, written when the folder is created and written again whenever it is missing. Nothing else in `.weaver/` is ignored.
+- Local-only folders (`requests/`, `short-numbers/`, `task-images/`, `notes/`, `solo/`, `merge/`, `timings/`, `commits/`) each hold their own `.gitignore` containing `*`, written when the folder is created and written again whenever it is missing. Nothing else in `.weaver/` is ignored.
 - The Model, Requirements and Specs formats are exactly those of the `FORMAT.md` reference installed with the `weaver-design` skill. The core's parser and that file are tested together: every example in it parses, and every rule it states is enforced by `model check` or the hand-over.
 - Files and folders whose name starts with `.` are never read as Model, Requirement, Specs or card files.
 - A `.trama` folder, the project folder of earlier versions of Weaver, is never read, written, moved or deleted: without `.weaver/` the folder is not a project, and with both the project is `.weaver/`.
@@ -46,22 +48,38 @@ Everything Weaver keeps lives in files: the project's Model, Requirements, Specs
 
 - Files are UTF-8 without BOM, written with LF line endings and a final newline. On read, a BOM is dropped and CRLF becomes LF before parsing, hashing or comparing, in one shared read function.
 - Timestamps are UTC ISO 8601 with milliseconds (`2026-11-02T07:07:19.522Z`), taken from the clock at the moment of the event. An epoch or other placeholder value is never written.
-- Front matter is YAML between two `---` lines, keys in the order listed in this fragment; absent optional keys are not written. Unknown keys are ignored and kept when the file is rewritten.
+- Front matter is YAML between two `---` lines, keys in the order listed in this Area; absent optional keys are not written. Unknown keys are ignored and kept when the file is rewritten.
 - Every write is atomic: a temporary file `.<name>.<random>.tmp` in the same folder, flushed to disk, then renamed over the target. On Windows a rename failing with a sharing or access-denied error is retried every 50 ms for at most 1 s, then fails.
 - A file that cannot be read or parsed is reported as a diagnostic with its path and reason (in the project window and in the output of the CLI command that met it). It is never dropped silently, never rewritten automatically, and the other files still load.
 
+## Card files
+
+Use when reading or writing the files of Proposals, Tasks, Drifts, History entries and design requests: front matter keys and body sections.
+
+Sections: `proposal`, `task`, `drift`, `history-entry`, `design-request`
+
+File: `card-files.md`
+
 ## Project files
 
-Use when reading, writing or validating files under `.weaver/`: layout, card front matter, ids, encoding.
+Use when reading, writing or validating files under `.weaver/`: layout, local-only folders, ids, encoding and atomic writes.
 
-Sections: `General`, `proposal`, `task`, `drift`, `history-entry`, `design-request`
+Sections: `General`
 
 File: `project-files.md`
 
 ## Settings and local state
 
-Use when reading or writing Weaver's settings, recent projects, job registry, General sessions, the System Certificates bundle, the Solo mode state of a working copy or the merge in progress.
+Use when reading or writing Weaver's settings, recent projects, job registry, General sessions or the System Certificates bundle.
 
-Sections: `developer.CHANGE_SETTINGS`, `window`, `job`, `general-chat`, `system-certificates`, `solo-mode`, `solo-merge`
+Sections: `developer.CHANGE_SETTINGS`, `window`, `job`, `general-chat`, `system-certificates`
 
 File: `settings.md`
+
+## Working copy state
+
+Use when reading or writing the local state of a working copy kept under `.weaver/`: Solo mode, the merge in progress or Atomic commits.
+
+Sections: `solo-mode`, `solo-merge`, `atomic-commits`
+
+File: `working-copy.md`

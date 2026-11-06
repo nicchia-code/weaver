@@ -149,13 +149,10 @@ pub fn compose(job: &Job, settings: &Settings) -> Result<String, InstructionErro
         None => None,
     };
     let mut line = first_sentence(job, settings.max_agents)?;
-    line.push_str(&format!(
-        " Run at most {} sub-agents at once.",
-        settings.max_agents
-    ));
-    line.push_str(
-        " Pass each sub-agent what you have already read that concerns its part, as the \"Sub-agents context sharing\" section of your skill says.",
-    );
+    line.push(' ');
+    line.push_str(&max_agents_sentence(settings.max_agents));
+    line.push(' ');
+    line.push_str(CONTEXT_SHARING_SENTENCE);
     line.push_str(
         " Ask the developer only with `weaver question new`, as the skill says, never with your own question tool; run it with no time limit and wait until it ends.",
     );
@@ -167,6 +164,16 @@ pub fn compose(job: &Job, settings: &Settings) -> Result<String, InstructionErro
     debug_assert!(!line.contains(['\n', '\r']));
     Ok(line)
 }
+
+/// `Run at most <N> sub-agents at once.`: the sentence of every instruction that has a sub-agent
+/// limit, the one of a job and the one of Chat.
+pub fn max_agents_sentence(max_agents: u32) -> String {
+    format!("Run at most {max_agents} sub-agents at once.")
+}
+
+/// The sentence that tells the agent to pass to a sub-agent what it already read, shared by the
+/// instruction of a job and the one of Chat.
+pub const CONTEXT_SHARING_SENTENCE: &str = "Pass each sub-agent what you have already read that concerns its part, as the \"Sub-agents context sharing\" section of your skill says.";
 
 fn identity(field: &'static str, value: &str) -> Result<(), InstructionError> {
     if ids::is_identity(value) && !ids::looks_like_short_number(value) {

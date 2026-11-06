@@ -32,6 +32,11 @@
 //!   ([`transitions::Submitted::WaitsForRun`]): the app hands it over again when the Run ends;
 //! * a setup or import job records whether the Model had no Feature and no Actor when it
 //!   reached Running, and says so in [`transitions::SubmitContext::job_found_empty_model`].
+//! * the agent of Chat writes only changes and resolutions, on the developer's order: its Proposals
+//!   carry `chat: true`, and `chatWriting: true` from `proposal new` or `proposal edit` until the
+//!   hand-over ([`create::Writer`]); a turn of Chat keeps the agent finishing for them
+//!   ([`crate::project::board::AgentFacts::is_finishing`]); the Clear of Chat discards the Drafts
+//!   it created ([`transitions::clear_chat_drafts`]).
 
 pub mod analysis;
 pub mod create;

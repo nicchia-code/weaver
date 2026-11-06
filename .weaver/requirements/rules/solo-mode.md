@@ -1,7 +1,7 @@
 ---
-description: Use when implementing Solo mode's block in git's local exclusions, its modes and paths, the list of Weaver's files git still tracks, or the git steps of Merge.
+description: Use when implementing Solo mode's block in git's local exclusions, its modes and paths, the list of Weaver's files git still tracks, the git steps of Merge, or the commits of Atomic commits.
 ---
-# Solo mode
+# Solo mode and Atomic commits
 
 ## solo-mode
 
@@ -57,3 +57,24 @@ description: Use when implementing Solo mode's block in git's local exclusions, 
 - **Merged files:** `git diff --name-only -z --no-renames --relative <start> <merge commit>`, run in the project root, so paths are relative to it with `/`, sorted by path.
 - **Scan after a merge:** a job of kind `scan`, named `Scan`, started in the same step that deletes `merge.json`, with the merged files in its registry record (`requirements/data#job`). It resets the count of Tasks done since the last scan like every scan job (`requirements/ui#work`).
 - **Other git calls** have the 10 s limit and the runner of `requirements/tech#solo-mode`.
+
+## atomic-commits
+
+- **Turning on** is refused, nothing written, with the Solo mode reasons of `requirements/rules#solo-mode` (**Not available**), checked with `git rev-parse --show-prefix` in the project root. Turning off needs no git.
+- **Paths,** checked only while Atomic commits is on, before anything is written, each listed as `files[<i>]: <path> <problem>`:
+  - absolute, empty, or leaving the project root once `.` and `..` are resolved: `is outside the project`;
+  - matched by git's ignore rules and not tracked (`git check-ignore -z --stdin`, without `--no-index`): `is ignored by git`;
+  - missing from the working tree and not tracked (`git ls-files -z --cached -- <paths>`): `does not exist and git does not track it`. A missing tracked file is valid: its removal is committed.
+  - With Solo mode on, a path that a line of this working copy's Solo mode block matches is left out of the commit without a problem.
+- **Order:** the entry is written and the recorded Tasks' files removed as without Atomic commits; then, after the project lock is released, the commit runs in a queue of the working copy, one commit at a time, before the command answers.
+- **No commit,** checked in this order; the first that holds is the `reason`:
+  1. `checksFailed` is `true`: `the checks of the Run failed`;
+  2. a reason of **Not available** of `requirements/rules#solo-mode`;
+  3. Weaver's merge is in progress, or git is in the middle of an operation as in **Availability** of `requirements/rules#solo-merge`: `a merge, a rebase or a cherry-pick is in progress`;
+  4. HEAD is detached: `HEAD is detached`.
+- **Staging:** `git add -A -- <paths>` for the valid named paths, so that removed files are staged as removals. Outside Solo mode, also the entry's file in `.weaver/history/` and, as removals, the removed files of the recorded Tasks that git tracks (`git rm -q --cached --ignore-unmatch -- <paths>`); never another file of Weaver. What the developer already staged stays staged and goes into the commit.
+- **Nothing to commit:** when `git diff --cached --quiet` exits 0 after staging, no commit is made, `status` is `none` and there is no notice.
+- **Commit:** `git commit --cleanup=strip -F -`, the message on standard input. Outside Solo mode the message is the agent's message, a blank line and the trailer `Co-authored-by: Weaver <weaver@users.noreply.github.com>`; with Solo mode on, the agent's message alone. Author and committer come from git's configuration. Never `--no-verify`, `--amend`, `-a`, `--allow-empty`, a push or a fetch: hooks and signing run as configured.
+- **Limit:** 2 minutes for the commit, because of hooks; when reached git is killed and the reason is `git did not finish the commit within 2 minutes`. Other calls have the 10 s limit of `requirements/tech#solo-mode`.
+- **Failure:** a non-zero exit of `git add`, `git rm` or `git commit` gives `git failed: <first line of its error output>`; what Weaver staged stays staged.
+- **Hash:** after a commit, `git rev-parse HEAD`, printed in full in `commit.hash`.

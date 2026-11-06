@@ -200,6 +200,8 @@ mod tests {
             pid_started: None,
             empty_model_at_start: false,
             overlay: String::new(),
+            running: None,
+            running_incomplete: false,
         }
     }
 

@@ -14,6 +14,8 @@ pub enum OriginView {
         #[serde(rename = "jobName")]
         job_name: String,
     },
+    /// The agent of the project's Chat: the header says `Questions from the agent · Chat`.
+    Chat,
     /// Weaver itself, for the prepared question of a Drift: `Question about <Drift id> · <title>`.
     Drift { drift: String, title: String },
 }
@@ -194,6 +196,7 @@ pub fn view_of(
         Origin::Agent { job } => OriginView::Agent {
             job_name: job_name.unwrap_or_else(|| job.clone()),
         },
+        Origin::Chat { .. } => OriginView::Chat,
         Origin::Drift { drift, title, .. } => OriginView::Drift {
             drift: drift.clone(),
             title: title.clone(),

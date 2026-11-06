@@ -44,6 +44,10 @@ pub const GIT_LIMIT: Duration = Duration::from_secs(10);
 /// How long `git merge` may take before it is killed (`requirements/rules#solo-merge`).
 pub const MERGE_LIMIT: Duration = Duration::from_secs(120);
 
+/// How long `git commit` may take before it is killed, because of the hooks
+/// (`requirements/rules#atomic-commits`).
+pub const COMMIT_LIMIT: Duration = Duration::from_secs(120);
+
 /// The modes: the same three values in the app, the command line and `solo.json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
@@ -200,23 +204,31 @@ pub(crate) enum Call {
     Write,
     /// `git merge`: no editor may open, and the longer limit.
     Merge,
+    /// `git add` and `git rm` of Atomic commits: no editor, no prompt for a password, the limit of
+    /// every call.
+    Stage,
+    /// `git commit` of Atomic commits: no editor, no prompt, and the longer limit of its hooks.
+    Commit,
 }
 
-/// How git is started: the time limit of each call, the one of `git merge`, and optionally the
-/// `PATH` it is looked up in (the system's, unless given).
+/// How git is started: the time limit of each call, the one of `git merge` and the one of
+/// `git commit`, and optionally the `PATH` it is looked up in (the system's, unless given).
 #[derive(Debug, Clone)]
 pub struct Git {
     limit: Duration,
     merge_limit: Duration,
+    commit_limit: Duration,
     search_path: Option<OsString>,
 }
 
 impl Git {
-    /// Git on the `PATH`, with the limit of 10 s per call and 2 minutes for `git merge`.
+    /// Git on the `PATH`, with the limit of 10 s per call, 2 minutes for `git merge` and 2 minutes
+    /// for `git commit`.
     pub fn system() -> Self {
         Self {
             limit: GIT_LIMIT,
             merge_limit: MERGE_LIMIT,
+            commit_limit: COMMIT_LIMIT,
             search_path: None,
         }
     }
@@ -230,6 +242,12 @@ impl Git {
     /// The same with another limit for `git merge` (tests).
     pub fn with_merge_limit(mut self, limit: Duration) -> Self {
         self.merge_limit = limit;
+        self
+    }
+
+    /// The same with another limit for `git commit` (tests).
+    pub fn with_commit_limit(mut self, limit: Duration) -> Self {
+        self.commit_limit = limit;
         self
     }
 
@@ -252,6 +270,17 @@ impl Git {
         args: &[&str],
         call: Call,
     ) -> Result<timed::Output, Failure> {
+        self.exec_with_input(folder, args, call, None)
+    }
+
+    /// [`Git::exec`] with `input` on the standard input of git, when given.
+    pub(crate) fn exec_with_input(
+        &self,
+        folder: &Path,
+        args: &[&str],
+        call: Call,
+        input: Option<&[u8]>,
+    ) -> Result<timed::Output, Failure> {
         let program = match &self.search_path {
             Some(path) => find_program("git", path).ok_or(Failure::NotStarted)?,
             None => PathBuf::from("git"),
@@ -267,15 +296,24 @@ impl Git {
                     .env("GIT_EDITOR", "true")
                     .env("GIT_MERGE_AUTOEDIT", "no");
             }
+            Call::Stage | Call::Commit => {
+                command
+                    .env("GIT_EDITOR", "true")
+                    .env("GIT_TERMINAL_PROMPT", "0");
+            }
         }
         if let Some(path) = &self.search_path {
             command.env("PATH", path);
         }
         let limit = match call {
             Call::Merge => self.merge_limit,
-            Call::Read | Call::Write => self.limit,
+            Call::Commit => self.commit_limit,
+            Call::Read | Call::Write | Call::Stage => self.limit,
         };
-        timed::run_command(command, limit)
+        match input {
+            Some(input) => timed::run_command_with_input(command, limit, input),
+            None => timed::run_command(command, limit),
+        }
     }
 }
 

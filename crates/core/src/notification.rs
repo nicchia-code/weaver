@@ -3,7 +3,8 @@
 //! A notification tells the developer that it is their turn: a job finished, stopped abnormally,
 //! or waits for their answers or their permission. It is shown at once, and only when the window
 //! of that project is not in the foreground. It names the project, the job and what happened,
-//! never what the agent wrote, asked or did. Jobs the developer stopped, and General, never notify.
+//! never what the agent wrote, asked or did. Jobs the developer stopped never notify, and the Chat
+//! of a project (General) notifies only that it waits for the answers to its round.
 //!
 //! This module decides *whether* to notify ([`in_foreground`], [`decide_end`], [`Focus`]), *what*
 //! to say ([`Book`] builds the [`Notice`] with the exact texts of `requirements/ui#notification`),
@@ -14,6 +15,9 @@
 use std::collections::HashMap;
 
 use crate::jobs::JobState;
+
+/// What a notification of the Chat of a project calls it in place of a job's name.
+const CHAT: &str = "Chat";
 
 /// The message of a notification that says a job finished.
 pub const MESSAGE_FINISHED: &str = "Weaver is waiting for you.";
@@ -132,6 +136,9 @@ pub enum Destination {
     /// The Jobs view, in the conversation of `job_id` (none for several jobs: the view itself; a round
     /// of questions is the overlay on top of it; a permission is the card the conversation ends with).
     Jobs { job_id: Option<String> },
+    /// The round of questions of the Chat: it is the overlay of the window, which comes forward
+    /// showing it (a Chat round belongs to no job, so there is no conversation to open).
+    Round,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +156,9 @@ enum Target {
         job: String,
         name: String,
     },
+    /// A round of questions of the Chat of the project (General): it belongs to no job, so it has
+    /// its own key of project + Chat + kind, which no job's notification shares.
+    ChatQuestion,
     Permission {
         job: String,
         name: String,
@@ -163,7 +173,7 @@ impl Target {
         match self {
             Target::Finished { .. } => Kind::Finished,
             Target::Failed { .. } => Kind::Failed,
-            Target::Question { .. } => Kind::Question,
+            Target::Question { .. } | Target::ChatQuestion => Kind::Question,
             Target::Permission { .. } => Kind::Permission,
             Target::SystemCertificates => Kind::SystemCertificates,
         }
@@ -176,7 +186,7 @@ impl Target {
             Target::Failed { job, .. }
             | Target::Question { job, .. }
             | Target::Permission { job, .. } => Some(job),
-            Target::SystemCertificates => None,
+            Target::SystemCertificates | Target::ChatQuestion => None,
         }
     }
 
@@ -193,6 +203,10 @@ impl Target {
             Target::Failed { name, .. } => (format!("{project} – {name} stopped"), MESSAGE_FAILED),
             Target::Question { name, .. } => (
                 format!("{project} – {name} asks a question"),
+                MESSAGE_QUESTION,
+            ),
+            Target::ChatQuestion => (
+                format!("{project} – {CHAT} asks a question"),
                 MESSAGE_QUESTION,
             ),
             Target::Permission { name, .. } => (
@@ -213,6 +227,7 @@ impl Target {
             (Target::Finished { .. }, Target::Finished { .. }) => true,
             (Target::Failed { job: a, .. }, Target::Failed { job: b, .. }) => a == b,
             (Target::Question { job: a, .. }, Target::Question { job: b, .. }) => a == b,
+            (Target::ChatQuestion, Target::ChatQuestion) => true,
             (
                 Target::Permission {
                     job: a, request: x, ..
@@ -372,6 +387,12 @@ impl Book {
         )
     }
 
+    /// `general-chat.WAITING`: the Chat of the project waits for the answers to its round. One per
+    /// project, under a key (project + Chat + kind) that no job's notification shares.
+    pub fn chat_question(&mut self, project_id: &str, project: &str) -> Notice {
+        self.post(project_id, project, Target::ChatQuestion)
+    }
+
     /// A permission asked by a job waits.
     pub fn permission(
         &mut self,
@@ -419,6 +440,13 @@ impl Book {
         })
     }
 
+    /// `question-round.CLOSED` of a round of the Chat: the round the notification announced closed.
+    pub fn chat_round_closed(&mut self, project_id: &str) -> Vec<i32> {
+        self.withdraw(|shown| {
+            shown.of_project(project_id) && matches!(&shown.target, Target::ChatQuestion)
+        })
+    }
+
     /// `developer.ANSWER_PERMISSION`: the permission the notification announced was answered.
     pub fn permission_answered(&mut self, project_id: &str, job: &str, request: u64) -> Vec<i32> {
         self.withdraw(|shown| {
@@ -460,6 +488,8 @@ impl Book {
         };
         let destination = if shown.withdrawn {
             Destination::WindowOnly
+        } else if shown.target == Target::ChatQuestion {
+            Destination::Round
         } else {
             Destination::Jobs {
                 job_id: shown.target.job().map(str::to_owned),
@@ -818,6 +848,74 @@ mod tests {
             None,
             "a clicked notification is final"
         );
+    }
+
+    #[test]
+    fn the_chat_round_has_its_exact_text_and_a_key_no_job_shares() {
+        let mut book = Book::new(true);
+        let job = book.question(ACME, "Acme", "job1", "Import");
+        let chat = book.chat_question(ACME, "Acme");
+        assert_eq!(
+            (chat.title.as_str(), chat.message),
+            (
+                "Acme – Chat asks a question",
+                "The agent is waiting for your answers."
+            )
+        );
+        assert_ne!(chat.id, job.id, "a job and the Chat never share a notification");
+        assert_eq!(book.kind_of(chat.id), Some(Kind::Question));
+        assert_eq!(book.len(), 2);
+
+        let again = book.chat_question(ACME, "Acme");
+        assert_eq!(again.id, chat.id, "project + Chat + kind replace one another");
+        let elsewhere = book.chat_question(OTHER, "Other");
+        assert_ne!(elsewhere.id, chat.id, "the Chat of another project is another key");
+        assert_eq!(book.len(), 3);
+    }
+
+    #[test]
+    fn the_close_of_a_job_round_leaves_the_chat_notification_and_the_other_way_round() {
+        let mut book = Book::new(true);
+        let job = book.question(ACME, "Acme", "job1", "Import").id;
+        let chat = book.chat_question(ACME, "Acme").id;
+        assert_eq!(book.round_closed(ACME, "job1"), vec![job]);
+        assert_eq!(book.kind_of(chat), Some(Kind::Question));
+        let job = book.question(ACME, "Acme", "job1", "Import").id;
+        assert_eq!(book.chat_round_closed(OTHER), Vec::<i32>::new());
+        assert_eq!(book.chat_round_closed(ACME), vec![chat]);
+        assert_eq!(book.chat_round_closed(ACME), Vec::<i32>::new());
+        assert_eq!(book.kind_of(job), Some(Kind::Question));
+        assert_eq!(book.job_ended(ACME, "job1"), vec![job]);
+    }
+
+    #[test]
+    fn a_click_on_the_chat_notification_leads_to_the_round_and_a_withdrawn_one_only_to_the_window() {
+        let mut book = Book::new(true);
+        let chat = book.chat_question(ACME, "Acme").id;
+        assert_eq!(
+            project_click(book.clicked(chat)),
+            Some((ACME.into(), Destination::Round))
+        );
+        assert_eq!(book.clicked(chat), None);
+
+        let mut bare = Book::new(false);
+        let chat = bare.chat_question(ACME, "Acme").id;
+        assert_eq!(bare.chat_round_closed(ACME), vec![chat]);
+        assert_eq!(
+            project_click(bare.clicked(chat)),
+            Some((ACME.into(), Destination::WindowOnly)),
+            "withdrawn where the system cannot remove it: the window only comes forward"
+        );
+        let later = bare.chat_question(ACME, "Acme");
+        assert_ne!(later.id, chat, "a withdrawn notification is not replaced");
+    }
+
+    #[test]
+    fn closing_the_window_drops_the_chat_notification_with_the_rest() {
+        let mut book = Book::new(false);
+        let chat = book.chat_question(ACME, "Acme").id;
+        assert_eq!(book.project_closed(ACME), vec![chat]);
+        assert!(book.is_empty());
     }
 
     fn project_click(click: Option<Click>) -> Option<(String, Destination)> {

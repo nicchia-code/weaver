@@ -308,6 +308,7 @@ fn question(sources: &Sources, round: u64, index: usize) -> Option<Built> {
                 id: job.clone(),
             }
         }
+        Origin::Chat { .. } => QuestionOrigin::Chat,
         Origin::Drift { id, .. } => QuestionOrigin::Drift { id: id.clone() },
     };
     let chosen = Chosen::Question(QuestionPart {

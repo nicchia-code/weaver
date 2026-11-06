@@ -50,6 +50,14 @@ Others change the code without updating the Model, so Solo mode also offers `Mer
 * **What Weaver does with git.** It runs `git merge` itself, with git's own message when there is no conflict, and never runs `git fetch`. It never commits a merge that has conflicts and never stages a file: you resolve them by hand or with `Resolve with the agent` in the banner of the merge in progress, then commit the merge in git. `Abort merge` runs `git merge --abort` after a confirmation. The merge in progress is remembered only in `.weaver/merge/merge.json`, which is never versioned.
 * **The scan after the merge.** When the merge is concluded, by git at once or by your commit, Weaver starts by itself a scan of the whole System, telling the agent which files the merge brought. Its Drifts that come from the merge recommend adapting the Model. While a merge is in progress Runs, Run all, resolves, scans and imports are refused, and Solo mode cannot be changed.
 
+## Atomic commits
+
+Atomic commits makes Weaver commit the code of every History entry the agent writes, so that the repository's history follows your work feature by feature. After each History entry the agent writes, or each update that adds Tasks to an entry, Weaver commits the code of that entry: one commit per entry, with an English message written by the agent. An update that adds no Task makes no commit, and a commit already made is never changed.
+
+* **Off by default, and it belongs to the working copy.** It is not yours: another clone of the same repository starts with it off. Turn it on only in Settings → Project, with the `Atomic commits` switch; there is no command and no command-line field that changes it. It needs git (found on the `PATH`) and a repository around the project folder, and Weaver never pushes or fetches.
+* **What goes into a commit.** The files the agent names for the entry and whatever you already staged. Outside Solo mode the commit also holds the History entry's file and the removal of the files of the Tasks it records, and its message ends with `Co-authored-by: Weaver <weaver@users.noreply.github.com>`. With Solo mode on no file of Weaver goes into the commit, and there is no `Co-authored-by` line. The author is always you, as git is configured.
+* **Git runs as you configured it.** Hooks and signing run as the repository sets them, and Weaver never amends a commit. A commit is skipped, with a notice on the Board, when the final checks of the Run failed or when git cannot commit: outside a repository, git missing, a merge, rebase or cherry-pick in progress, a detached HEAD, or a hook or signature that refuses. The History entry stays written all the same.
+
 ## Branches
 
 * `dev`: where the work lands.
@@ -151,6 +159,8 @@ The File view keeps nothing on disk and writes nothing outside the files you cha
 `.weaver/assets/` holds the files you keep for the agent (images, documents, examples), flat and versioned by git like the Model; it is made when the first asset is copied in, never at initialisation. The Assets view lists them as icons, copies in the files you drag onto it (the originals stay where they are), renames them, sends them to the system's trash and drags them out to other apps as copies; it reads only their names and sizes, and the File view shows the folder read-only like the rest of `.weaver/`.
 
 `.weaver/notes/` holds `notes.md`, the project's one Markdown sheet, and the images pasted or dropped into it. The folder is local only, with a `.gitignore` of `*`, so another clone starts without notes; it is made when the first note or image is written, never at initialisation, and only the Notes view writes in it. Git ignores its files, so the File view shows the folder empty. The project's watcher gives what happens there to the Notes view alone, as `notes-changed` 150 ms after the last event (a write of Weaver's own sheet excluded): it never reaches the project's picture or `project-changed`. The agent never receives the notes.
+
+`.weaver/commits/` holds `commits.json`, the state of Atomic commits of this working copy. Like the other local-only folders it has a `.gitignore` of `*`, so another clone starts with Atomic commits off; it is made when Atomic commits is turned on, and turning it off deletes the whole folder.
 
 ## Releases and updates
 

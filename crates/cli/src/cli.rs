@@ -338,7 +338,8 @@ fn run_locked(
     };
     let hash = paths::project_hash_of_canonical(Path::new(&request.root));
     match lock::with_project_lock(dirs, &hash, || exec::execute(request, caller, &NoJobs)) {
-        Ok(result) => result,
+        // The lock is released: a commit that follows a History entry is made now.
+        Ok(result) => result.map(|reply| exec::settle(Path::new(&request.root), reply)),
         Err(LockError::Busy) => Err(Failure::new(
             code::PROJECT_BUSY,
             "the project is busy: another Weaver or weaver command holds it",
@@ -488,8 +489,12 @@ fn dispatch(
     dirs: Option<&AppDirs>,
     interrupts: &dyn Interrupts,
 ) -> Result<CommandReply, Failure> {
-    let needs_job =
-        matches!(command.access, Access::Job | Access::JobOrUnavailable) && env.job.is_none();
+    let needs_job = match command.access {
+        Access::Job => env.job.is_none(),
+        // The agent of a job, or of the Chat: the app decides which of them it accepts.
+        Access::JobOrUnavailable => env.job.is_none() && env.general.is_none(),
+        Access::Anyone | Access::General => false,
+    };
     let needs_general =
         command.access == Access::General && env.general.is_none() && env.ask.is_none();
     if needs_job || needs_general {

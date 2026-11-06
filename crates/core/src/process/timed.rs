@@ -1,5 +1,6 @@
-//! The time-limited runner of a child process, shared by omp (`omp::run`) and Solo mode
-//! (`solo_mode`): the command runs with stdin closed and stdout and stderr captured, and the
+//! The time-limited runner of a child process, shared by omp (`omp::run`), Solo mode
+//! (`solo_mode`) and Atomic commits (`history_commit`): the command runs with stdin closed (unless
+//! input is given through `run_command_with_input`) and stdout and stderr captured, and the
 //! process is killed when its limit passes.
 
 use std::io::Read;
@@ -35,12 +36,40 @@ pub enum Failure {
 }
 
 /// Runs an already built command (stdin closed, stdout and stderr captured) for at most `limit`.
-pub fn run_command(mut command: std::process::Command, limit: Duration) -> Result<Output, Failure> {
+pub fn run_command(command: std::process::Command, limit: Duration) -> Result<Output, Failure> {
+    run(command, limit, None)
+}
+
+/// Like [`run_command`], with `input` written to the process's standard input and then closed.
+pub fn run_command_with_input(
+    command: std::process::Command,
+    limit: Duration,
+    input: &[u8],
+) -> Result<Output, Failure> {
+    run(command, limit, Some(input.to_vec()))
+}
+
+fn run(
+    mut command: std::process::Command,
+    limit: Duration,
+    input: Option<Vec<u8>>,
+) -> Result<Output, Failure> {
     command
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|_| Failure::NotStarted)?;
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        // Written on its own thread: a long input must not block while the output is unread, and
+        // a process that ends early only closes the pipe.
+        std::thread::spawn(move || {
+            let _ = std::io::Write::write_all(&mut stdin, &input);
+        });
+    }
     let stdout = child.stdout.take().map(|pipe| drain(pipe, MAX_STDOUT));
     let stderr = child.stderr.take().map(|pipe| drain(pipe, MAX_STDERR));
 

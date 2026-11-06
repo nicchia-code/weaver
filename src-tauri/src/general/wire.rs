@@ -12,7 +12,7 @@ use crate::jobs::conversation::{Changed, Entry};
 pub struct GeneralState {
     /// The project hash.
     pub project_id: String,
-    /// A turn is in progress (the Machine is in Working): `Stop` shows.
+    /// A turn is in progress (the Machine is in Working or Waiting for answers): `Stop` shows.
     pub working: bool,
     /// omp is starting or reloading its session (or is waited for): the message that waits says
     /// `Starting omp…`.
@@ -24,6 +24,9 @@ pub struct GeneralState {
     /// A kept session has not come back yet, so `Clear` stays usable although the conversation
     /// shows nothing yet.
     pub kept: bool,
+    /// The Chat waits for the answers of its round (the Machine is in Waiting for answers): the
+    /// sidebar's Chat entry shows `1`, and a message sent meanwhile shows `Queued`.
+    pub waiting: bool,
 }
 
 /// The conversation as it is now, with the count of change batches it holds.
@@ -31,6 +34,9 @@ pub struct GeneralState {
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSnapshot {
     pub state: GeneralState,
+    /// The Draft Proposals the agent of Chat created that `Clear` discards (`chat: true`, not
+    /// refined): the Clear dialog says how many.
+    pub chat_drafts: u32,
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,

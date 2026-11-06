@@ -26,7 +26,7 @@ vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: { state: "missing",
 
 const ORDER = ["Board", "Chat", "Jobs", "Files", "Assets", "Notes", "Requirements", "Specs", "History", "Settings"];
 
-function renderSidebar(counts: ShellCounts = { backlog: 0, jobsWaiting: 0 }, selected: ViewId = "board") {
+function renderSidebar(counts: ShellCounts = { backlog: 0, jobsWaiting: 0, chatWaiting: false }, selected: ViewId = "board") {
   return render(
     <TooltipProvider>
       <Sidebar selected={selected} onSelect={() => {}} counts={counts} />
@@ -65,7 +65,7 @@ describe("sidebar", () => {
     const onSelect = vi.fn();
     render(
       <TooltipProvider>
-        <Sidebar selected="settings" onSelect={onSelect} counts={{ backlog: 0, jobsWaiting: 0 }} actions={[{ id: "usage", label: "Usage", icon: Gauge, onActivate }]} />
+        <Sidebar selected="settings" onSelect={onSelect} counts={{ backlog: 0, jobsWaiting: 0, chatWaiting: false }} actions={[{ id: "usage", label: "Usage", icon: Gauge, onActivate }]} />
       </TooltipProvider>,
     );
     const bottom = within(navigation()).getAllByRole("list")[1] as HTMLElement;
@@ -90,7 +90,7 @@ describe("sidebar", () => {
   });
 
   it("is 208 px wide with the names, and marks the selected entry", () => {
-    renderSidebar({ backlog: 0, jobsWaiting: 0 }, "specs");
+    renderSidebar({ backlog: 0, jobsWaiting: 0, chatWaiting: false }, "specs");
     expect(navigation()).toHaveClass("w-[208px]");
     expect(navigation()).toHaveAttribute("data-compact", "false");
     expect(screen.getByRole("button", { name: "Specs" })).toHaveAttribute("aria-current", "page");
@@ -124,7 +124,7 @@ describe("sidebar", () => {
 
     rerender(
       <TooltipProvider>
-        <Sidebar selected="board" onSelect={() => {}} counts={{ backlog: 4, jobsWaiting: 2 }} />
+        <Sidebar selected="board" onSelect={() => {}} counts={{ backlog: 4, jobsWaiting: 2, chatWaiting: false }} />
       </TooltipProvider>,
     );
     const board = screen.getByRole("button", { name: /^Board/ });
@@ -137,6 +137,25 @@ describe("sidebar", () => {
     for (const other of ["Chat", "Requirements", "Specs", "History", "Settings"]) {
       expect(screen.getByRole("button", { name: other })).not.toHaveTextContent(/\d/);
     }
+  });
+
+  it("shows 1 in amber on Chat, with its tooltip, only while Chat waits for its answers, and Jobs never counts it", async () => {
+    const { rerender } = renderSidebar({ backlog: 0, jobsWaiting: 0, chatWaiting: false });
+    expect(screen.getByRole("button", { name: "Chat" })).not.toHaveTextContent(/\d/);
+
+    rerender(
+      <TooltipProvider>
+        <Sidebar selected="board" onSelect={() => {}} counts={{ backlog: 0, jobsWaiting: 0, chatWaiting: true }} />
+      </TooltipProvider>,
+    );
+    const chat = screen.getByRole("button", { name: /^Chat/ });
+    expect(chat).toHaveTextContent("1");
+    expect(chat).toHaveAccessibleName("Chat, 1 round waiting for your answers");
+    expect(within(chat).getByText("1")).toHaveClass("text-amber-600", "dark:text-amber-400", "ml-auto");
+    // The Jobs entry has no number: Chat is not one of its jobs.
+    expect(screen.getByRole("button", { name: "Jobs" })).not.toHaveTextContent(/\d/);
+    await userEvent.setup().hover(chat);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Chat is waiting for your answers");
   });
 });
 

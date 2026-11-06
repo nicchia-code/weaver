@@ -11,7 +11,14 @@ export function plural(count: number, one: string, many: string = `${one}s`): st
 
 /** The header of the overlay: who asks. */
 export function headerOf(origin: OriginView): string {
-  return origin.kind === "agent" ? `Questions from the agent · ${origin.jobName}` : `Question about ${origin.drift} · ${origin.title}`;
+  switch (origin.kind) {
+    case "agent":
+      return `Questions from the agent · ${origin.jobName}`;
+    case "chat":
+      return "Questions from the agent · Chat";
+    case "drift":
+      return `Question about ${origin.drift} · ${origin.title}`;
+  }
 }
 
 /** `Question 2 of 3`, or `Summary` once the developer reviews them. */

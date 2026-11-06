@@ -17,7 +17,7 @@ import { call } from "@/lib/backend";
 import { useFollowScroll } from "@/hooks/use-follow-scroll";
 import { useOmp } from "@/hooks/use-omp";
 
-const EMPTY = "Talk with omp in this project. Ask it to start a job of Weaver when you want one.";
+const EMPTY = "Think with omp about this project. Ask it to write a Proposal or start a job of Weaver when you want one.";
 const LOADING = "Loading conversation…";
 
 /** The index of the last message of the developer that omp has not received yet, or -1. */
@@ -33,7 +33,7 @@ function lastQueued(entries: readonly Entry[]): number {
 export function GeneralView() {
   const { projectId } = useProject();
   const { status } = useOmp();
-  const { state, entries, problem, send, stop, answer, clear } = useGeneral(projectId);
+  const { state, chatDrafts, entries, problem, send, stop, answer, clear, refreshDrafts } = useGeneral(projectId);
   const [text, setText] = useState("");
   const [confirming, setConfirming] = useState(false);
   const { scrollerRef, contentRef, scroller, following, follow, onScroll } = useFollowScroll(entries);
@@ -66,7 +66,15 @@ export function GeneralView() {
   };
 
   const clearButton = (
-    <GuardedButton variant="outline" size="sm" reasons={[empty && "The conversation is empty"]} onClick={() => setConfirming(true)}>
+    <GuardedButton
+      variant="outline"
+      size="sm"
+      reasons={[empty && "The conversation is empty"]}
+      onClick={() => {
+        refreshDrafts();
+        setConfirming(true);
+      }}
+    >
       <Eraser aria-hidden />
       Clear
     </GuardedButton>
@@ -169,9 +177,10 @@ export function GeneralView() {
         onOpenChange={setConfirming}
         title="Clear Chat?"
         description={
-          working
+          (working
             ? "The agent's turn stops, the conversation is deleted and a new one starts."
-            : "The conversation is deleted and a new one starts."
+            : "The conversation is deleted and a new one starts.") +
+          (chatDrafts > 0 ? ` Its ${chatDrafts} Draft ${chatDrafts === 1 ? "Proposal is" : "Proposals are"} discarded.` : "")
         }
         confirmLabel="Clear"
         destructive

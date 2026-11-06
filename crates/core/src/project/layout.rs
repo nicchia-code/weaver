@@ -16,6 +16,8 @@
 //!   notes/                       local only: the developer's notes, `notes.md` and its images
 //!   solo/solo.json               local only: Solo mode of this working copy
 //!   merge/merge.json             local only: the merge in progress (`crate::solo_merge`)
+//!   timings/jobs.jsonl           local only: the measures of ended jobs (`crate::jobs::measure`)
+//!   commits/commits.json         local only: Atomic commits of this working copy (`crate::atomic_commits`)
 //! ```
 //!
 //! Paths in this crate's project API are relative to `.weaver/` and use `/`, whatever the
@@ -74,17 +76,25 @@ pub const SOLO_DIR: &str = "solo";
 /// The merge in progress of Solo mode: `merge.json`, local only (`crate::solo_merge`).
 pub const MERGE_DIR: &str = "merge";
 
+/// The measures of ended jobs: `jobs.jsonl`, local only (`crate::jobs::measure`).
+pub const TIMINGS_DIR: &str = "timings";
+
+/// Atomic commits of this working copy: `commits.json`, local only (`crate::atomic_commits`).
+pub const COMMITS_DIR: &str = "commits";
+
 /// Local-only folders: each holds its own `.gitignore` containing `*`.
 pub const REQUESTS_DIR: &str = "requests";
 pub const SHORT_NUMBERS_DIR: &str = "short-numbers";
 pub const TASK_IMAGES_DIR: &str = "task-images";
-pub const LOCAL_ONLY_DIRS: [&str; 6] = [
+pub const LOCAL_ONLY_DIRS: [&str; 8] = [
     REQUESTS_DIR,
     SHORT_NUMBERS_DIR,
     TASK_IMAGES_DIR,
     NOTES_DIR,
     SOLO_DIR,
     MERGE_DIR,
+    TIMINGS_DIR,
+    COMMITS_DIR,
 ];
 
 /// The versioned entries of `.weaver/` that the project image reads.
@@ -509,6 +519,22 @@ mod tests {
     }
 
     #[test]
+    fn the_commits_folder_is_local_only_and_never_read_as_project_files() {
+        assert!(LOCAL_ONLY_DIRS.contains(&COMMITS_DIR));
+        assert!(!VERSIONED_ENTRIES.contains(&COMMITS_DIR));
+        assert_eq!(COMMITS_DIR, "commits");
+        assert_eq!(classify("commits/commits.json"), FileClass::Ignored);
+        let dir = tempfile::tempdir().unwrap();
+        let folder = ensure_local_folder(dir.path(), COMMITS_DIR).unwrap();
+        assert_eq!(folder, weaver_dir(dir.path()).join("commits"));
+        let ignore = folder.join(".gitignore");
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+        std::fs::remove_file(&ignore).unwrap();
+        ensure_local_folder(dir.path(), COMMITS_DIR).unwrap();
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+    }
+
+    #[test]
     fn the_notes_folder_and_its_gitignore_come_with_the_first_write_and_again_when_missing() {
         let dir = tempfile::tempdir().unwrap();
         // Nothing makes it before a write: not even the project's `.weaver/`.
@@ -521,6 +547,21 @@ mod tests {
 
         std::fs::remove_file(&ignore).unwrap();
         ensure_local_folder(dir.path(), NOTES_DIR).unwrap();
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+    }
+
+    #[test]
+    fn the_timings_folder_is_local_only_and_never_read_as_project_files() {
+        assert!(LOCAL_ONLY_DIRS.contains(&TIMINGS_DIR));
+        assert!(!VERSIONED_ENTRIES.contains(&TIMINGS_DIR));
+        assert_eq!(classify("timings/jobs.jsonl"), FileClass::Ignored);
+        let dir = tempfile::tempdir().unwrap();
+        let folder = ensure_local_folder(dir.path(), TIMINGS_DIR).unwrap();
+        assert_eq!(folder, weaver_dir(dir.path()).join("timings"));
+        let ignore = folder.join(".gitignore");
+        assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
+        std::fs::remove_file(&ignore).unwrap();
+        ensure_local_folder(dir.path(), TIMINGS_DIR).unwrap();
         assert_eq!(std::fs::read(&ignore).unwrap(), b"*\n");
     }
 }

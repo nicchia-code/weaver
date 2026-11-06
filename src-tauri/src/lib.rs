@@ -151,6 +151,8 @@ pub fn run() {
             project_setup::update_skills,
             project_setup::set_solo_mode,
             project_setup::solo_tracked_files,
+            project_setup::set_atomic_commits,
+            project_setup::check_atomic_commits,
             project_setup::merge::merge_refresh,
             project_setup::merge::merge_branches,
             project_setup::merge::merge_start,

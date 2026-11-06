@@ -1432,6 +1432,9 @@ async fn the_general_starts_a_job_with_the_developers_refusals() {
         fn accepts_ask(&self, _root: &std::path::Path, token: &str) -> bool {
             token == "ask-token"
         }
+        fn chat_working(&self, _project_id: &str) -> bool {
+            false
+        }
         fn job_requested(
             &self,
             _root: &std::path::Path,

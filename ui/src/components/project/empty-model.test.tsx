@@ -67,6 +67,7 @@ beforeEach(() => {
         files: [],
         folderHasFiles,
         solo: { mode: "off" },
+        atomicCommits: { enabled: false },
         check: { opening: 0, outcome: { kind: "none" } },
       });
     }

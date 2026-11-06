@@ -104,7 +104,7 @@ fn access_text(command: &Command) -> Option<&'static str> {
             "Only the agent of a job Weaver started can run it (Weaver sets `WEAVER_JOB` in the environment of that agent). Any other caller is refused with exit 1 and nothing is written.",
         ),
         Access::JobOrUnavailable => Some(
-            "Only the agent of a job Weaver started can use it (Weaver sets `WEAVER_JOB` in the environment of that agent). For any other caller the outcome is `unavailable`, with exit 0.",
+            "Only the agent of a job Weaver started or the agent of the project's Chat during a turn can use it (Weaver sets `WEAVER_JOB` or `WEAVER_GENERAL` in the environment of that agent). For any other caller the outcome is `unavailable`, with exit 0.",
         ),
         Access::General => Some(
             "Only the agent of the project's General or of an Ask more conversation that Weaver started can run it (Weaver sets `WEAVER_GENERAL` or `WEAVER_ASK` in the environment of that agent). Any other caller is refused with exit 1 and nothing is written.",

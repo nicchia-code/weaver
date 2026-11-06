@@ -12,7 +12,8 @@ pub fn commands() -> Vec<Command> {
         .notes(&[
             "Prints only JSON on standard output, always. The input is validated whole before Weaver is contacted; then the command waits with no time limit until a result exists: run it with no time limit and wait until it ends.",
             "Write every text so that it stands alone: the developer sees only the round, not the conversation. Texts are Markdown except labels. Use no first person and no \"Other\" option: a free answer is always offered.",
-            "Results: `{\"status\":\"answered\",\"answers\":{<id>:{\"status\":\"answered\",\"selected\":[...],\"text\":...}|{\"status\":\"skipped\"}}}` (exit 0); `{\"status\":\"unavailable\",\"reason\":...}` (exit 0) when the caller is not in a working Weaver job or no Weaver answers before the round is submitted: stop and tell the developer; `{\"error\":{\"code\":\"invalid-input\"|\"interrupted\"|\"cancelled\",\"message\":...}}`, exit 2 for `invalid-input` and 1 for the others.",
+            "In Chat, use it only when the developer asked to be asked with a round; otherwise ask in your replies.",
+            "Results: `{\"status\":\"answered\",\"answers\":{<id>:{\"status\":\"answered\",\"selected\":[...],\"text\":...}|{\"status\":\"skipped\"}}}` (exit 0); `{\"status\":\"unavailable\",\"reason\":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the round is submitted: stop and tell the developer; `{\"error\":{\"code\":\"invalid-input\"|\"interrupted\"|\"cancelled\",\"message\":...}}`, exit 2 for `invalid-input` and 1 for the others.",
         ])
         .access(Access::JobOrUnavailable)
         .json_only()

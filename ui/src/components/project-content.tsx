@@ -6,6 +6,7 @@ import { BoardProvider, useBoard } from "@/components/board/board-state";
 import { BoardView } from "@/components/board/board-view";
 import { FilesView } from "@/components/files/files-view";
 import { GeneralView } from "@/components/general/general-view";
+import { useChatWaiting } from "@/components/general/use-general";
 import { HistoryView } from "@/components/history/history-view";
 import { JobsBoardActions } from "@/components/jobs/board-actions";
 import { JobsView } from "@/components/jobs/jobs-view";
@@ -17,6 +18,7 @@ import { ConnectedSettingsView } from "@/components/omp-status";
 import { ProjectWindow } from "@/components/project-window";
 import { QuestionRoundLayer } from "@/components/questions/question-overlay";
 import { RequestsBoardActions, RequestsLayer } from "@/components/requests/requests-layer";
+import { AtomicCommitsSetting } from "@/components/project/atomic-commits";
 import { SetupLayer } from "@/components/project/empty-model";
 import { ProjectGate } from "@/components/project/project-gate";
 import { SoloModeSetting } from "@/components/project/solo-mode";
@@ -30,6 +32,9 @@ import { ViewsProvider } from "@/components/views/views-state";
 function ProjectShell({ projectId }: { projectId: string }) {
   const { snapshot } = useBoard();
   const { waiting } = useJobs();
+  const chatWaiting = useChatWaiting(projectId);
+  // The Draft cards of Chat are not real cards of Backlog: the Board marks them `chat-draft`.
+  const backlog = snapshot?.backlog.filter((card) => !((card.kind === "proposal" || card.kind === "resolution") && card.standing === "chat-draft")).length ?? 0;
   return (
     <ProjectWindow
       projectId={projectId}
@@ -89,6 +94,7 @@ function ProjectShell({ projectId }: { projectId: string }) {
             projectSlot={
               <>
                 <SoloModeSetting />
+                <AtomicCommitsSetting />
                 <UpdateSkills />
               </>
             }
@@ -102,9 +108,10 @@ function ProjectShell({ projectId }: { projectId: string }) {
           <SkillsBanner />
         </>
       }
-      // The sidebar shows the real cards of Backlog (ghosts never count) and the jobs waiting for
-      // the developer; the backend counts them.
-      counts={{ backlog: snapshot?.backlog.length ?? 0, jobsWaiting: waiting }}
+      // The sidebar shows the real cards of Backlog (ghosts and the Draft cards of Chat never count),
+      // the jobs waiting for the developer (never Chat) and whether Chat waits for the answers of
+      // its round; the backend counts them.
+      counts={{ backlog, jobsWaiting: waiting, chatWaiting }}
       // What Requirements and Specs share, and the cards' `View requirements`; `Run`, `Run all` and
       // `Scan System` start jobs.
       around={(children) => (

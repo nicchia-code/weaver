@@ -210,11 +210,10 @@ async fn an_empty_general_keeps_nothing_and_the_first_message_starts_omp_with_th
             "acp"
         ]
     );
+    let written = std::fs::read_to_string(&file).unwrap();
     assert!(
-        std::fs::read_to_string(&file)
-            .unwrap()
-            .contains("weaver job new"),
-        "the instruction is written to general.md"
+        written.starts_with("# Weaver Chat\n") && written.contains("weaver job new"),
+        "the instruction of Chat is written to general.md"
     );
     let new = received
         .iter()
@@ -266,7 +265,7 @@ async fn an_empty_general_keeps_nothing_and_the_first_message_starts_omp_with_th
 }
 
 #[tokio::test]
-async fn nothing_of_a_general_reaches_the_board_the_jobs_or_a_notification() {
+async fn a_talk_only_general_reaches_the_board_only_at_the_turn_edges_and_never_the_jobs_or_a_notification() {
     let f = fixture().await;
     let jobs = Jobs::new(f.host.clone());
     f.host.script(json!({ "prompts": [[agent("Done")]] }));
@@ -275,10 +274,13 @@ async fn nothing_of_a_general_reaches_the_board_the_jobs_or_a_notification() {
         !f.general.working(f.id()) && !f.entries().is_empty() && f.entries().len() > 1
     })
     .await;
+    // Chat shows no card while it only talks, but a Draft card it wrote disables `Discard` during
+    // a turn (`requirements/ui#board-cards`, Chat Draft; `proposal` DISCARD/APPROVE_PROPOSAL), so
+    // the Board is sent again exactly when the turn starts and when it ends.
     assert_eq!(
         *f.host.board_changes.lock().unwrap(),
-        0,
-        "the Board is never touched"
+        2,
+        "the Board is only sent again at the start and at the end of the turn"
     );
     assert!(
         f.host.snapshots.lock().unwrap().is_empty(),
@@ -1061,6 +1063,52 @@ async fn closing_the_window_during_a_turn_cancels_it_and_keeps_the_conversation(
         "the conversation is kept"
     );
     assert!(f.record().is_some());
+}
+
+#[tokio::test]
+async fn clear_discards_the_drafts_the_chat_created_and_stop_and_closing_the_window_discard_nothing()
+{
+    let f = fixture().await;
+    f.general
+        .observe(Arc::new(super::service::ClearDiscardsChatDrafts(f.host.clone())));
+    let proposal = |id: &str| {
+        f.project
+            .root
+            .join(format!(".weaver/proposals/{id}-p/proposal.md"))
+    };
+    for (id, marks) in [
+        ("aaaaaaaa", "chat: true\nchatWriting: true\n"),
+        ("bbbbbbbb", "chatWriting: true\n"),
+    ] {
+        std::fs::create_dir_all(proposal(id).parent().unwrap()).unwrap();
+        std::fs::write(
+            proposal(id),
+            format!("---\nstatus: draft\nkind: change\ncreated: 2026-11-02T07:00:00.000Z\n{marks}---\n# P\n"),
+        )
+        .unwrap();
+    }
+    let status_of = |id: &str| std::fs::read_to_string(proposal(id)).unwrap();
+    f.host.script(
+        json!({ "log": f.host.received_log(), "prompts": [[agent("Writing"), { "hold": true }]] }),
+    );
+    f.send("Write it");
+    f.working().await;
+
+    // Stop and the closing of the window leave every Draft as it is.
+    f.general.stop(f.id()).unwrap();
+    until("the turn to stop", LIMIT, || !f.general.working(f.id())).await;
+    f.general.window_closed(f.id()).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(status_of("aaaaaaaa").contains("status: draft"));
+    assert!(status_of("bbbbbbbb").contains("status: draft"));
+
+    // Clear discards the one Chat created, never the one it only reopened.
+    f.general.clear(f.id()).unwrap();
+    until("the Draft Chat created to be discarded", LIMIT, || {
+        status_of("aaaaaaaa").contains("status: discarded")
+    })
+    .await;
+    assert!(status_of("bbbbbbbb").contains("status: draft"));
 }
 
 #[tokio::test]
@@ -1957,14 +2005,14 @@ mod ask_more {
 
         // 1. The first turn ends with omp exiting.
         f.host
-            .script(json!({ "log": log, "prompts": [[agent("one"), { "exit": 3 }]] }));
+            .script(json!({ "log": log, "logEnv": ["WEAVER_ASK"], "prompts": [[agent("one"), { "exit": 3 }]] }));
         f.general.send_message(&id, "first").unwrap();
         until("omp to stop", LIMIT, stopped(1)).await;
         assert_eq!(status(&f, &id), AskStatus::Idle);
 
         // 2. The next message starts omp and loads the session: it goes alone.
         f.host
-            .script(json!({ "log": log, "prompts": [[agent("two"), { "exit": 3 }]] }));
+            .script(json!({ "log": log, "logEnv": ["WEAVER_ASK"], "prompts": [[agent("two"), { "exit": 3 }]] }));
         f.general.send_message(&id, "second").unwrap();
         until("omp to stop again", LIMIT, stopped(2)).await;
         assert!(f.methods().contains(&"session/load".to_owned()));
@@ -1973,6 +2021,7 @@ mod ask_more {
         // carries the instruction read again from the files at that moment.
         f.host.script(json!({
             "log": log,
+            "logEnv": ["WEAVER_ASK"],
             "loadError": "session not found",
             "sessionId": "fresh",
             "prompts": [[agent("three"), { "exit": 3 }]],
@@ -1985,6 +2034,7 @@ mod ask_more {
         // 4. The chosen thing no longer exists: the message goes alone.
         f.host.script(json!({
             "log": log,
+            "logEnv": ["WEAVER_ASK"],
             "loadError": "session not found",
             "sessionId": "fresher",
             "prompts": [[agent("four")]],
@@ -2002,8 +2052,19 @@ mod ask_more {
                 "fourth".to_owned(),
             ]
         );
-        // Every start of omp is the same conversation, with the same identity.
-        assert_eq!(f.general.identity(&id).as_deref(), Some(id.as_str()));
+        // Every start of omp is the same conversation, with the same identity: omp starts once
+        // for each of the four messages, because the first three turns end with omp exiting and
+        // the fourth is the message sent after the third exit.
+        let starts: Vec<Value> = f
+            .host
+            .received()
+            .into_iter()
+            .filter(|m| !m["env"].is_null())
+            .collect();
+        assert_eq!(starts.len(), 4, "one start for each of the four messages");
+        for start in &starts {
+            assert_eq!(start["env"]["WEAVER_ASK"], json!(id));
+        }
         f.general.close_ask(&id).unwrap().await;
     }
 
@@ -2337,4 +2398,57 @@ mod ask_job_new {
         let closed = run(&f, &authority, json!({ "kind": "scan" }), Some(&id), false);
         assert_eq!(closed.unwrap_err().code, code::FORBIDDEN, "closed");
     }
+}
+
+#[tokio::test]
+async fn the_snapshot_counts_the_drafts_created_in_chat_that_clear_discards() {
+    let host = TestHost::new();
+    let events = Arc::new(Recorder::default());
+    let general = General::new(host.clone(), events.clone());
+    let draft = |extra: &str| format!("---\nstatus: draft\nkind: change\n{extra}created: 2026-11-02T07:00:00.000Z\n---\n# Idea\n\nWhy.\n");
+    let (_dir, project) = host
+        .project(&[
+            // Created in Chat and still a Draft: counted, being written or not.
+            ("proposals/aaaaaaaa-one/proposal.md", &draft("chat: true\nchatWriting: true\n")),
+            ("proposals/bbbbbbbb-two/proposal.md", &draft("chat: true\n")),
+            // Only reopened by the Chat, left half-way by a refinement, delivered, or written by a job.
+            ("proposals/cccccccc-three/proposal.md", &draft("chatWriting: true\n")),
+            ("proposals/dddddddd-four/proposal.md", &draft("chat: true\nrefining: true\n")),
+            (
+                "proposals/eeeeeeee-five/proposal.md",
+                "---\nstatus: open\nkind: change\nchat: true\ncreated: 2026-11-02T07:00:00.000Z\n---\n# Idea\n",
+            ),
+            ("proposals/ffffffff-six/proposal.md", &draft("job: jjjjjjjj\n")),
+        ])
+        .await;
+    general.open(&project.id, &project.root).await;
+    let snapshot = general.snapshot(&project.id).unwrap();
+    assert_eq!(snapshot.chat_drafts, 2);
+    assert!(!snapshot.state.waiting);
+}
+
+#[tokio::test]
+async fn the_state_says_waiting_while_a_round_of_the_chat_is_open_and_stays_working() {
+    let f = fixture().await;
+    f.host.script(json!({ "log": f.host.received_log(), "prompts": [[agent("Asking"), { "hold": true }]] }));
+    f.send("Ask me");
+    // omp is open once the agent answers: only then can it open a round.
+    until("the agent to answer", LIMIT, || {
+        f.entries().contains(&Entry::Agent {
+            text: "Asking".into(),
+            complete: false,
+        })
+    })
+    .await;
+    assert!(!f.general.snapshot(f.id()).unwrap().state.waiting);
+
+    f.general.round_opened(f.id());
+    let state = f.general.snapshot(f.id()).unwrap().state;
+    assert!(state.waiting, "the Machine is in Waiting for answers");
+    assert!(state.working, "a turn is in progress, so Stop shows");
+
+    f.general.round_closed(f.id());
+    let state = f.general.snapshot(f.id()).unwrap().state;
+    assert!(!state.waiting);
+    assert!(state.working);
 }

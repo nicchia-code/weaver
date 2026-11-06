@@ -20,7 +20,7 @@ use weaver_core::jobs::admission::StartPlan;
 use weaver_core::jobs::machine::{Effect, Event, JobMachine, MessageId, PermissionEnd, RequestId};
 use weaver_core::jobs::notes::{self, Normalised};
 use weaver_core::jobs::{
-    names, AnnouncementRecord, FiledCard, JobKind, JobRecord, JobState, JobStore,
+    measure, names, AnnouncementRecord, FiledCard, JobKind, JobRecord, JobState, JobStore,
 };
 use weaver_core::project::board::AgentFacts;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
@@ -132,6 +132,9 @@ pub(crate) struct Outcome {
     projects: Vec<String>,
     /// The Machine asked for omp to start again: the caller starts the actor, outside the lock.
     resume: bool,
+    /// The record of a measured job that just ended: its measure is written after the end was
+    /// applied and shown (`requirements/tech#job`, "Measure").
+    measure: Option<Box<JobRecord>>,
 }
 
 /// The thread that writes the records, one after the other.
@@ -430,6 +433,14 @@ impl Jobs {
             .host
             .picture(project_id)
             .is_some_and(|(root, _)| weaver_core::solo_merge::in_progress(&root));
+        // Asked before the registry is locked: Chat holds its own lock when it answers.
+        let chat_working = self
+            .hooks
+            .general
+            .read()
+            .expect("hooks poisoned")
+            .as_ref()
+            .is_some_and(|general| general.chat_working(project_id));
         let inner = self.lock();
         let active = inner
             .jobs
@@ -438,6 +449,7 @@ impl Jobs {
         let mut facts = AgentFacts {
             done_since_last_scan: inner.done_since_scan.get(project_id).copied().unwrap_or(0),
             merge_in_progress: merging,
+            chat_working,
             ..AgentFacts::default()
         };
         for live in active {
@@ -448,6 +460,11 @@ impl Jobs {
             if live.record.kind == JobKind::Resolve {
                 facts
                     .resolving_drifts
+                    .extend(live.record.target.iter().cloned());
+            }
+            if live.record.kind == JobKind::Rework {
+                facts
+                    .reworking_proposals
                     .extend(live.record.target.iter().cloned());
             }
         }
@@ -617,6 +634,8 @@ impl Jobs {
                 pid_started: None,
                 empty_model_at_start: false,
                 overlay: String::new(),
+                running: None,
+                running_incomplete: false,
             };
             self.persist(&record);
             inner.next_announcement += 1;
@@ -704,6 +723,13 @@ impl Jobs {
         let effects = live.machine.handle(event);
         let now_state = live.machine.state();
         if now_state != before {
+            let at = self.now();
+            if before == JobState::Running {
+                live.record.left_running(&at);
+            }
+            if now_state == JobState::Running {
+                live.record.entered_running(&at);
+            }
             live.record.state = now_state;
             live.record.reason = live.machine.reason().map(str::to_owned);
             if before == JobState::Queued && now_state == JobState::Running {
@@ -795,6 +821,9 @@ impl Jobs {
                     live.record.pid_started = None;
                     live.texts.clear();
                     outcome.ended = Some(live.info());
+                    if live.record.kind.is_measured() {
+                        outcome.measure = Some(Box::new(live.record.clone()));
+                    }
                     // The cards it announced and never filed are withdrawn, and those that arrived
                     // with them.
                     live.record.announcements.clear();
@@ -843,6 +872,34 @@ impl Jobs {
         for project in projects {
             self.changed(&project, None);
         }
+        if let Some(record) = outcome.measure {
+            self.measure(*record);
+        }
+    }
+
+    /// Measures an ended job (`requirements/tech#job`, "Measure"): its session files are read once,
+    /// on a thread of their own and after the end was applied and shown, and its line is appended
+    /// to `.weaver/timings/jobs.jsonl`. A failure is logged and changes nothing of the job.
+    pub(crate) fn measure(&self, record: JobRecord) {
+        if !record.kind.is_measured() {
+            return;
+        }
+        let sessions_root = self.host.sessions_root();
+        tauri::async_runtime::spawn_blocking(move || {
+            let root = PathBuf::from(&record.project);
+            let session = measure::read_session(
+                &root,
+                sessions_root.as_deref(),
+                record.session_id.as_deref(),
+                record.kind.is_run(),
+            );
+            let Some(line) = measure::line_for(&record, session) else {
+                return;
+            };
+            if let Err(error) = measure::append(&root, &line) {
+                log_warn!("the measure of job {} could not be written: {error}", record.id);
+            }
+        });
     }
 
     /// Releases what an ended job held: its Tasks go back to To do, in the project's queue.
@@ -1347,9 +1404,14 @@ impl Jobs {
                     record.state = JobState::Stopped;
                     record.ended = Some(self.now());
                     changed = true;
+                    // It never started: the measure has the durations and no session.
+                    self.measure(record.clone());
                     JobState::Stopped
                 }
                 JobState::Running | JobState::Waiting => {
+                    // Weaver stopped unexpectedly: the time since the last change of state is
+                    // unknown and never counted.
+                    record.running_interrupted();
                     record.state = JobState::Suspended;
                     changed = true;
                     JobState::Suspended

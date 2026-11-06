@@ -31,10 +31,12 @@ const ASSETS = vi.hoisted(() => [
 vi.mock("@/components/assets/use-assets", () => ({ useAssets: () => ({ assets: ASSETS, loaded: true, apply: () => {} }) }));
 
 function state(patch: Partial<GeneralState> = {}): GeneralState {
-  return { projectId: PROJECT, working: false, starting: false, loading: false, kept: false, ...patch };
+  return { projectId: PROJECT, working: false, starting: false, loading: false, kept: false, waiting: false, ...patch };
 }
 
 const handlers = new Map<string, (payload: never) => void>();
+// The Drafts the agent of Chat created, as the snapshot tells them.
+let chatDrafts = 0;
 
 function mount(
   entries: Entry[],
@@ -48,7 +50,7 @@ function mount(
     return () => {};
   });
   vi.mocked(call).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === "general_snapshot") return { state: general, seq: 0, entries };
+    if (name === "general_snapshot") return { state: general, chatDrafts, seq: 0, entries };
     return (commands[name]?.(args as never) ?? null) as null;
   });
   render(
@@ -72,6 +74,7 @@ describe("GeneralView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     ompStatus.current = null;
+    chatDrafts = 0;
   });
 
   it("starts with the view header: the title Chat on the left and Clear on the right", async () => {
@@ -83,7 +86,7 @@ describe("GeneralView", () => {
 
   it("shows the invitation when the conversation is empty, with the message box enabled and Clear disabled", async () => {
     mount([]);
-    expect(await screen.findByText("Talk with omp in this project. Ask it to start a job of Weaver when you want one.")).toBeInTheDocument();
+    expect(await screen.findByText("Think with omp about this project. Ask it to write a Proposal or start a job of Weaver when you want one.")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Message omp" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Clear" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
@@ -91,14 +94,14 @@ describe("GeneralView", () => {
 
   it("keeps Clear usable while a kept conversation has not come back", async () => {
     mount([], state({ kept: true }));
-    await screen.findByText(/Talk with omp/);
+    await screen.findByText(/Think with omp/);
     await waitFor(() => expect(screen.getByRole("button", { name: "Clear" })).not.toHaveAttribute("aria-disabled"));
   });
 
   it("says Loading conversation… in place of the invitation while the kept conversation loads, with Clear usable", async () => {
     mount([], state({ kept: true, loading: true, starting: true }));
     expect(await screen.findByText("Loading conversation…")).toBeInTheDocument();
-    expect(screen.queryByText(/Talk with omp/)).toBeNull();
+    expect(screen.queryByText(/Think with omp/)).toBeNull();
     expect(screen.queryByText("omp is not installed.")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Message omp" })).toBeEnabled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Clear" })).not.toHaveAttribute("aria-disabled"));
@@ -181,6 +184,45 @@ describe("GeneralView", () => {
     expect(within(dialog).getByText("The agent's turn stops, the conversation is deleted and a new one starts.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("general_clear", { projectId: PROJECT }));
+  });
+
+  it("tells how many Draft Proposals created in Chat Clear discards, and says nothing when there are none", async () => {
+    chatDrafts = 2;
+    mount([developer("One")]);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Clear" }));
+    let dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("The conversation is deleted and a new one starts. Its 2 Draft Proposals are discarded.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    // The count is read again each time the dialog opens, and follows a turn in progress.
+    chatDrafts = 1;
+    act(() => handlers.get("general-changed")?.(state({ working: true }) as never));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    dialog = await screen.findByRole("alertdialog");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByText("The agent's turn stops, the conversation is deleted and a new one starts. Its 1 Draft Proposal is discarded."),
+      ).toBeInTheDocument(),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    chatDrafts = 0;
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    dialog = await screen.findByRole("alertdialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText("The agent's turn stops, the conversation is deleted and a new one starts.")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows Clock and Queued under a message sent while the Chat waits for the answers of its round", async () => {
+    mount([developer("While you ask", "queued")], state({ working: true, waiting: true }));
+    const message = (await screen.findByText("While you ask")).closest("div") as HTMLElement;
+    expect(within(message).getByText("Queued")).toBeInTheDocument();
+    expect(message.querySelector("svg")).toHaveClass("lucide-clock");
+    expect(screen.queryByText("Starting omp…")).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
   it("shows why omp stopped, then says the next message starts it again", async () => {

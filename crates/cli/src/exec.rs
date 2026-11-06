@@ -10,9 +10,11 @@ use std::path::Path;
 use weaver_core::project::board::AgentFacts;
 
 use weaver_core::command::{code, CommandReply, CommandRequest};
+use weaver_core::history_commit;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::layout::{weaver_dir, WEAVER_DIR};
 use weaver_core::project::resolve::resolve_card;
+use weaver_core::solo_mode::Git;
 
 use crate::registry;
 use crate::spec::*;
@@ -30,6 +32,11 @@ pub trait Authority {
     /// `root`.
     fn accepts_ask(&self, _root: &Path, _token: &str) -> bool {
         false
+    }
+    /// The registry record of `job`, which `accepts_job` accepted: what a command needs to know
+    /// about the job (its kind and what it works on). Nothing when no app answers.
+    fn job_record(&self, _root: &Path, _job: &str) -> Option<weaver_core::jobs::JobRecord> {
+        None
     }
     /// What the app knows about the agent's work in the project at `root`: which jobs work, which
     /// Run or resolve is in progress. Nothing when no app answers.
@@ -169,6 +176,17 @@ pub fn check_input(
     }
 }
 
+/// Finishes the answer of a command that announces a commit: `history new` and `history edit`,
+/// while Atomic commits is on, answer `commit.status` `pending` and leave the commit for after the
+/// project's lock is released, so that a slow hook never holds the project. This makes the commit,
+/// in the queue of the working copy, and puts how it ended in the answer (`commit` and the last
+/// line of the text). Any other answer is returned as it is. Call it right after the lock is
+/// released, and never on the thread of an interface.
+pub fn settle(root: &Path, mut reply: CommandReply) -> CommandReply {
+    history_commit::settle(&Git::system(), root, &mut reply.json, &mut reply.markdown);
+    reply
+}
+
 /// Runs the command of `request` for `caller`.
 pub fn execute(
     request: &CommandRequest,
@@ -193,10 +211,20 @@ pub fn execute(
 
     let allowed = match command.access {
         Access::Anyone => true,
-        Access::Job | Access::JobOrUnavailable => caller
+        Access::Job => caller
             .job
             .as_deref()
             .is_some_and(|job| authority.accepts_job(root, job)),
+        Access::JobOrUnavailable => {
+            caller
+                .job
+                .as_deref()
+                .is_some_and(|job| authority.accepts_job(root, job))
+                || caller
+                    .general
+                    .as_deref()
+                    .is_some_and(|token| authority.accepts_general(root, token))
+        }
         Access::General => {
             caller
                 .general
@@ -225,9 +253,33 @@ pub fn execute(
         }
         Arg::Reference | Arg::Job => request.card.clone(),
     };
-    // The handler sees what the app knows about the agent's work, at the moment it runs.
+    // The handler sees what the app knows about the agent's work, at the moment it runs, and who
+    // the app vouches the caller is: an identity it does not accept counts as none.
+    let who = if caller
+        .job
+        .as_deref()
+        .is_some_and(|job| authority.accepts_job(root, job))
+    {
+        Who::Job
+    } else if caller
+        .general
+        .as_deref()
+        .is_some_and(|token| authority.accepts_general(root, token))
+    {
+        Who::Chat
+    } else {
+        Who::Other
+    };
+    let job_record = match (who, caller.job.as_deref()) {
+        (Who::Job, Some(job)) => authority
+            .job_record(root, job)
+            .or_else(|| caller.job_record.clone()),
+        _ => caller.job_record.clone(),
+    };
     let caller = Caller {
         agent: authority.facts(root),
+        who,
+        job_record,
         ..caller.clone()
     };
     let call = Call {
@@ -413,6 +465,80 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    /// An authority that vouches for one job and one Chat token, and says what the handler saw.
+    struct Vouches;
+
+    impl Authority for Vouches {
+        fn accepts_job(&self, _root: &Path, job: &str) -> bool {
+            job == "jjjjjjjj"
+        }
+
+        fn accepts_general(&self, _root: &Path, token: &str) -> bool {
+            token == "chat"
+        }
+
+        fn job_record(&self, _root: &Path, job: &str) -> Option<weaver_core::jobs::JobRecord> {
+            (job == "jjjjjjjj").then(|| {
+                serde_json::from_value(json!({
+                    "id": "jjjjjjjj", "kind": "design", "name": "Design", "project": "/p",
+                    "state": "running", "created": "2026-11-02T07:00:00.000Z", "target": "rrrr",
+                }))
+                .unwrap()
+            })
+        }
+
+        fn run(&self, call: &Call) -> Option<Result<CommandReply, Failure>> {
+            Some(Ok(CommandReply {
+                markdown: String::new(),
+                json: json!({
+                    "who": format!("{:?}", call.caller.who),
+                    "target": call.caller.job_record.as_ref().and_then(|r| r.target.clone()),
+                }),
+                exit: 0,
+                note: None,
+            }))
+        }
+    }
+
+    #[test]
+    fn the_handler_sees_a_job_the_chat_or_another_caller_as_the_app_vouches_for_them() {
+        let dir = project();
+        let who = |caller: Caller| {
+            let reply = execute(
+                &request("proposal", "list", dir.path(), None, None, json!({})),
+                &caller,
+                &Vouches,
+            )
+            .unwrap();
+            (
+                reply.json["who"].as_str().unwrap().to_owned(),
+                reply.json["target"].as_str().map(str::to_owned),
+            )
+        };
+        let job = |id: &str| Caller {
+            job: Some(id.into()),
+            ..Caller::default()
+        };
+        let chat = |token: &str| Caller {
+            general: Some(token.into()),
+            ..Caller::default()
+        };
+        assert_eq!(who(job("jjjjjjjj")), ("Job".into(), Some("rrrr".into())));
+        assert_eq!(who(chat("chat")), ("Chat".into(), None));
+        // An identity the app does not recognise counts as none.
+        assert_eq!(who(job("zzzzzzzz")), ("Other".into(), None));
+        assert_eq!(who(chat("forged")), ("Other".into(), None));
+        assert_eq!(who(Caller::default()), ("Other".into(), None));
+        // A command the CLI runs itself vouches for nobody.
+        let reply = execute(
+            &request("proposal", "list", dir.path(), None, None, json!({})),
+            &job("jjjjjjjj"),
+            &NoJobs,
+        )
+        .unwrap();
+        assert_eq!(reply.exit, 0);
     }
 
     #[test]
