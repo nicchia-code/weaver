@@ -109,7 +109,7 @@ Atomic commits makes Weaver commit the code of every History entry the agent wri
 | `sidecar` | Copies the bundled `weaver-cli` into `<app local data>/bin/` when its content differs |
 | `blocking` | `spawn_blocking` helper: disk work never runs on the main or IPC thread |
 | `state` | App-wide state managed by Tauri |
-| `updates` | Updates of Weaver: the check at start and every 24 hours, **Install and restart** through the quit path, **Later**, the last check in `settings.json` |
+| `updates` | Updates of Weaver: the check at start and every hour, **Install and restart** through the quit path, **Later**, the last check in `settings.json` |
 | `omp` | The app side of `omp-setup`: runs the probes, the installer, the login and the log out off the UI thread, schedules the re-checks, emits `omp-changed`, and tells the jobs when omp is ready (`OmpSetup::wait_ready`) |
 | `windows` | The Machine `window`: one window per project (`p-<hash>`) and the `welcome` window, `state.json` (recent projects, last session), restore at start, close and quit confirmations, the file watcher of each project, the menu, `Open in editor`; the jobs plug in through `WindowJobs` |
 | `requests` | The design request: the editor's commands (save, Send, Discard, images), the setup or design job `Send` starts, consumption at the Proposal hand-over, return to writing when the job ends, and the flush before a window closes |
@@ -185,7 +185,7 @@ The updater files are signed with the Tauri updater key, which is needed even wi
 
 ### Updates inside the app
 
-Weaver uses the Tauri updater plugin with the endpoint `https://github.com/nicchia-code/weaver/releases/latest/download/latest.json`. It checks at start and then at most once every 24 hours while it runs; the instant of the last check is stored in `settings.json` (`lastUpdateCheck`). A failed check is logged and retried at the next due time, never shown. An update found shows its version and notes; **Install and restart** downloads it, verifies its signature and quits Weaver through the usual quit path (with its confirmation when jobs are working), applying the update when the app exits; **Later** hides it until the next check. An update whose signature does not verify is refused and logged.
+Weaver uses the Tauri updater plugin with the endpoint `https://github.com/nicchia-code/weaver/releases/latest/download/latest.json`. It checks at start and then at most once every hour while it runs; the instant of the last check is stored in `settings.json` (`lastUpdateCheck`). A failed check is logged and retried at the next due time, never shown. An update found shows its version and notes; **Install and restart** downloads it, verifies its signature and quits Weaver through the usual quit path (with its confirmation when jobs are working), applying the update when the app exits; **Later** hides it until the next check. An update whose signature does not verify is refused and logged.
 
 ## Tests and CI
 
