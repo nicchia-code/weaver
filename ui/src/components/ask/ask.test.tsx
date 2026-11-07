@@ -2,6 +2,7 @@ import { render, screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AskConversation } from "@/components/ask/ask-conversation";
+import { expectOneGeometry, pressWhileComposing } from "@/components/assets/tag-box-checks";
 
 import type { AskRow } from "@/bindings/AskRow";
 import type { Entry } from "@/bindings/Entry";
@@ -108,7 +109,7 @@ function mount(asks: AskRow[], entries: Record<string, Entry[]> = {}, jobs: JobR
   }) as never);
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <JobsProvider projectId={PROJECT}>
           <AsksProvider projectId={PROJECT}>
             <QuestionRoundLayer projectId={PROJECT}>
@@ -175,6 +176,25 @@ describe("the rows of Ask more conversations", () => {
     mounted.emit("ask-closed", { projectId: PROJECT, id: "askidle1" });
     expect(await screen.findByText("No jobs yet")).toBeInTheDocument();
   });
+
+  it("count in `All` and `Active` by what the agent does, and an idle one shows only under `All`", async () => {
+    const user = userEvent.setup();
+    mount(
+      [ask("askidle1", "Ask T3"), ask("askrun01", "Ask P2", { status: "running" }), ask("askwait1", "Ask D4", { status: "waiting" })],
+      {},
+      [job("jobrun01", "running"), job("jobdone1", "done")],
+    );
+    const list = await screen.findByRole("navigation", { name: "Jobs" });
+    const shown = () => within(list).queryAllByRole("listitem").map((row) => row.querySelector("span.font-semibold")?.textContent);
+    expect(await screen.findByRole("radio", { name: "All 5" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Active 3" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Ended 1" })).toBeInTheDocument();
+    expect(shown()).toContain("Ask T3");
+    await user.click(screen.getByRole("radio", { name: "Active 3" }));
+    expect(shown().sort()).toEqual(["Ask D4", "Ask P2", "Run jobrun01"]);
+    await user.click(screen.getByRole("radio", { name: "Ended 1" }));
+    expect(shown()).toEqual(["Run jobdone1"]);
+  });
 });
 
 describe("the conversation of an Ask more conversation", () => {
@@ -206,12 +226,12 @@ describe("the conversation of an Ask more conversation", () => {
     expect(mounted.sent).toEqual([{ askId: "askidle1", text: "Why?" }]);
   });
 
-  it("says `Starting omp…` under a message sent while omp starts, and shows `Stop the agent` during a turn without a dialog", async () => {
+  it("says `Starting Weaver…` under a message sent while the agent starts, and shows `Stop the agent` during a turn without a dialog", async () => {
     const user = userEvent.setup();
     mount([ask("askrun01", "Ask T3", { status: "running", starting: true })], {
       askrun01: [{ kind: "developer", message: 1, text: "Hello", delivery: { status: "queued" } }],
     });
-    expect(await screen.findByText("Starting omp…")).toBeInTheDocument();
+    expect(await screen.findByText("Starting Weaver…")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Stop the agent" }));
     expect(vi.mocked(call)).toHaveBeenCalledWith("ask_stop", { askId: "askrun01" });
     expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -258,7 +278,7 @@ describe("opening a conversation", () => {
     }) as never);
     const showView = vi.fn();
     render(
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <AsksProvider projectId={PROJECT}>
           <AskViewSwitch />
           <Opener />
@@ -340,5 +360,26 @@ describe("the @ tags in the box of an Ask more conversation", () => {
     expect(document.querySelector("[data-tag='spec.pdf']")?.textContent).toBe("@spec.pdf");
     await user.keyboard("{Enter}");
     expect(mounted.sent).toEqual([{ askId: "askidle1", text: "See @spec.pdf" }]);
+  });
+
+  it("gives the textarea and the mirror the same metrics", async () => {
+    mount([ask("askidle1", "Ask T3")]);
+    expectOneGeometry(await screen.findByRole("combobox", { name: "Message the agent" }));
+  });
+
+  it("leaves Enter and Tab of a composition to the input method: nothing is sent, picked or moved", async () => {
+    const user = userEvent.setup();
+    const mounted = mount([ask("askidle1", "Ask T3")]);
+    const box = await screen.findByRole("combobox", { name: "Message the agent" });
+    await user.type(box, "Why");
+    pressWhileComposing(box, "Enter");
+    expect(mounted.sent).toEqual([]);
+    await user.type(box, " @sp");
+    pressWhileComposing(box, "Enter");
+    pressWhileComposing(box, "Tab");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["spec.pdf"]);
+    expect(box).toHaveValue("Why @sp");
+    expect(box).toHaveFocus();
+    expect(mounted.sent).toEqual([]);
   });
 });

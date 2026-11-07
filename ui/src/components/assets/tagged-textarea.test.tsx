@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { useState, type KeyboardEvent } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TaggedTextarea } from "@/components/assets/tagged-textarea";
+import { expectOneGeometry, pressWhileComposing } from "@/components/assets/tag-box-checks";
+import { TaggedTextarea, type TaggedTextareaProps } from "@/components/assets/tagged-textarea";
 import { AssetsProvider } from "@/components/assets/use-assets";
 import { call, on } from "@/lib/backend";
 
@@ -27,17 +28,24 @@ beforeEach(() => {
   vi.mocked(call).mockImplementation((async (name: string) => (name === "assets_list" ? { generation, assets } : null)) as unknown as typeof call);
 });
 
-function Box({ onKey, initial = "" }: { onKey?: (event: KeyboardEvent<HTMLTextAreaElement>) => void; initial?: string }) {
+function Box({ onKey, initial = "", extra }: BoxProps) {
   const [text, setText] = useState(initial);
   return (
     <>
-      <TaggedTextarea aria-label="Message" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={onKey} />
+      <TaggedTextarea aria-label="Message" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={onKey} {...extra} />
       <button type="button">Elsewhere</button>
     </>
   );
 }
 
-async function mount(props: { onKey?: (event: KeyboardEvent<HTMLTextAreaElement>) => void; initial?: string } = {}) {
+interface BoxProps {
+  onKey?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  initial?: string;
+  /** Props the box passes on to the component. */
+  extra?: Partial<TaggedTextareaProps>;
+}
+
+async function mount(props: BoxProps = {}) {
   const view = render(
     <AssetsProvider projectId="p1">
       <Box {...props} />
@@ -259,8 +267,7 @@ describe("the highlight", () => {
     expect(mirror).toHaveAttribute("aria-hidden", "true");
     expect(mirror.textContent).toContain("Use @logo.png, @my notes.txt and @missing.png. Not me@spec.pdf");
     const mark = container.querySelector("[data-tag='logo.png']");
-    expect(mark?.className).toContain("text-blue-600");
-    expect(mark?.className).toContain("dark:text-blue-500");
+    expect(mark?.className).toContain("text-sky-ink");
     // The textarea holds the text, transparent, with its caret visible.
     expect(box.className).toContain("text-transparent");
     expect(box.className).toContain("caret-foreground");
@@ -298,5 +305,104 @@ describe("the highlight", () => {
     expect(tagged(container)).toEqual(["@spec.pdf"]);
     expect(box.tagName).toBe("TEXTAREA");
     expect(box.value).toBe("@spec.pdf");
+  });
+});
+
+describe("one geometry for both layers", () => {
+  it("gives the textarea and the mirror the same metrics from one place, the font included", async () => {
+    const { box } = await mount({ extra: { metricsClassName: "font-mono text-xs px-4", className: "h-full", areaClassName: "resize-none border-transparent" } });
+    expectOneGeometry(box, { base: ["border", "py-2", "whitespace-pre-wrap", "break-words"], has: ["font-mono", "text-xs", "px-4"], lacks: ["text-sm", "px-3"] });
+  });
+
+  it("refuses a metric given to one layer only, in a class or in a style", () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const draw = (props: Partial<TaggedTextareaProps>) =>
+      render(
+        <AssetsProvider projectId="p1">
+          <TaggedTextarea aria-label="Message" value="" onChange={() => {}} {...props} />
+        </AssetsProvider>,
+      );
+    for (const props of [
+      { areaClassName: "px-0" },
+      { areaClassName: "md:py-1" },
+      { areaClassName: "border-2" },
+      { areaClassName: "font-mono" },
+      { areaClassName: "text-base" },
+      { areaClassName: "leading-6" },
+      { areaClassName: "tracking-wide" },
+      { areaClassName: "whitespace-nowrap" },
+      { areaClassName: "[font-family:inherit]" },
+      { className: "px-2" },
+      { className: "font-mono" },
+      { style: { letterSpacing: "1px" } },
+      { style: { paddingLeft: 0 } },
+    ] satisfies Partial<TaggedTextareaProps>[]) {
+      expect(() => draw(props), JSON.stringify(props)).toThrow(/metric of the box/);
+    }
+    quiet.mockRestore();
+  });
+
+  it("lets through what moves no character: background, border colour, focus ring, resize, height", async () => {
+    const { box } = await mount({
+      extra: {
+        className: "max-h-60 min-h-9 bg-transparent",
+        areaClassName: "resize-none border-transparent bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0",
+        style: { height: "40px" },
+      },
+    });
+    expect(box).toHaveClass("resize-none", "border-transparent");
+    expect(box.style.height).toBe("40px");
+    expectOneGeometry(box);
+  });
+
+  it("measures the caret with a marker that has no width and no place to break a line", async () => {
+    const user = userEvent.setup();
+    const { box } = await mount({ initial: "a long-unbroken-word" });
+    await user.click(box);
+    await user.type(box, " @sp");
+    expect(options()).toEqual(["spec.pdf"]);
+    const mirror = screen.getByTestId("tag-mirror");
+    const marker = within(mirror).getByTestId("tag-caret");
+    expect(marker.tagName).toBe("SPAN");
+    expect(marker.textContent).toBe("");
+    expect(marker.className).toBe("");
+    expect(marker.getAttribute("style")).toBeNull();
+    // The text around it is the text of the box, cut in pieces and nothing more.
+    expect(mirror.textContent).toBe("a long-unbroken-word @sp\u200b");
+  });
+});
+
+describe("a composition of the input method", () => {
+  it("is left alone by Enter and Tab: no send, no suggestion picked, no focus moved, with the list open or closed", async () => {
+    const user = userEvent.setup();
+    const onKey = vi.fn();
+    const { box } = await mount({ onKey });
+    await user.click(box);
+    await user.type(box, "see @sp");
+    expect(options()).toEqual(["spec.pdf"]);
+    onKey.mockClear();
+    for (const key of ["Enter", "Tab"] as const) {
+      pressWhileComposing(box, key);
+      expect(options()).toEqual(["spec.pdf"]);
+      expect(box.value).toBe("see @sp");
+      expect(box).toHaveFocus();
+    }
+    expect(onKey).not.toHaveBeenCalled();
+
+    // The same key once the composition is over chooses the suggestion.
+    await user.keyboard("{Tab}");
+    expect(box.value).toBe("see @spec.pdf ");
+
+    pressWhileComposing(box, "Enter");
+    pressWhileComposing(box, "Tab");
+    expect(onKey).not.toHaveBeenCalled();
+    expect(box).toHaveFocus();
+  });
+
+  it("is also left alone when the browser reports it only by the key code 229", async () => {
+    const onKey = vi.fn();
+    const { box } = await mount({ onKey });
+    expect(fireEvent.keyDown(box, { key: "Enter", keyCode: 229 })).toBe(true);
+    expect(onKey).not.toHaveBeenCalled();
   });
 });

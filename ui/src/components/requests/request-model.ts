@@ -1,10 +1,3 @@
-import type { RequestSummary } from "@/bindings/RequestSummary";
-
-/** The shown title of a request: its first heading or line, else `Untitled request` (the core says the id then). */
-export function displayTitle(summary: Pick<RequestSummary, "id" | "title">): string {
-  return summary.title === summary.id || summary.title.trim() === "" ? "Untitled request" : summary.title;
-}
-
 /** Nothing left after removing whitespace; a request of images only is not empty (its text has the links). */
 export function isEmptyRequest(text: string): boolean {
   return text.trim() === "";
@@ -15,12 +8,6 @@ export function localTimeOf(date: Date): string {
   const two = (n: number) => String(n).padStart(2, "0");
   const day = `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
   return `${day}T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
-}
-
-/** `2026-11-02 09:30` for a creation time `2026-11-02T09:30:00`. */
-export function createdLabel(created: string): string {
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(created);
-  return match ? `${match[1]} ${match[2]}` : created;
 }
 
 /**

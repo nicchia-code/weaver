@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { iconOf } from "@/components/assets/asset-kinds";
+import { BOX_METRICS, refuseMetricStyles, refuseMetrics } from "@/components/assets/box-metrics";
 import { findTags, insertTag, suggestionsFor, typingAt, type Tag } from "@/components/assets/tags";
 import { useAssets } from "@/components/assets/use-assets";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -47,9 +48,14 @@ function typeInto(area: HTMLTextAreaElement, text: string) {
 
 export interface TaggedTextareaProps extends Omit<React.ComponentProps<"textarea">, "value" | "role"> {
   value: string;
-  /** Classes of the box itself: its size and its place in the layout, and the font the text is drawn in. */
+  /** Classes of the box itself: its size and its place in the layout. Never a metric of the text. */
   className?: string;
-  /** Classes of the native `textarea` inside it. */
+  /**
+   * The metrics of the text: padding, border width, font family, size, line height, letter spacing, wrapping.
+   * They reach the textarea and the mirror alike, and this is the only place to change them.
+   */
+  metricsClassName?: string;
+  /** Classes of the native `textarea` alone: background, border colour, focus ring, resize. Never a metric of the text. */
   areaClassName?: string;
 }
 
@@ -59,14 +65,22 @@ export interface TaggedTextareaProps extends Omit<React.ComponentProps<"textarea
  * text of the request editor.
  *
  * The native `textarea` keeps the typing, the caret, the selection, the undo and the accessibility;
- * its own text is transparent and its caret stays visible. Behind it a mirror layer with the same
- * font, padding, border, wrapping and scroll draws the text, the tags recognised against the assets
- * of the window in the primary blue. Typing `@` opens a list of the assets under the caret.
+ * its own text is transparent and its caret stays visible. Behind it a mirror layer draws the text,
+ * the tags recognised against the assets of the window in the primary blue. Typing `@` opens a list
+ * of the assets under the caret.
+ *
+ * The metrics of the text (padding, border width, font, size, line height, letter spacing, wrapping)
+ * are set once here, with `metricsClassName`, and reach both layers; `className` and `areaClassName`
+ * refuse a metric, since one layer alone would draw the characters away from the caret.
  */
 export const TaggedTextarea = React.forwardRef<HTMLTextAreaElement, TaggedTextareaProps>(function TaggedTextarea(
-  { value, className, areaClassName, disabled, onChange, onKeyDown, onKeyUp, onSelect, onClick, onFocus, onBlur, onScroll, ...props },
+  { value, className, metricsClassName, areaClassName, style, disabled, onChange, onKeyDown, onKeyUp, onSelect, onClick, onFocus, onBlur, onScroll, ...props },
   ref,
 ) {
+  refuseMetrics("className", className);
+  refuseMetrics("areaClassName", areaClassName);
+  refuseMetricStyles(style);
+  const metrics = cn(BOX_METRICS, metricsClassName);
   const { assets } = useAssets();
   const names = React.useMemo(() => assets.map((asset) => asset.name), [assets]);
   const listId = React.useId();
@@ -124,7 +138,13 @@ export const TaggedTextarea = React.forwardRef<HTMLTextAreaElement, TaggedTextar
   };
 
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (open && !event.nativeEvent.isComposing) {
+    // Enter or Tab that confirm a composition of the input method only confirm it: the box does nothing with them.
+    // Enter is left to the input method untouched; Tab only has its default action, a move of the focus, cancelled.
+    if ((event.key === "Enter" || event.key === "Tab") && (event.nativeEvent.isComposing || event.keyCode === 229)) {
+      if (event.key === "Tab") event.preventDefault();
+      return;
+    }
+    if (open) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -158,13 +178,17 @@ export const TaggedTextarea = React.forwardRef<HTMLTextAreaElement, TaggedTextar
         ref={mirror}
         aria-hidden
         data-testid="tag-mirror"
-        className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words rounded-md border border-transparent px-3 py-2 text-sm text-foreground [scrollbar-color:transparent_transparent]"
+        className={cn(
+          metrics,
+          "pointer-events-none absolute inset-0 overflow-auto rounded-md border-transparent text-foreground [scrollbar-color:transparent_transparent]",
+        )}
       >
         {pieces.map((piece, index) =>
           piece.kind === "caret" ? (
-            <span key={index} ref={marker} className="inline-block h-[1.2em] w-0 align-text-bottom" />
+            // Empty and inline: it adds neither width nor a place to break the line.
+            <span key={index} ref={marker} data-testid="tag-caret" />
           ) : piece.tag ? (
-            <span key={index} data-tag={piece.tag.name} className="text-blue-600 dark:text-blue-500">
+            <span key={index} data-tag={piece.tag.name} className="text-sky-ink">
               {piece.text}
             </span>
           ) : (
@@ -195,9 +219,11 @@ export const TaggedTextarea = React.forwardRef<HTMLTextAreaElement, TaggedTextar
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open ? optionId(current) : undefined}
           className={cn(
-            "relative block h-full w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm text-transparent caret-foreground shadow-sm selection:bg-primary/30 selection:text-transparent placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed",
+            metrics,
+            "relative block h-full w-full rounded-md border-input bg-transparent text-transparent caret-foreground selection:bg-primary/30 selection:text-transparent placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed",
             areaClassName,
           )}
+          style={style}
           onChange={(event) => {
             setDismissed(false);
             setActive(0);

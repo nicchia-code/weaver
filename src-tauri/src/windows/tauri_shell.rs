@@ -323,6 +323,23 @@ impl Shell for TauriShell {
 
     fn recent_changed(&self) {
         super::menu::refresh(&self.app);
+        super::switcher::schedule(&self.app);
+    }
+
+    fn project_opened(&self, project_id: &str, root: &Path) {
+        super::git_state::refresh(&self.app, project_id);
+        crate::requests::project_opened(&self.app, project_id, root);
+        super::switcher::schedule(&self.app);
+    }
+
+    fn project_focused(&self, project_id: &str) {
+        super::git_state::refresh(&self.app, project_id);
+    }
+
+    fn project_closed(&self, project_id: &str) {
+        super::git_state::closed(&self.app, project_id);
+        crate::requests::project_closed(&self.app, project_id);
+        super::switcher::schedule(&self.app);
     }
 
     fn save_window_state(&self) {

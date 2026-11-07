@@ -60,6 +60,8 @@ pub trait ProposalJobs: Send + Sync {
     fn start_rework(&self, project_id: &str, proposal_id: &str);
     /// A setup was approved: Run all starts.
     fn run_all_after_setup(&self, project_id: &str);
+    /// A request was consumed by the hand-over of a Proposal: the jobs show it in their rows.
+    fn request_consumed(&self, _project_id: &str) {}
 }
 
 /// No jobs exist: nothing can start.
@@ -463,6 +465,7 @@ pub fn answer_cli(call: &Call, jobs: &dyn ProposalJobs) -> Option<Result<Command
             let result = (call.command.run)(call);
             if let (Ok(_), Some(request)) = (&result, &request) {
                 crate::requests::proposal_submitted(call.root, request);
+                jobs.request_consumed(&project_id);
             }
             if let Ok(reply) = &result {
                 let setup = reply.json["kind"] == "setup" && reply.json["status"] == "approved";

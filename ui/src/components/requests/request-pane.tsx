@@ -1,4 +1,4 @@
-import { Eye, MessageSquare, SendHorizontal, Trash2 } from "lucide-react";
+import { ArrowLeft, Eye, MessageSquare, SendHorizontal, Trash2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -25,12 +25,14 @@ import {
   ownImageLinks,
   sameText,
   toBase64,
+  TOAST_DELETED,
 } from "@/components/requests/request-model";
 import { useRequests } from "@/components/requests/use-requests";
 import { TaggedTextarea } from "@/components/assets/tagged-textarea";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useViewShown } from "@/components/view-shown";
+import { VIEW_HEADER_CLASS, viewTitleId } from "@/components/view-header";
 import { call, isAppError, onFilesDropped } from "@/lib/backend";
 import { cn } from "@/lib/utils";
 
@@ -69,22 +71,16 @@ function SaveStatus({ save }: { save: Save }) {
 export interface RequestPaneProps {
   projectId: string;
   requestId: string;
-  /** The Model is empty: a request sent now is a setup request. */
-  modelEmpty: boolean;
   /** The pane is wide enough for the preview beside the text. */
   wide: boolean;
-  /** The request is gone (discarded, consumed, deleted from outside): the editor shows another. */
-  onGone: () => void;
-  /** The developer is discarding this request (`true`), or the discard failed (`false`): its going is expected. */
-  onDiscarding: (discarding: boolean) => void;
 }
 
 /**
  * One request in the editor: the text being written (saved as it is typed) or, once sent, its
  * rendered text. Typing starts no process: only `Send` does, through the backend.
  */
-export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, onDiscarding }: RequestPaneProps) {
-  const { changes, setFlusher } = useRequests();
+export function RequestPane({ projectId, requestId, wide }: RequestPaneProps) {
+  const { changes, setFlusher, origin, closeEditor } = useRequests();
   const { openJob } = useProject();
   const [view, setView] = useState<RequestView | null>(null);
   const [text, setText] = useState("");
@@ -101,6 +97,8 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
   const written = useRef<string[]>([]);
   const closed = useRef(false);
   const statusRef = useRef<RequestView["status"] | null>(null);
+  /** The job that received the request, as last seen: a sent request that goes closes back to its conversation. */
+  const jobRef = useRef<string | null>(null);
   const seenChanges = useRef(changes);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const cursor = useRef<number | null>(null);
@@ -147,6 +145,19 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
     [save],
   );
 
+  // The request is gone (discarded, consumed, deleted from outside) and the developer did not do it
+  // here: the editor closes, back to where it was opened from. A sent request that goes was
+  // consumed or discarded: the view closes back to the conversation of its job, with no word. One
+  // being written was deleted outside Weaver.
+  const gone = useCallback(() => {
+    closed.current = true;
+    const wasSent = statusRef.current === "sent";
+    if (!wasSent) toast.warning(TOAST_DELETED);
+    closeEditor();
+    const job = wasSent ? jobRef.current : origin.kind === "jobs" ? origin.jobId : null;
+    if (job) openJob(job);
+  }, [closeEditor, openJob, origin]);
+
   const load = useCallback(
     async (first: boolean) => {
       try {
@@ -154,6 +165,7 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
         if (closed.current) return;
         const wasStatus = statusRef.current;
         statusRef.current = next.status;
+        if (next.jobId) jobRef.current = next.jobId;
         setView(next);
         if (next.status !== "writing") {
           latest.current = next.text;
@@ -178,26 +190,37 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
         }
       } catch (error: unknown) {
         if (closed.current || !isAppError(error) || error.code !== "refused") return;
-        // The editor tells the developer when a request being written vanished (see `RequestEditor`).
-        closed.current = true;
-        onGone();
+        gone();
       }
     },
-    [projectId, requestId, save, onGone],
+    [projectId, requestId, save, gone],
   );
+
+  // The window closes: what is pending is written, never sent, and an empty request is discarded
+  // (`window.CLOSED`).
+  const flush = useCallback(async () => {
+    await save();
+    if (statusRef.current !== "writing" || !isEmptyRequest(latest.current)) return;
+    closed.current = true;
+    await call("request_leave", { projectId, requestId, closing: true });
+  }, [save, projectId, requestId]);
 
   useEffect(() => {
     closed.current = false;
     void load(true);
-    setFlusher(save);
+    setFlusher(flush);
     return () => {
       setFlusher(null);
       clearTimeout(timer.current);
-      // Leaving the request or the window: what is pending is written (never sent).
-      if (dirty.current && !closed.current) {
-        call("request_save", { projectId, requestId, text: latest.current }).catch(() => {});
-      }
+      const wasClosed = closed.current;
       closed.current = true;
+      // Leaving the request (the back control, another view, another request): what is pending is
+      // written (never sent) and an empty request is discarded (`developer.LEAVE_REQUEST`).
+      if (wasClosed || statusRef.current !== "writing") return;
+      const pending = dirty.current ? call("request_save", { projectId, requestId, text: latest.current }).catch(() => {}) : Promise.resolve();
+      if (isEmptyRequest(latest.current)) {
+        void pending.then(() => call("request_leave", { projectId, requestId, closing: false })).catch(() => {});
+      }
     };
     // The pane is keyed by request: it loads once.
   }, []);
@@ -308,6 +331,17 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
     };
   }, [writable, viewShown, importPaths]);
 
+  // Another view takes the place of the Board: what is pending is written; a sent request, or an
+  // empty one (discarded as the pane goes), has nothing to keep and the editor closes.
+  const wasShown = useRef(viewShown);
+  useEffect(() => {
+    if (wasShown.current && !viewShown) {
+      void save();
+      if (statusRef.current === "sent" || (statusRef.current === "writing" && isEmptyRequest(latest.current))) closeEditor();
+    }
+    wasShown.current = viewShown;
+  }, [viewShown, save, closeEditor]);
+
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files];
     if (files.length === 0 || event.clipboardData.getData("text/plain") !== "") return;
@@ -327,24 +361,31 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
     await save();
     try {
       await call("request_send", { projectId, requestId });
-      await load(false);
+      // Sent: the editor closes and the Board shows the job's ghost where the draft was.
+      closed.current = true;
+      closeEditor();
     } catch (error: unknown) {
       toast.error(messageOf(error, "The request could not be sent."));
     }
-  }, [writable, save, projectId, requestId, load]);
+  }, [writable, save, projectId, requestId, closeEditor]);
 
   const discard = useCallback(() => {
     closed.current = true;
     clearTimeout(timer.current);
-    onDiscarding(true);
     call("request_discard", { projectId, requestId })
-      .then(() => onGone())
+      .then(() => closeEditor())
       .catch((error: unknown) => {
         closed.current = false;
-        onDiscarding(false);
         toast.error(messageOf(error, "The request could not be discarded."));
       });
-  }, [projectId, requestId, onGone, onDiscarding]);
+  }, [projectId, requestId, closeEditor]);
+
+  // `← Board` shows the Board; `← Jobs` shows again the conversation of the job. The pane goes with
+  // the editor and, as it goes, writes what is pending and discards an empty request.
+  const back = () => {
+    closeEditor();
+    if (origin.kind === "jobs") openJob(origin.jobId);
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -360,34 +401,33 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
 
   if (!view) return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
 
-  const heading = modelEmpty ? "Setup request" : "Design request";
+  const heading = view.modelEmpty ? "Setup request" : "Design request";
   const empty = isEmptyRequest(text);
   const sideBySide = preview && wide;
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{heading}</h2>
+      <header className={VIEW_HEADER_CLASS}>
+        <Button type="button" variant="ghost" onClick={back}>
+          <ArrowLeft aria-hidden />
+          {origin.kind === "jobs" ? "Jobs" : "Board"}
+        </Button>
+        <h1 id={viewTitleId("board")} className="min-w-0 truncate text-[19px] font-semibold leading-tight tracking-title">
+          {heading}
+        </h1>
         {writable ? <SaveStatus save={saveState} /> : null}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-3 [&_button]:h-9">
           {writable ? (
             <>
-              <Button
-                type="button"
-                variant={preview ? "secondary" : "outline"}
-                size="sm"
-                aria-pressed={preview}
-                onClick={togglePreview}
-              >
+              <Button type="button" variant={preview ? "secondary" : "outline"} aria-pressed={preview} onClick={togglePreview}>
                 <Eye aria-hidden />
                 Preview
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(true)}>
+              <Button type="button" variant="outline" onClick={() => setConfirming(true)}>
                 <Trash2 aria-hidden />
                 Discard
               </Button>
               <GuardedButton
                 type="button"
-                size="sm"
                 reasons={[empty && "Write the request first."]}
                 tooltip="Send the request to the agent (Ctrl/Cmd+Enter)"
                 onClick={() => void send()}
@@ -423,7 +463,8 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
               value={text}
               placeholder="Describe what to add or change. Markdown, images pasted or dropped."
               spellCheck={false}
-              className="h-full min-h-0 font-mono"
+              className="h-full min-h-0"
+              metricsClassName="font-mono"
               areaClassName="resize-none"
               onChange={(event) => change(event.target.value)}
               onBlur={() => void save()}
@@ -434,7 +475,7 @@ export function RequestPane({ projectId, requestId, modelEmpty, wide, onGone, on
             />
           ) : null}
           {preview ? (
-            <div className="min-h-0 overflow-auto rounded-md border p-3" aria-label="Preview">
+            <div className="min-h-0 overflow-auto rounded-lg p-3 shadow-ring" aria-label="Preview">
               <Markdown holderHeadingLevel={2} resolveImage={resolveImage}>
                 {shown}
               </Markdown>

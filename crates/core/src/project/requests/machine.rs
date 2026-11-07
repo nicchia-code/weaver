@@ -11,6 +11,8 @@
 //!                                                        starts a design job, or a setup job
 //! Writing --SEND_REQUEST (not empty)--> Sent            starts a design job, or a setup job
 //! Writing --DISCARD_REQUEST--> Discarded                deletes the file and the images
+//! Writing --LEAVE_REQUEST (empty)--> Discarded          deletes the file and the images, no confirmation
+//! Writing --window CLOSED (empty, open there)--> Discarded  deletes the file and the images
 //! Writing | Sent --REQUEST_DELETED--> Discarded          nothing is ever sent afterwards
 //! Sent --PROPOSAL_SUBMITTED--> Consumed                  only the first Proposal; deletes the files
 //! Sent --JOB_ENDED (no Proposal handed over)--> Writing  the developer can change it and send it again
@@ -42,12 +44,19 @@ impl RequestState {
 /// The events of the Machine (`developer.*`, `workspace.*`, `proposal.*`, `job.*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestEvent {
-    /// `developer.NEW_REQUEST`: the `+ Work Item` button or Start from Scratch.
+    /// `developer.NEW_REQUEST`: `New Request` of the Backlog or Start from Scratch.
     NewRequest,
     /// `developer.SEND_REQUEST`; `empty` is whether nothing is left after removing whitespace.
     SendRequest { empty: bool },
     /// `developer.DISCARD_REQUEST`.
     DiscardRequest,
+    /// `developer.LEAVE_REQUEST`: the developer leaves the request he is writing (back to the
+    /// Board, or another view takes its place); `empty` is whether nothing is left after removing
+    /// whitespace.
+    LeaveRequest { empty: bool },
+    /// `window.CLOSED` of the window in which the request is open for writing; `empty` is whether
+    /// nothing is left after removing whitespace.
+    WindowClosed { empty: bool },
     /// `workspace.REQUEST_DELETED`: the file is gone, deleted outside Weaver.
     RequestDeleted,
     /// `proposal.SUBMITTED` of a Proposal bound to the request.
@@ -117,6 +126,11 @@ pub fn step(state: RequestState, event: RequestEvent) -> Step {
         // Sending something empty does nothing.
         (S::Writing, Ev::SendRequest { empty: true }) => stay,
         (S::Writing, Ev::DiscardRequest) => Step {
+            state: S::Discarded,
+            effect: E::DeleteFiles,
+        },
+        // Leaving a request, or closing its window, throws it away only when it is empty.
+        (S::Writing, Ev::LeaveRequest { empty: true } | Ev::WindowClosed { empty: true }) => Step {
             state: S::Discarded,
             effect: E::DeleteFiles,
         },
@@ -213,6 +227,34 @@ mod tests {
     }
 
     #[test]
+    fn leaving_or_closing_the_window_discards_only_an_empty_request_in_writing() {
+        is(
+            S::Writing,
+            Ev::LeaveRequest { empty: true },
+            S::Discarded,
+            E::DeleteFiles,
+        );
+        is(
+            S::Writing,
+            Ev::WindowClosed { empty: true },
+            S::Discarded,
+            E::DeleteFiles,
+        );
+        for event in [
+            Ev::LeaveRequest { empty: false },
+            Ev::WindowClosed { empty: false },
+        ] {
+            is(S::Writing, event, S::Writing, E::None);
+        }
+        for event in [
+            Ev::LeaveRequest { empty: true },
+            Ev::WindowClosed { empty: true },
+        ] {
+            is(S::Sent, event, S::Sent, E::None);
+        }
+    }
+
+    #[test]
     fn a_file_deleted_from_outside_ends_a_request_in_writing_or_sent() {
         is(
             S::Writing,
@@ -274,6 +316,8 @@ mod tests {
             Ev::SendRequest { empty: false },
             Ev::AgentSendRequest { empty: false },
             Ev::DiscardRequest,
+            Ev::LeaveRequest { empty: true },
+            Ev::WindowClosed { empty: true },
             Ev::RequestDeleted,
             Ev::ProposalSubmitted,
             Ev::JobEnded {

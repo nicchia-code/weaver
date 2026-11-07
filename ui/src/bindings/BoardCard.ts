@@ -23,9 +23,9 @@ origin: TitledRef | null, view: DriftView, } | { "kind": "task", head: CardHead,
  */
 doing: boolean, 
 /**
- * A working job holds it (`Agent working`, the rotating border).
+ * The working job that holds it (`Agent working`, the rotating border, `Open job`).
  */
-heldByAgent: boolean, 
+heldBy: string | null, 
 /**
  * Names no Model element.
  */
@@ -53,4 +53,24 @@ runReasons: Array<string>,
 /**
  * Why Delete is disabled, one reason per line in the fixed order; empty = Delete works.
  */
-deleteReasons: Array<string>, };
+deleteReasons: Array<string>, } | { "kind": "request", 
+/**
+ * The id of the request, the local time of its creation.
+ */
+id: string, 
+/**
+ * The first heading, else the first line, else `Untitled request`.
+ */
+title: string, 
+/**
+ * The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
+ */
+created: string, 
+/**
+ * Nothing is left of its text after removing whitespace: `Send` is disabled.
+ */
+empty: boolean, 
+/**
+ * It came back to `Writing` because its job ended without a Proposal.
+ */
+returned: boolean, };

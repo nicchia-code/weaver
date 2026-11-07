@@ -8,6 +8,11 @@ export type CardKind = BoardCard["kind"];
 /** A card of kind `K`, as the backend sends it. */
 export type BoardCardOf<K extends CardKind> = Extract<BoardCard, { kind: K }>;
 
+/** The permanent identity of a card (the id of the request, for a draft). */
+export function cardIdOf(card: BoardCard): string {
+  return card.kind === "request" ? card.id : card.head.id;
+}
+
 /**
  * How one kind of card looks on the Board and in its details dialog. The Board knows only this
  * shape: each kind of card (Proposal, resolution, Drift, Task) registers its own renderer, so
@@ -20,8 +25,11 @@ export type BoardCardOf<K extends CardKind> = Extract<BoardCard, { kind: K }>;
 export interface CardRenderer<K extends CardKind> {
   /** The card in its column. */
   Card: ComponentType<{ card: BoardCardOf<K> }>;
-  /** The body of the details dialog; it updates in place with each new picture. */
-  Details: ComponentType<{ card: BoardCardOf<K> }>;
+  /**
+   * The body of the details dialog; it updates in place with each new picture. A kind without one
+   * has no details dialog (the draft of a request opens the request editor instead).
+   */
+  Details?: ComponentType<{ card: BoardCardOf<K> }>;
   /** The buttons at the bottom of the details dialog. */
   Footer?: ComponentType<{ card: BoardCardOf<K> }>;
   /** A line under the title of the details dialog (the status, for instance). */
@@ -33,7 +41,7 @@ type Registry = { [K in CardKind]?: CardRenderer<K> };
 /** A renderer as the Board uses it: it only ever hands a renderer the cards of its own kind. */
 export interface AnyCardRenderer {
   Card: ComponentType<{ card: BoardCard }>;
-  Details: ComponentType<{ card: BoardCard }>;
+  Details?: ComponentType<{ card: BoardCard }>;
   Footer?: ComponentType<{ card: BoardCard }>;
   description?: (card: BoardCard) => ReactNode;
 }

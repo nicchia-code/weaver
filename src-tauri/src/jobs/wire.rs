@@ -31,6 +31,10 @@ pub struct JobRow {
     /// The latest note.
     pub note: Option<String>,
     pub target: Option<String>,
+    /// For a setup or design job, the request it received.
+    pub request: Option<String>,
+    /// That request exists and is still sent to this job (`View request` shows only then).
+    pub request_sent: bool,
 }
 
 /// The Jobs list of a project, in the order the view shows it: waiting, running, queued,

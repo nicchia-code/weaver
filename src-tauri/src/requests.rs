@@ -4,16 +4,23 @@
 //! The rules and the files are in `weaver_core::project::requests`; this module carries them out
 //! in the project's queue and connects them to the rest of the app:
 //!
-//! * `developer.NEW_REQUEST`, `SEND_REQUEST`, `DISCARD_REQUEST` and every save are commands. A
+//! * `developer.NEW_REQUEST`, `SEND_REQUEST`, `DISCARD_REQUEST`, `LEAVE_REQUEST` (an empty request
+//!   is discarded when the developer leaves it or its window closes) and every save are commands. A
 //!   write runs in the project's mutation queue ([`crate::mutations`]); a save starts no process.
 //!   `Send` plans the job, starts it through [`RequestJobs`] (a setup job when the Model is empty,
-//!   otherwise a design job) and then records the job in `.state.json`, all under the project lock.
+//!   otherwise a design job) and then records the job in `.state.json`, all under the project lock
+//!   and under the gate that keeps the Board from showing the draft and the ghost together.
+//! * The requests being written are the draft cards of the Board's Backlog: [`RequestsService::drafts`]
+//!   works them out for the Board snapshot ([`crate::board::board_snapshot`]) and [`refresh_board`]
+//!   sends the Board again when they changed.
 //! * `proposal.SUBMITTED`: [`proposal_submitted`], called by the hand-over of a Proposal bound to
 //!   the request (see [`crate::proposals::answer_cli`]).
 //! * `job.ENDED`: [`JobEnd`], installed with [`install`]. A request whose job ended without a
 //!   Proposal bound to it goes back to `Writing`; the editor says so with `returned`.
 //! * `workspace.REQUEST_DELETED`: [`files_changed`], called with every batch of file changes of a
-//!   project; a sent request whose file is gone is forgotten and the editor is told.
+//!   project; a sent request whose file is gone is forgotten and the editor is told. The same
+//!   function sends the Board again (its slice only) when a draft appeared, vanished or changed
+//!   its title or whether it is empty, whoever wrote the file.
 //! * `weaver job new design` from the working General: [`GeneralSender`].
 //! * Closing a window or quitting: [`flush_window`] asks the editor to save what is pending and
 //!   waits for its answer before the window goes, so that closing never loses text and never sends.
@@ -37,9 +44,10 @@ use weaver_core::paths::project_hash_of_canonical;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::requests::image::{base64_decode, base64_encode, ImageError};
 use weaver_core::project::requests::{
-    model_is_empty, LocalTime, RequestEntry, RequestError, RequestState, RequestStore, SendPlan,
+    model_is_empty, LocalTime, RequestError, RequestState, RequestStore, SendPlan,
 };
 
+use crate::agent_work::AgentWork;
 use crate::blocking;
 use crate::error::{AppError, ErrorCode};
 use crate::events::EventName;
@@ -85,6 +93,8 @@ pub trait RequestJobs: Send + Sync {
     fn asset_names(&self, _project_id: &str) -> Vec<String> {
         Vec::new()
     }
+    /// A request was recorded as sent to the job just started: the rows of the Jobs list say it.
+    fn recorded_sent(&self, _project_id: &str) {}
 }
 
 /// The jobs of the agent.
@@ -117,6 +127,10 @@ impl RequestJobs for AppJobs {
 
     fn asset_names(&self, project_id: &str) -> Vec<String> {
         self.0.asset_names(project_id)
+    }
+
+    fn recorded_sent(&self, project_id: &str) {
+        self.0.rows_changed(project_id);
     }
 }
 
@@ -160,33 +174,6 @@ pub enum RequestStatus {
     Sent,
 }
 
-/// A row of the list of open requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct RequestSummary {
-    pub id: String,
-    /// The first heading, else the first line, else the id.
-    pub title: String,
-    /// The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
-    pub created: String,
-    pub status: RequestStatus,
-    /// The job that received it, when it was sent.
-    pub job_id: Option<String>,
-    pub job_name: Option<String>,
-    /// It went back to `Writing` because its job ended without a Proposal.
-    pub returned: bool,
-}
-
-/// The open requests of a project, newest first.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct RequestsSnapshot {
-    pub project_id: String,
-    pub requests: Vec<RequestSummary>,
-    /// The Model has no Feature and no Actor: a request sent now is a setup request.
-    pub model_empty: bool,
-}
-
 /// One open request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -197,6 +184,8 @@ pub struct RequestView {
     pub job_id: Option<String>,
     pub job_name: Option<String>,
     pub returned: bool,
+    /// The Model has no Feature and no Actor: a request sent now is a setup request.
+    pub model_empty: bool,
 }
 
 /// Payload of `requests-changed` and `requests-flush`.
@@ -214,6 +203,33 @@ pub struct RequestsService {
     returned: Mutex<HashSet<(String, String)>>,
     /// The windows closing, by project id, waiting for their editor to save.
     flushing: Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+    /// The drafts of each open project as the Board shows them, the last time they were read: the
+    /// Board is touched only when they differ.
+    drafts: Mutex<HashMap<String, Vec<Draft>>>,
+    /// The projects whose requests were brought up to date for the first Board of their window
+    /// (the sent requests whose job ended while the app was closed went back to `Writing`).
+    opened: Mutex<HashSet<String>>,
+    /// Held while a window opens, so that two first Boards do the bringing up to date once.
+    opening: tokio::sync::Mutex<()>,
+    /// A Board snapshot reads (ghosts and drafts together); starting the job of a request and
+    /// recording the request as sent write: no snapshot shows the draft and the ghost together.
+    board_gate: RwLock<()>,
+}
+
+/// A request being written as a card of the Board's Backlog (`requirements/tech#design-request`):
+/// what the Board shows of it. A change of anything else (the text below the title) leaves the
+/// Board as it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draft {
+    pub id: String,
+    /// The first heading, else the first line, else `Untitled request`.
+    pub title: String,
+    /// The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
+    pub created: String,
+    /// Nothing is left of the text after removing whitespace.
+    pub empty: bool,
+    /// It came back to `Writing` because its job ended without a Proposal.
+    pub returned: bool,
 }
 
 fn failed(error: RequestError) -> AppError {
@@ -238,7 +254,52 @@ impl RequestsService {
             jobs: RwLock::new(jobs),
             returned: Mutex::new(HashSet::new()),
             flushing: Mutex::new(HashMap::new()),
+            drafts: Mutex::new(HashMap::new()),
+            opened: Mutex::new(HashSet::new()),
+            opening: tokio::sync::Mutex::new(()),
+            board_gate: RwLock::new(()),
         }
+    }
+
+    /// Remembers the drafts of a project as the Board shows them now. `true` when they differ from
+    /// the ones remembered (or none were remembered): the Board has to be sent again.
+    pub fn remember_drafts(&self, project_id: &str, drafts: Vec<Draft>) -> bool {
+        let mut known = self.drafts.lock().expect("drafts poisoned");
+        match known.get(project_id) {
+            Some(last) if *last == drafts => false,
+            _ => {
+                known.insert(project_id.to_owned(), drafts);
+                true
+            }
+        }
+    }
+
+    /// The window of a project is gone: its drafts are forgotten and its next window starts again.
+    fn forget_drafts(&self, project_id: &str) {
+        self.drafts
+            .lock()
+            .expect("drafts poisoned")
+            .remove(project_id);
+        self.opened
+            .lock()
+            .expect("opened projects poisoned")
+            .remove(project_id);
+    }
+
+    /// What a Board snapshot holds while it reads the ghosts and the drafts.
+    pub fn board_read(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.board_gate.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn board_write(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.board_gate.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn is_opened(&self, project_id: &str) -> bool {
+        self.opened
+            .lock()
+            .expect("opened projects poisoned")
+            .contains(project_id)
     }
 
     fn jobs(&self) -> Arc<dyn RequestJobs> {
@@ -285,53 +346,70 @@ impl RequestsService {
         Ok(())
     }
 
-    fn summary(&self, project_id: &str, entry: RequestEntry) -> RequestSummary {
-        let job_name = entry
-            .job_id
-            .as_deref()
-            .and_then(|job| self.jobs().life(job))
-            .map(|(name, _)| name);
-        RequestSummary {
-            returned: entry.state == RequestState::Writing
-                && self.is_returned(project_id, &entry.id),
-            status: status_of(entry.state),
-            id: entry.id,
-            title: entry.title,
-            created: entry.created,
-            job_id: entry.job_id,
-            job_name,
-        }
+    /// The requests being written, as the cards of the Backlog, oldest first. `ghost_jobs` are the
+    /// jobs the same Board shows a ghost for: a request sent to a job that works is no draft, and
+    /// one sent to a job that finished and shows no ghost is a draft that came back, even before
+    /// the end of the job was recorded in its file, so that its card is in the very picture in
+    /// which the ghost leaves.
+    pub fn drafts(
+        &self,
+        project_id: &str,
+        store: &RequestStore,
+        ghost_jobs: &HashSet<String>,
+    ) -> Result<Vec<Draft>, RequestError> {
+        let jobs = self.jobs();
+        let mut drafts: Vec<Draft> = store
+            .list()?
+            .into_iter()
+            .filter_map(|entry| {
+                let returned = match entry.state {
+                    RequestState::Writing => self.is_returned(project_id, &entry.id),
+                    _ => {
+                        let finished = entry.job_id.as_deref().is_some_and(|job| {
+                            !ghost_jobs.contains(job)
+                                && matches!(jobs.life(job), Some((_, JobLife::Finished)))
+                        });
+                        if !finished {
+                            return None;
+                        }
+                        true
+                    }
+                };
+                Some(Draft {
+                    id: entry.id,
+                    title: entry.title,
+                    created: entry.created,
+                    empty: entry.empty,
+                    returned,
+                })
+            })
+            .collect();
+        // `list` is newest first.
+        drafts.reverse();
+        Ok(drafts)
     }
 
-    /// The list of the open requests. Writes only when a job ended or a file vanished since the
-    /// last look: call it inside the project's queue.
-    pub fn list_locked(
+    /// The first Board of a window: the requests whose file is gone are forgotten and the sent
+    /// ones whose job ended while the app was closed go back to `Writing`. Call it inside the
+    /// project's queue.
+    pub fn bring_up_to_date_locked(
         &self,
         project_id: &str,
         root: &Path,
-        model_empty: bool,
-    ) -> Result<RequestsSnapshot, RequestError> {
+    ) -> Result<(), RequestError> {
         let store = RequestStore::new(root);
         store.reconcile()?;
-        self.return_finished(&store, project_id)?;
-        let requests = store
-            .list()?
-            .into_iter()
-            .map(|entry| self.summary(project_id, entry))
-            .collect();
-        Ok(RequestsSnapshot {
-            project_id: project_id.to_owned(),
-            requests,
-            model_empty,
-        })
+        self.return_finished(&store, project_id)
     }
 
-    /// The text and standing of one open request.
+    /// The text and standing of one open request; `model_empty` is whether the Model has no Feature
+    /// and no Actor.
     pub fn view(
         &self,
         project_id: &str,
         root: &Path,
         request: &str,
+        model_empty: bool,
     ) -> Result<RequestView, RequestError> {
         let store = RequestStore::new(root);
         let text = store.read(request)?;
@@ -348,6 +426,7 @@ impl RequestsService {
             status,
             job_id,
             job_name,
+            model_empty,
         })
     }
 
@@ -372,6 +451,8 @@ impl RequestsService {
         {
             SendPlan::Nothing => Ok(None),
             SendPlan::Start(job) => {
+                // No Board snapshot sees the job's first ghost and the draft together.
+                let _board = self.board_write();
                 let started = self
                     .jobs()
                     .start(
@@ -384,6 +465,7 @@ impl RequestsService {
                     )
                     .map_err(|why| AppError::new(ErrorCode::Refused, why))?;
                 store.record_sent(request, &started.id).map_err(failed)?;
+                self.jobs().recorded_sent(project_id);
                 self.forget_returned(project_id, request);
                 log_info!("the request {request} was sent to the job {}", started.id);
                 Ok(Some(started.id))
@@ -403,6 +485,8 @@ impl RequestsService {
         now: &LocalTime,
     ) -> Result<AgentSent, AgentSendRefusal> {
         let refused = |kind: &'static str, message: String| AgentSendRefusal { kind, message };
+        // The request exists only as sent: no Board snapshot sees it as a draft.
+        let _board = self.board_write();
         let store = RequestStore::new(root);
         // The tags are recognised against the assets that exist now, in the one read of the text.
         let names = self.jobs().asset_names(project_id);
@@ -432,6 +516,7 @@ impl RequestsService {
         store
             .record_sent(&sent.id, &started.id)
             .map_err(|error| refused(kind, failed(error).message))?;
+        self.jobs().recorded_sent(project_id);
         log_info!(
             "the request {} of Chat was sent to the job {}",
             sent.id,
@@ -469,13 +554,17 @@ pub fn proposal_submitted(root: &Path, request: &str) {
     }
 }
 
-/// Tells the editor of a project that its requests changed.
+/// Tells the editor of a project that its requests changed, and the Jobs list, whose rows say
+/// whether the request of a job is still sent to it.
 pub fn emit_changed(app: &AppHandle, project_id: &str) {
     let event = RequestsEvent {
         project_id: project_id.to_owned(),
     };
     if let Err(error) = app.emit(EventName::RequestsChanged.as_str(), &event) {
         log_warn!("the editor of the requests was not told about a change: {error}");
+    }
+    if let Some(jobs) = app.try_state::<Arc<Jobs>>() {
+        jobs.rows_changed(project_id);
     }
 }
 
@@ -491,27 +580,137 @@ pub fn touches_requests(root: &Path, batch: &Rebuild) -> bool {
     }
 }
 
-/// A batch of file changes of a project (`workspace.REQUEST_DELETED` among them): the sent requests
-/// whose file is gone are forgotten, and the editor reads again.
+/// The drafts of a project as a Board built now would show them. The ghosts and the drafts are
+/// read under the gate that keeps a request being sent out of one of them, and the drafts are
+/// remembered under it too; `true` when they differ from the ones the last Board showed.
+fn remember_now(
+    service: &RequestsService,
+    work: &dyn AgentWork,
+    project_id: &str,
+    root: &Path,
+) -> Result<bool, RequestError> {
+    let _board = service.board_read();
+    let ghost_jobs = work
+        .ghosts(project_id)
+        .into_iter()
+        .map(|ghost| ghost.job_id)
+        .collect();
+    let drafts = service.drafts(project_id, &RequestStore::new(root), &ghost_jobs)?;
+    Ok(service.remember_drafts(project_id, drafts))
+}
+
+/// Sends the Board of a project again (its slice only) when the drafts it shows are no longer the
+/// ones the last Board showed: a request appeared, vanished, came back, or changed its title or
+/// whether it is empty. The sent requests whose file is gone are forgotten first. A save that
+/// changes none of these touches nothing (the editor saves about every 500 ms).
+async fn refresh_board(app: &AppHandle, project_id: &str, root: &Path) {
+    let state = app.state::<AppState>();
+    let service = app.state::<Arc<RequestsService>>().inner().clone();
+    let queue_root = root.to_path_buf();
+    let reconciled = state
+        .mutations
+        .run(project_id, move || {
+            RequestStore::new(&queue_root)
+                .reconcile()
+                .map(|_| ())
+                .map_err(failed)
+        })
+        .await;
+    if let Err(error) = reconciled {
+        log_warn!("the requests of a project were not reconciled: {error}");
+    }
+    let (work, project, root) = (
+        state.agent_work.get(),
+        project_id.to_owned(),
+        root.to_path_buf(),
+    );
+    let changed = blocking::disk(move || remember_now(&service, work.as_ref(), &project, &root))
+        .await
+        .map_err(|error| error.message)
+        .and_then(|outcome| outcome.map_err(|error| error.to_string()));
+    match changed {
+        // A project whose window closed meanwhile has no picture: nothing to tell.
+        Ok(true) => {
+            let _ = crate::board::publish_agent_change(app, &state.pictures, project_id);
+        }
+        Ok(false) => {}
+        Err(error) => log_warn!("the drafts of a project were not read: {error}"),
+    }
+}
+
+/// A batch of file changes of a project, whoever made them (the editor, another editor, the
+/// command line, an agent): the sent requests whose file is gone are forgotten
+/// (`workspace.REQUEST_DELETED`), the editor reads again and the Board is sent again when its
+/// drafts changed ([`refresh_board`]).
 pub fn files_changed(app: &AppHandle, project_id: &str, root: &Path, batch: &Rebuild) {
     if !touches_requests(root, batch) {
         return;
     }
     let (app, project, root) = (app.clone(), project_id.to_owned(), root.to_path_buf());
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        let store_root = root.clone();
-        let outcome = state
-            .mutations
-            .run(&project, move || {
-                RequestStore::new(&store_root).reconcile().map_err(failed)
-            })
-            .await;
-        if let Err(error) = outcome {
-            log_warn!("the requests of a project were not reconciled: {error}");
-        }
+        refresh_board(&app, &project, &root).await;
         emit_changed(&app, &project);
     });
+}
+
+/// A project window opened: the drafts its Board shows are the ones to compare the next changes of
+/// the requests with.
+pub fn project_opened(app: &AppHandle, project_id: &str, root: &Path) {
+    let (app, project, root) = (app.clone(), project_id.to_owned(), root.to_path_buf());
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let service = app.state::<Arc<RequestsService>>().inner().clone();
+        let work = state.agent_work.get();
+        match blocking::disk(move || remember_now(&service, work.as_ref(), &project, &root)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => log_warn!("the drafts of a project were not read: {error}"),
+            Err(error) => log_warn!("the drafts of a project were not read: {}", error.message),
+        }
+    });
+}
+
+/// A project window closed: its drafts are forgotten.
+pub fn project_closed(app: &AppHandle, project_id: &str) {
+    if let Some(service) = app.try_state::<Arc<RequestsService>>() {
+        service.forget_drafts(project_id);
+    }
+}
+
+/// The first Board of a window (`requirements/tech#design-request`, **Return on opening**): the
+/// requests whose job ended while the app was closed go back to `Writing`, in the project's
+/// mutation queue, before the Board is worked out, so that their cards show from the start. Later
+/// Boards of the same window do nothing here.
+pub async fn bring_up_to_date(
+    state: &AppState,
+    service: &Arc<RequestsService>,
+    project_id: &str,
+    root: &Path,
+) {
+    if service.is_opened(project_id) {
+        return;
+    }
+    // Two first Boards at the same time bring the requests up to date once.
+    let _opening = service.opening.lock().await;
+    if service.is_opened(project_id) {
+        return;
+    }
+    let (service_in, project, root) = (service.clone(), project_id.to_owned(), root.to_path_buf());
+    let outcome = state
+        .mutations
+        .run(project_id, move || {
+            service_in
+                .bring_up_to_date_locked(&project, &root)
+                .map_err(failed)
+        })
+        .await;
+    if let Err(error) = outcome {
+        log_warn!("the requests of a project were not brought up to date: {error}");
+    }
+    service
+        .opened
+        .lock()
+        .expect("opened projects poisoned")
+        .insert(project_id.to_owned());
 }
 
 /// Asks the editor of a project window to save what is pending and waits (at most
@@ -599,6 +798,11 @@ impl RequestCli {
         let outcome =
             self.service
                 .agent_send_locked(&project_id, call.root, call.image, text, &local_now());
+        if call.caller.general.is_some() {
+            if let Ok(sent) = &outcome {
+                self.jobs.mark_by_chat(&sent.job.id);
+            }
+        }
         let general = self
             .jobs
             .hooks
@@ -655,6 +859,7 @@ impl JobObserver for JobEnd {
         }
         let (app, service) = (self.app.clone(), self.service.clone());
         let (project, root, job_id) = (job.project_id.clone(), job.root.clone(), job.id.clone());
+        let board_root = root.clone();
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let (service_in, project_in) = (service.clone(), project.clone());
@@ -670,6 +875,7 @@ impl JobObserver for JobEnd {
                 log_warn!("the requests of an ended job were not updated: {error}");
             }
             emit_changed(&app, &project);
+            refresh_board(&app, &project, &board_root).await;
         });
     }
 }
@@ -699,27 +905,6 @@ fn root_of(state: &AppState, project_id: &str) -> Result<std::path::PathBuf, App
     Ok(state.pictures.get(project_id)?.root)
 }
 
-/// The open requests of a project and whether its Model is empty.
-#[tauri::command]
-pub async fn requests_list(
-    state: State<'_, AppState>,
-    service: State<'_, Arc<RequestsService>>,
-    project_id: String,
-) -> Result<RequestsSnapshot, AppError> {
-    let picture = state.pictures.get(&project_id)?;
-    let model_empty = model_is_empty(picture.image.model());
-    let service = service.inner().clone();
-    let id = project_id.clone();
-    state
-        .mutations
-        .run(&project_id, move || {
-            service
-                .list_locked(&id, &picture.root, model_empty)
-                .map_err(failed)
-        })
-        .await
-}
-
 /// The text and standing of one request.
 #[tauri::command]
 pub async fn request_read(
@@ -728,11 +913,12 @@ pub async fn request_read(
     project_id: String,
     request_id: String,
 ) -> Result<RequestView, AppError> {
-    let root = root_of(&state, &project_id)?;
+    let picture = state.pictures.get(&project_id)?;
+    let model_empty = model_is_empty(picture.image.model());
     let service = service.inner().clone();
     blocking::disk(move || {
         service
-            .view(&project_id, &root, &request_id)
+            .view(&project_id, &picture.root, &request_id, model_empty)
             .map_err(failed)
     })
     .await?
@@ -743,6 +929,7 @@ pub async fn request_read(
 #[tauri::command]
 pub async fn request_new(
     state: State<'_, AppState>,
+    app: AppHandle,
     project_id: String,
     local_time: String,
 ) -> Result<String, AppError> {
@@ -753,12 +940,15 @@ pub async fn request_new(
         )
     })?;
     let root = root_of(&state, &project_id)?;
-    state
+    let board_root = root.clone();
+    let id = state
         .mutations
         .run(&project_id, move || {
             RequestStore::new(&root).create(&time).map_err(failed)
         })
-        .await
+        .await?;
+    refresh_board(&app, &project_id, &board_root).await;
+    Ok(id)
 }
 
 /// Saves the text of a request being written. Starts no process.
@@ -791,6 +981,7 @@ pub async fn request_send(
     request_id: String,
 ) -> Result<(), AppError> {
     let root = root_of(&state, &project_id)?;
+    let board_root = root.clone();
     let service = service.inner().clone();
     let id = project_id.clone();
     state
@@ -800,6 +991,7 @@ pub async fn request_send(
         })
         .await?;
     emit_changed(&app, &project_id);
+    refresh_board(&app, &project_id, &board_root).await;
     Ok(())
 }
 
@@ -813,6 +1005,7 @@ pub async fn request_discard(
     request_id: String,
 ) -> Result<(), AppError> {
     let root = root_of(&state, &project_id)?;
+    let board_root = root.clone();
     let service = service.inner().clone();
     let (id, request) = (project_id.clone(), request_id.clone());
     state
@@ -824,6 +1017,43 @@ pub async fn request_discard(
         })
         .await?;
     emit_changed(&app, &project_id);
+    refresh_board(&app, &project_id, &board_root).await;
+    Ok(())
+}
+
+/// `developer.LEAVE_REQUEST` (`closing` false: the developer left the editor) or `window.CLOSED`
+/// (`closing` true: the window of the open request is closing): the request is discarded, with its
+/// images and without a confirmation, only when it is in writing and its file is empty after
+/// trimming (checked here, under the project lock). Anything else is left as it is.
+#[tauri::command]
+pub async fn request_leave(
+    state: State<'_, AppState>,
+    service: State<'_, Arc<RequestsService>>,
+    app: AppHandle,
+    project_id: String,
+    request_id: String,
+    closing: bool,
+) -> Result<(), AppError> {
+    let root = root_of(&state, &project_id)?;
+    let board_root = root.clone();
+    let service = service.inner().clone();
+    let (id, request) = (project_id.clone(), request_id.clone());
+    let discarded = state
+        .mutations
+        .run(&project_id, move || {
+            let discarded = RequestStore::new(&root)
+                .discard_if_empty(&request, closing)
+                .map_err(failed)?;
+            if discarded {
+                service.forget_returned(&id, &request);
+            }
+            Ok(discarded)
+        })
+        .await?;
+    if discarded {
+        log_info!("the empty request {request_id} was discarded on leaving it");
+        refresh_board(&app, &project_id, &board_root).await;
+    }
     Ok(())
 }
 
@@ -924,12 +1154,17 @@ mod tests {
         refuse: Mutex<Option<String>>,
         /// The assets of the project.
         assets: Mutex<Vec<String>>,
+        /// Runs while a job starts.
+        on_start: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     }
 
     impl RequestJobs for FakeJobs {
         fn start(&self, _ctx: &Ctx, job: &Job) -> Result<StartedJob, String> {
             if let Some(why) = self.refuse.lock().unwrap().clone() {
                 return Err(why);
+            }
+            if let Some(hook) = self.on_start.lock().unwrap().as_ref() {
+                hook();
             }
             let mut started = self.started.lock().unwrap();
             started.push(job.clone());
@@ -1009,7 +1244,7 @@ mod tests {
                 assets: vec![]
             }]
         );
-        let view = f.service.view(P, f.project.path(), &id).unwrap();
+        let view = f.service.view(P, f.project.path(), &id, false).unwrap();
         assert_eq!(
             (
                 view.status,
@@ -1067,7 +1302,7 @@ mod tests {
         );
         assert!(f.jobs.started.lock().unwrap().is_empty());
         assert_eq!(
-            f.service.view(P, f.project.path(), &id).unwrap().status,
+            f.service.view(P, f.project.path(), &id, false).unwrap().status,
             RequestStatus::Writing
         );
     }
@@ -1111,7 +1346,7 @@ mod tests {
             )
         );
         assert_eq!(
-            f.service.view(P, f.project.path(), &id).unwrap().status,
+            f.service.view(P, f.project.path(), &id, false).unwrap().status,
             RequestStatus::Writing
         );
         assert!(f.service.send_locked(P, f.project.path(), &id).is_err());
@@ -1138,7 +1373,7 @@ mod tests {
                 .unwrap(),
             std::slice::from_ref(&id)
         );
-        let view = f.service.view(P, f.project.path(), &id).unwrap();
+        let view = f.service.view(P, f.project.path(), &id, false).unwrap();
         assert_eq!((view.status, view.returned), (RequestStatus::Writing, true));
         // It can be changed and sent again; the banner goes away once it is sent.
         RequestStore::new(f.project.path())
@@ -1148,11 +1383,11 @@ mod tests {
             .send_locked(P, f.project.path(), &id)
             .unwrap()
             .unwrap();
-        assert!(!f.service.view(P, f.project.path(), &id).unwrap().returned);
+        assert!(!f.service.view(P, f.project.path(), &id, false).unwrap().returned);
     }
 
     #[test]
-    fn a_job_that_finished_while_the_app_was_closed_is_noticed_at_the_next_list() {
+    fn a_job_that_finished_is_a_draft_that_came_back_as_soon_as_its_ghost_is_gone() {
         let f = fixture(true);
         let id = written(&f, "Add a cart");
         let job = f
@@ -1160,21 +1395,31 @@ mod tests {
             .send_locked(P, f.project.path(), &id)
             .unwrap()
             .unwrap();
-        let listed = f.service.list_locked(P, f.project.path(), false).unwrap();
-        assert_eq!(listed.requests.len(), 1);
+        let store = RequestStore::new(f.project.path());
+        let no_ghost = HashSet::new();
+        // While the job works the request is no draft.
+        assert!(f.service.drafts(P, &store, &no_ghost).unwrap().is_empty());
+        f.jobs.finished.lock().unwrap().insert(job.clone());
+        // The moment the job is finished the Board shows the draft, before anything is written...
+        let drafts = f.service.drafts(P, &store, &no_ghost).unwrap();
         assert_eq!(
-            (
-                listed.requests[0].status,
-                listed.requests[0].job_name.as_deref()
-            ),
-            (RequestStatus::Sent, Some("Design"))
+            drafts
+                .iter()
+                .map(|d| (d.id.as_str(), d.returned))
+                .collect::<Vec<_>>(),
+            [(id.as_str(), true)]
         );
-        f.jobs.finished.lock().unwrap().insert(job);
-        let listed = f.service.list_locked(P, f.project.path(), false).unwrap();
-        assert_eq!(
-            (listed.requests[0].status, listed.requests[0].returned),
-            (RequestStatus::Writing, true)
-        );
+        // ... but never together with the ghost of its job.
+        let ghost: HashSet<String> = [job].into();
+        assert!(f.service.drafts(P, &store, &ghost).unwrap().is_empty());
+        // The first Board of a window writes it: back to Writing, as a request that came back.
+        f.service
+            .bring_up_to_date_locked(P, f.project.path())
+            .unwrap();
+        assert_eq!(store.state_of(&id).unwrap(), RequestState::Writing);
+        let view = f.service.view(P, f.project.path(), &id, false).unwrap();
+        assert_eq!((view.status, view.returned), (RequestStatus::Writing, true));
+        assert_eq!(f.service.drafts(P, &store, &ghost).unwrap().len(), 1);
     }
 
     #[test]
@@ -1203,24 +1448,24 @@ mod tests {
         put(f.project.path(), &format!("requests/{id}.md"), "back again");
         assert!(f
             .service
-            .list_locked(P, f.project.path(), false)
+            .drafts(P, &RequestStore::new(f.project.path()), &HashSet::new())
             .unwrap()
-            .requests
             .is_empty());
-        assert!(f.service.view(P, f.project.path(), &id).is_err());
+        assert!(f.service.view(P, f.project.path(), &id, false).is_err());
         // A second Proposal changes nothing.
         proposal_submitted(f.project.path(), &id);
         assert_eq!(store.state().unwrap().consumed, [id]);
     }
 
     #[test]
-    fn a_sent_request_deleted_from_outside_is_forgotten_at_the_next_list() {
+    fn a_sent_request_deleted_from_outside_is_forgotten_when_the_window_opens() {
         let f = fixture(true);
         let id = written(&f, "Add a cart");
         f.service.send_locked(P, f.project.path(), &id).unwrap();
         fs::remove_file(f.project.path().join(format!(".weaver/requests/{id}.md"))).unwrap();
-        let listed = f.service.list_locked(P, f.project.path(), false).unwrap();
-        assert!(listed.requests.is_empty());
+        f.service
+            .bring_up_to_date_locked(P, f.project.path())
+            .unwrap();
         assert!(RequestStore::new(f.project.path())
             .state()
             .unwrap()
@@ -1229,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn the_list_is_newest_first_and_says_whether_the_model_is_empty() {
+    fn the_drafts_are_oldest_first_with_title_creation_time_and_emptiness() {
         let f = fixture(false);
         let store = RequestStore::new(f.project.path());
         let older = store
@@ -1239,18 +1484,59 @@ mod tests {
             .create(&LocalTime::parse("2026-11-02T10:00:00").unwrap())
             .unwrap();
         store.save(&older, "# Older\n").unwrap();
-        let listed = f.service.list_locked(P, f.project.path(), true).unwrap();
-        assert!(listed.model_empty);
-        let titles: Vec<(&str, &str)> = listed
-            .requests
-            .iter()
-            .map(|r| (r.id.as_str(), r.title.as_str()))
-            .collect();
+        let drafts = f.service.drafts(P, &store, &HashSet::new()).unwrap();
         assert_eq!(
-            titles,
-            [(newer.as_str(), newer.as_str()), (older.as_str(), "Older")]
+            drafts,
+            [
+                Draft {
+                    id: older,
+                    title: "Older".to_owned(),
+                    created: "2026-11-02T09:00:00".to_owned(),
+                    empty: false,
+                    returned: false,
+                },
+                Draft {
+                    id: newer,
+                    title: "Untitled request".to_owned(),
+                    created: "2026-11-02T10:00:00".to_owned(),
+                    empty: true,
+                    returned: false,
+                },
+            ]
         );
-        assert_eq!(listed.requests[0].created, "2026-11-02T10:00:00");
+    }
+
+    #[test]
+    fn no_board_can_be_read_between_the_start_of_the_job_and_the_record_of_the_request() {
+        let f = fixture(true);
+        let service = Arc::new(RequestsService::new(f.jobs.clone()));
+        let probe = service.clone();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        *f.jobs.on_start.lock().unwrap() = Some(Box::new(move || {
+            sink.lock().unwrap().push(probe.board_gate.try_read().is_err());
+        }));
+        let id = written(&f, "Add a cart");
+        service
+            .send_locked(P, f.project.path(), &id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), [true], "closed while the job starts");
+        assert!(service.board_gate.try_read().is_ok(), "open again afterwards");
+        // The request sent by the agent of Chat is under the gate from its creation too.
+        seen.lock().unwrap().clear();
+        let image = ProjectImage::load(f.project.path());
+        service
+            .agent_send_locked(
+                P,
+                f.project.path(),
+                &image,
+                "# From chat\n",
+                &LocalTime::parse("2026-11-02T10:00:00").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), [true]);
+        assert!(service.board_gate.try_read().is_ok());
     }
 
     #[test]
@@ -1316,7 +1602,7 @@ mod tests {
             store.state().unwrap().sent.get(A).map(String::as_str),
             Some(sent.job.id.as_str())
         );
-        let view = f.service.view(P, root, A).unwrap();
+        let view = f.service.view(P, root, A, false).unwrap();
         assert_eq!(view.status, RequestStatus::Sent);
         assert_eq!(view.job_id.as_deref(), Some(sent.job.id.as_str()));
         // The developer cannot send it again.
@@ -1413,6 +1699,63 @@ mod tests {
         let now = local_now();
         assert!(LocalTime::parse(&now.iso()).is_some());
         assert!(now.year >= 2026);
+    }
+
+    #[test]
+    fn a_save_touches_the_board_only_when_it_changes_the_title_or_the_emptiness() {
+        // `refresh_board`, called for every batch of file changes of `.weaver/requests/`, touches
+        // the Board exactly when `remember_now` says the drafts differ from the last Board.
+        let f = fixture(false);
+        let root = f.project.path();
+        let store = RequestStore::new(root);
+        let work = crate::agent_work::NoAgentWork;
+        let id = store
+            .create(&LocalTime::parse("2026-11-02T09:30:00").unwrap())
+            .unwrap();
+        assert!(remember_now(&f.service, &work, P, root).unwrap(), "a new request");
+        store.save(&id, "# Cart").unwrap();
+        assert!(remember_now(&f.service, &work, P, root).unwrap(), "title and emptiness");
+        store.save(&id, "# Cart\n\nmore").unwrap();
+        assert!(!remember_now(&f.service, &work, P, root).unwrap(), "same title, still not empty");
+        store.save(&id, "# Cart\n\nmore and more").unwrap();
+        assert!(!remember_now(&f.service, &work, P, root).unwrap());
+        store.save(&id, "").unwrap();
+        assert!(remember_now(&f.service, &work, P, root).unwrap(), "empty again");
+        store.discard(&id).unwrap();
+        assert!(remember_now(&f.service, &work, P, root).unwrap(), "discarded");
+    }
+
+    #[test]
+    fn the_board_is_touched_only_when_a_draft_appears_vanishes_or_changes_title_or_emptiness() {
+        let f = fixture(false);
+        let root = f.project.path();
+        let store = RequestStore::new(root);
+        let read = || f.service.drafts(P, &store, &HashSet::new()).unwrap();
+        let id = store
+            .create(&LocalTime::parse("2026-11-02T09:30:00").unwrap())
+            .unwrap();
+        // Nothing known yet: the first look tells the Board.
+        assert!(f.service.remember_drafts(P, read()));
+        assert!(!f.service.remember_drafts(P, read()));
+        // The first text makes it not empty and gives it a title.
+        store.save(&id, "# Cart\n\nFirst").unwrap();
+        assert!(f.service.remember_drafts(P, read()));
+        // Typing below the title changes neither the title nor the emptiness.
+        store.save(&id, "# Cart\n\nFirst and second").unwrap();
+        assert!(!f.service.remember_drafts(P, read()));
+        store.save(&id, "# Basket\n\nFirst and second").unwrap();
+        assert!(f.service.remember_drafts(P, read()));
+        // Another project has its own memory.
+        assert!(f.service.remember_drafts("fedcba9876543210", read()));
+        // A request that is sent is no draft any more; one that vanishes neither.
+        store.record_sent(&id, "job00001").unwrap();
+        assert!(f.service.remember_drafts(P, read()));
+        let other = written(&f, "Another");
+        assert!(f.service.remember_drafts(P, read()));
+        store.discard(&other).unwrap();
+        assert!(f.service.remember_drafts(P, read()));
+        f.service.forget_drafts(P);
+        assert!(f.service.remember_drafts(P, read()));
     }
 
     #[test]

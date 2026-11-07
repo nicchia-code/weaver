@@ -17,7 +17,7 @@ pub const SCAN: &str = "Scan";
 pub const MERGE: &str = "Merge conflicts";
 
 /// The title of Weaver's own ghost of an import job (`requirements/ui#work`); the job's name stays
-/// `Import`. The title of the ghost of a setup job is the job's name, `Setup`.
+/// `Import`. The ghost of a setup or design job takes the title of the request the job received.
 pub const IMPORT_GHOST_TITLE: &str = "Import from Code";
 
 pub fn run_task(numbers: &ShortNumbers, task: &str) -> String {
