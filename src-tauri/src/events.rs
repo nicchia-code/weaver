@@ -36,6 +36,12 @@ pub enum EventName {
     /// An opening started from the File menu failed: sent only to the window it was chosen from
     /// (or to the welcome window when no window had the focus); see [`crate::windows::menu`].
     MenuOpenFailed,
+    /// The open projects, the recent ones or the jobs that work in a project changed; sent to
+    /// every project window, with the whole list (see [`crate::windows::switcher`]).
+    ProjectSwitcherChanged,
+    /// The branch or the user name of a project's folder changed; sent only to that project's
+    /// window (see [`crate::windows::git_state`]).
+    ProjectGitChanged,
     Notice,
     /// The Jobs list of a project changed; carries the whole list (see [`crate::jobs`]).
     JobsChanged,
@@ -50,6 +56,9 @@ pub enum EventName {
     GeneralChanged,
     /// The conversation of a project's General changed; carries the entries that changed.
     GeneralEntries,
+    /// The cards of questions of a project's Chat changed; carries the whole list (see
+    /// [`crate::general::cards`]).
+    ChatCardsChanged,
     /// An Ask more conversation of a project opened or changed its row (see [`crate::general`]).
     AskChanged,
     /// The conversation of an Ask more conversation changed; carries the entries that changed.
@@ -111,6 +120,8 @@ impl EventName {
             EventName::WindowHideFailed => "window-hide-failed",
             EventName::RecentChanged => "recent-changed",
             EventName::MenuOpenFailed => "menu-open-failed",
+            EventName::ProjectSwitcherChanged => "project-switcher-changed",
+            EventName::ProjectGitChanged => "project-git-changed",
             EventName::Notice => "notice",
             EventName::JobsChanged => "jobs-changed",
             EventName::JobEntries => "job-entries",
@@ -118,6 +129,7 @@ impl EventName {
             EventName::SubAgentEntries => "sub-agent-entries",
             EventName::GeneralChanged => "general-changed",
             EventName::GeneralEntries => "general-entries",
+            EventName::ChatCardsChanged => "chat-cards-changed",
             EventName::AskChanged => "ask-changed",
             EventName::AskEntries => "ask-entries",
             EventName::AskClosed => "ask-closed",

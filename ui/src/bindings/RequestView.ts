@@ -4,4 +4,8 @@ import type { RequestStatus } from "./RequestStatus";
 /**
  * One open request.
  */
-export type RequestView = { id: string, text: string, status: RequestStatus, jobId: string | null, jobName: string | null, returned: boolean, };
+export type RequestView = { id: string, text: string, status: RequestStatus, jobId: string | null, jobName: string | null, returned: boolean, 
+/**
+ * The Model has no Feature and no Actor: a request sent now is a setup request.
+ */
+modelEmpty: boolean, };

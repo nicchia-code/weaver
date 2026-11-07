@@ -22,4 +22,12 @@ created: string, started: string | null, ended: string | null,
 /**
  * The latest note.
  */
-note: string | null, target: string | null, };
+note: string | null, target: string | null, 
+/**
+ * For a setup or design job, the request it received.
+ */
+request: string | null, 
+/**
+ * That request exists and is still sent to this job (`View request` shows only then).
+ */
+requestSent: boolean, };

@@ -32,6 +32,9 @@ use crate::project::text;
 /// The file that records the requests that were sent and the ones that were consumed.
 pub const STATE_FILE: &str = ".state.json";
 
+/// What the title of a request with no heading and no text line shows.
+pub const UNTITLED: &str = "Untitled request";
+
 /// Why an operation on a request failed or was refused. The message is for the developer.
 #[derive(Debug, thiserror::Error)]
 pub enum RequestError {
@@ -63,10 +66,11 @@ pub struct RequestsState {
     pub consumed: Vec<String>,
 }
 
-/// An open request (being written, or sent), as the list of the editor shows it.
+/// An open request (being written, or sent), as the Board's draft cards and the jobs read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestEntry {
     pub id: String,
+    /// The first heading, else the first line, else [`UNTITLED`].
     pub title: String,
     /// The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
     pub created: String,
@@ -205,6 +209,37 @@ impl RequestStore {
         Ok(self.locate(id, &self.state()?).0)
     }
 
+    /// The title the Board's draft card shows for request `id`: its first heading or first line,
+    /// else [`UNTITLED`] (also when the request cannot be read).
+    pub fn display_title(&self, id: &str) -> String {
+        match self.read(id) {
+            Ok(text) => {
+                let title = title::title_of(&text, id);
+                if title == id || title.trim().is_empty() {
+                    UNTITLED.to_owned()
+                } else {
+                    title
+                }
+            }
+            Err(_) => UNTITLED.to_owned(),
+        }
+    }
+
+    /// The requests that are sent to a job now, as `request id -> job id`: not consumed, with
+    /// their file still there. Unreadable state: none.
+    pub fn sent_now(&self) -> BTreeMap<String, String> {
+        let Ok(state) = self.state() else {
+            return BTreeMap::new();
+        };
+        state
+            .sent
+            .into_iter()
+            .filter(|(request, _)| {
+                !state.consumed.iter().any(|c| c == request) && self.file(request).is_file()
+            })
+            .collect()
+    }
+
     // --- the requests ---
 
     /// The open requests (writing or sent), newest first. A consumed id is never
@@ -245,7 +280,7 @@ impl RequestStore {
             };
             entries.push(RequestEntry {
                 id: request.to_owned(),
-                title: title::title_of(&content, request),
+                title: title::title_of(&content, UNTITLED),
                 created: created.iso(),
                 state: listed,
                 job_id,
@@ -423,6 +458,35 @@ impl RequestStore {
             RequestState::Sent => self.apply_deleted(id),
             RequestState::Consumed | RequestState::Discarded | RequestState::NotWritten => Ok(()),
         }
+    }
+
+    /// `developer.LEAVE_REQUEST` (`closing` false) or `window.CLOSED` (`closing` true) on request
+    /// `id`: discards it, with its images, only when it is in writing and its file is empty after
+    /// trimming, checked here on the file. Anything else is left as it is. Returns whether the
+    /// request was discarded.
+    pub fn discard_if_empty(&self, id: &str, closing: bool) -> Result<bool, RequestError> {
+        self.checked(id)?;
+        let state = self.state()?;
+        let (located, _) = self.locate(id, &state);
+        if located != RequestState::Writing {
+            return Ok(false);
+        }
+        let empty = match self.read(id) {
+            Ok(content) => title::is_empty(&content),
+            Err(RequestError::Gone) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let event = if closing {
+            RequestEvent::WindowClosed { empty }
+        } else {
+            RequestEvent::LeaveRequest { empty }
+        };
+        let outcome = step(located, event);
+        if outcome.effect != Effect::DeleteFiles {
+            return Ok(false);
+        }
+        self.delete_files(id)?;
+        Ok(true)
     }
 
     /// `proposal.SUBMITTED` of a Proposal bound to request `id`: the first one consumes the
@@ -716,7 +780,7 @@ mod tests {
             list.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
             [blank.as_str(), sent.as_str(), old.as_str()]
         );
-        assert_eq!(list[0].title, blank);
+        assert_eq!(list[0].title, UNTITLED);
         assert!(list[0].empty);
         assert_eq!(
             (
@@ -1099,6 +1163,38 @@ mod tests {
     }
 
     #[test]
+    fn leaving_or_closing_discards_only_an_empty_request_in_writing() {
+        let (dir, store) = store();
+        let folder = dir.path().join(".weaver/requests");
+        let blank = store.create(&at(1)).unwrap();
+        let spaces = written(&store, 2, "  \n \n");
+        let typed = written(&store, 3, "x");
+        let sent = written(&store, 4, "y");
+        store.record_sent(&sent, "jjjjjjjj").unwrap();
+        let images_only = written(&store, 5, "");
+        let link = store.add_image(&images_only, &PNG).unwrap();
+        store
+            .save(&images_only, &format!("![]({link})"))
+            .unwrap();
+        let with_folder = store.create(&at(6)).unwrap();
+        store.add_image(&with_folder, &PNG).unwrap();
+
+        assert!(store.discard_if_empty(&blank, false).unwrap());
+        assert!(store.discard_if_empty(&spaces, true).unwrap());
+        assert!(store.discard_if_empty(&with_folder, false).unwrap());
+        assert!(!folder.join(format!("{with_folder}.images")).exists());
+        assert_eq!(store.state_of(&blank).unwrap(), RequestState::Discarded);
+        for kept in [&typed, &sent, &images_only] {
+            assert!(!store.discard_if_empty(kept, false).unwrap());
+            assert!(!store.discard_if_empty(kept, true).unwrap());
+            assert!(folder.join(format!("{kept}.md")).is_file());
+        }
+        // Already gone: nothing to do.
+        assert!(!store.discard_if_empty(&blank, false).unwrap());
+        assert_eq!(store.state_of(&sent).unwrap(), RequestState::Sent);
+    }
+
+    #[test]
     fn images_are_saved_with_the_next_free_number() {
         let (_dir, store) = store();
         let id = written(&store, 9, "x");
@@ -1237,6 +1333,41 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn the_display_title_is_the_one_of_the_draft_card_and_else_untitled_request() {
+        let (_dir, store) = store();
+        let headed = written(&store, 1, "Intro\n\n# The real title\n");
+        let lined = written(&store, 2, "\n  First line \nmore");
+        let blank = written(&store, 3, "  \n");
+        assert_eq!(store.display_title(&headed), "The real title");
+        assert_eq!(store.display_title(&lined), "First line");
+        assert_eq!(store.display_title(&blank), "Untitled request");
+        assert_eq!(store.display_title("2026-11-02T07-05-59"), "Untitled request");
+    }
+
+    #[test]
+    fn the_requests_sent_now_have_their_file_and_are_not_consumed() {
+        let (dir, store) = store();
+        let kept = written(&store, 1, "kept");
+        let gone = written(&store, 2, "gone");
+        store.record_sent(&kept, "jjjjjjjj").unwrap();
+        store.record_sent(&gone, "kkkkkkkk").unwrap();
+        assert_eq!(
+            store.sent_now().into_iter().collect::<Vec<_>>(),
+            [
+                (kept.clone(), "jjjjjjjj".to_owned()),
+                (gone.clone(), "kkkkkkkk".to_owned())
+            ]
+        );
+        fs::remove_file(dir.path().join(format!(".weaver/requests/{gone}.md"))).unwrap();
+        assert_eq!(
+            store.sent_now().into_iter().collect::<Vec<_>>(),
+            [(kept.clone(), "jjjjjjjj".to_owned())]
+        );
+        store.consume(&kept).unwrap();
+        assert!(store.sent_now().is_empty());
     }
 
     #[test]

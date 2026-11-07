@@ -39,7 +39,7 @@ function PathCard({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors duration-150 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none"
+      className="flex flex-1 flex-col items-start gap-2 rounded-lg p-4 text-left shadow-ring transition-colors duration-150 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none"
     >
       <span className="flex items-center gap-2 font-medium">
         <Icon aria-hidden className="size-4" />
@@ -53,12 +53,12 @@ function PathCard({
 /** The omp status box while omp is not ready: no job starts without it. */
 function OmpNotReady() {
   const { status } = useOmp();
-  return status?.state === "ready" ? null : <OmpSetup providers="when-needed" />;
+  return status?.state === "ready" ? null : <OmpSetup place="elsewhere" providers="when-needed" />;
 }
 
 function Paths({ onImport }: { onImport: () => void }) {
   const { status } = useProjectStatus();
-  const { newRequest } = useRequests();
+  const { startFromScratch } = useRequests();
   return (
     <>
       <div className="flex flex-col gap-3 min-[640px]:flex-row">
@@ -66,7 +66,7 @@ function Paths({ onImport }: { onImport: () => void }) {
           icon={Sparkles}
           title="Start from Scratch"
           text="For an application still to be built: you describe it, an agent designs it."
-          onClick={newRequest}
+          onClick={startFromScratch}
         />
         <PathCard
           icon={FolderCode}
@@ -77,7 +77,7 @@ function Paths({ onImport }: { onImport: () => void }) {
       </div>
       {status?.folderHasFiles ? (
         <p className="flex items-center gap-2 text-sm">
-          <TriangleAlert aria-hidden className={`size-4 shrink-0 ${TONE_TEXT.amber}`} />
+          <TriangleAlert aria-hidden className={`size-4 shrink-0 ${TONE_TEXT.peach}`} />
           Start from Scratch ignores the files already in this folder unless your request mentions them.
         </p>
       ) : null}

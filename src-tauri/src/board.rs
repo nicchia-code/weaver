@@ -12,6 +12,7 @@
 //! it already shows.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -24,6 +25,7 @@ use weaver_core::project::history;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::proposal::files::{self, Folders};
 use weaver_core::project::proposal::models::ProposalModels;
+use weaver_core::project::requests::RequestStore;
 use weaver_core::project::shortnum::{self, ShortNumbers};
 use weaver_core::project::tasks::{self, Blocking};
 
@@ -35,6 +37,7 @@ use crate::error::AppError;
 use crate::events;
 use crate::pictures::{Pictures, SLICE_BOARD};
 use crate::proposal_view::{self, ProposalView};
+use crate::requests::{self, Draft, RequestsService};
 use crate::state::AppState;
 
 /// A card named in another card (`Origin of open Drift D3`, `Waiting for T7`).
@@ -138,8 +141,8 @@ pub enum BoardCard {
         head: CardHead,
         /// In progress (no Delete) rather than To do.
         doing: bool,
-        /// A working job holds it (`Agent working`, the rotating border).
-        held_by_agent: bool,
+        /// The working job that holds it (`Agent working`, the rotating border, `Open job`).
+        held_by: Option<String>,
         /// Names no Model element.
         technical: bool,
         /// What it refers to, as written in its file.
@@ -154,6 +157,21 @@ pub enum BoardCard {
         run_reasons: Vec<String>,
         /// Why Delete is disabled, one reason per line in the fixed order; empty = Delete works.
         delete_reasons: Vec<String>,
+    },
+    /// A request being written: a draft card of Backlog, after the open Proposals and Drifts and
+    /// oldest first (`requirements/tech#design-request`). It has no head: it has no short number
+    /// and no body, and no details dialog.
+    Request {
+        /// The id of the request, the local time of its creation.
+        id: String,
+        /// The first heading, else the first line, else `Untitled request`.
+        title: String,
+        /// The local time of creation, `YYYY-MM-DDTHH:MM:SS`.
+        created: String,
+        /// Nothing is left of its text after removing whitespace: `Send` is disabled.
+        empty: bool,
+        /// It came back to `Writing` because its job ended without a Proposal.
+        returned: bool,
     },
 }
 
@@ -206,7 +224,7 @@ pub(crate) fn body_after_title(card: &Card) -> String {
     }
 }
 
-fn head(numbers: &ShortNumbers, facts: &AgentFacts, card: &Card) -> CardHead {
+pub(crate) fn head(numbers: &ShortNumbers, facts: &AgentFacts, card: &Card) -> CardHead {
     CardHead {
         id: card.id.clone(),
         short_number: short_of(numbers, card.kind, &card.id),
@@ -334,7 +352,7 @@ fn active_card(
     Some(BoardCard::Task {
         head: head(numbers, facts, task),
         doing: entry.doing,
-        held_by_agent: facts.holds(task),
+        held_by: facts.holder(task).map(str::to_owned),
         technical: tasks::is_technical(task),
         refs: tasks::refs_of(task),
         label: tasks::proposal_label(image, task),
@@ -354,7 +372,9 @@ fn active_card(
 }
 
 /// The Board of `image`, worked out whole. `root` is where the short-number cache is read (it is
-/// never written here).
+/// never written here). `drafts` are the requests being written: their cards come last in
+/// Backlog, after the Proposals and the Drifts, in the order given.
+#[allow(clippy::too_many_arguments)]
 pub fn snapshot(
     project_id: &str,
     revision: u64,
@@ -363,6 +383,7 @@ pub fn snapshot(
     facts: &AgentFacts,
     ghosts: Vec<Ghost>,
     models: &ProposalModels,
+    drafts: Vec<Draft>,
 ) -> BoardSnapshot {
     let numbers = shortnum::peek(root, image.cards());
     let computed = board::compute(image, facts);
@@ -374,6 +395,13 @@ pub fn snapshot(
             .backlog
             .iter()
             .filter_map(|e| backlog_card(image, &numbers, facts, &folders, models, e))
+            .chain(drafts.into_iter().map(|draft| BoardCard::Request {
+                id: draft.id,
+                title: draft.title,
+                created: draft.created,
+                empty: draft.empty,
+                returned: draft.returned,
+            }))
             .collect(),
         active: computed
             .active
@@ -415,13 +443,19 @@ pub fn publish_agent_change(
     events::emit_project_changed(app, &revision.event())
 }
 
-/// The whole Board of an open project.
+/// The whole Board of an open project. The ghosts and the requests being written are read together
+/// (the draft of a request is never on the same Board as the ghost of the job it started), and the
+/// requests whose job ended while the app was closed are brought back to `Writing` before the
+/// first Board of a window.
 #[tauri::command]
 pub async fn board_snapshot(
     state: State<'_, AppState>,
+    service: State<'_, Arc<RequestsService>>,
     project_id: String,
 ) -> Result<BoardSnapshot, AppError> {
     let picture = state.pictures.get(&project_id)?;
+    let service = service.inner().clone();
+    requests::bring_up_to_date(&state, &service, &project_id, &picture.root).await;
     let work = state.agent_work.get();
     let name = picture
         .root
@@ -429,8 +463,22 @@ pub async fn board_snapshot(
         .map(|n| n.to_string_lossy().into_owned());
     let dirs = state.dirs.clone();
     blocking::disk_named("board snapshot", name, move || {
+        let _gate = service.board_read();
         let facts = work.facts(&project_id);
         let ghosts = work.ghosts(&project_id);
+        let ghost_jobs = ghosts.iter().map(|ghost| ghost.job_id.clone()).collect();
+        let drafts = match service.drafts(
+            &project_id,
+            &RequestStore::new(&picture.root),
+            &ghost_jobs,
+        ) {
+            Ok(drafts) => drafts,
+            Err(error) => {
+                crate::log_warn!("the requests of a project could not be listed: {error}");
+                Vec::new()
+            }
+        };
+        service.remember_drafts(&project_id, drafts.clone());
         let mut models = ProposalModels::load(&dirs, &project_id);
         models.prune(&picture.image);
         snapshot(
@@ -441,6 +489,7 @@ pub async fn board_snapshot(
             &facts,
             ghosts,
             &models,
+            drafts,
         )
     })
     .await
@@ -507,6 +556,7 @@ mod tests {
             &finishing(),
             vec![ghost.clone()],
             &ProposalModels::default(),
+            Vec::new(),
         );
         assert_eq!((board.revision, board.done_since_last_scan), (7, 2));
         assert_eq!(board.ghosts, vec![ghost]);
@@ -530,10 +580,12 @@ mod tests {
             blocked_by,
             delete_reasons,
             doing: false,
+            held_by: first_holder,
             ..
         }, BoardCard::Task {
             head: second,
             doing: true,
+            held_by: second_holder,
             delete_reasons: none,
             ..
         }] = board.active.as_slice()
@@ -561,6 +613,11 @@ mod tests {
         );
         assert!(none.is_empty(), "a Task in progress has no Delete");
         assert_eq!(
+            (first_holder.as_deref(), second_holder.as_deref()),
+            (None, Some("jjjjjjjj")),
+            "the job that holds a Task is named, a Task nobody holds has none"
+        );
+        assert_eq!(
             board.run_all_reasons,
             ["All the Tasks in To do are blocked"]
         );
@@ -579,6 +636,7 @@ mod tests {
             &AgentFacts::default(),
             Vec::new(),
             &ProposalModels::default(),
+            Vec::new(),
         );
         let json = serde_json::to_value(&board).unwrap();
         let task = &json["active"][0];
@@ -586,6 +644,7 @@ mod tests {
         assert_eq!(task["head"]["shortNumber"], "T1");
         assert_eq!(task["head"]["agentFinishing"], false);
         assert_eq!(task["blockedBy"], serde_json::json!([]));
+        assert_eq!(task["heldBy"], serde_json::Value::Null);
         assert_eq!(json["runAllReasons"], serde_json::json!([]));
         assert_eq!(json["doneSinceLastScan"], 0);
     }
@@ -608,6 +667,7 @@ mod tests {
             &AgentFacts::default(),
             Vec::new(),
             &ProposalModels::default(),
+            Vec::new(),
         );
         assert_eq!(board.warnings.len(), 1);
         assert!(
@@ -641,11 +701,62 @@ mod tests {
             &AgentFacts::default(),
             Vec::new(),
             &ProposalModels::default(),
+            Vec::new(),
         );
         let [BoardCard::Proposal { head, standing, .. }] = board.backlog.as_slice() else {
             panic!("{:?}", board.backlog)
         };
         assert_eq!(head.id, "qqqqqqqq");
         assert_eq!(*standing, ProposalStanding::Interrupted);
+    }
+
+    #[test]
+    fn the_drafts_come_last_in_backlog_oldest_first_and_serialize_as_request_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "drifts/dddddddd-a-drift.md", DRIFT);
+        let image = ProjectImage::load(dir.path());
+        let draft = |id: &str, title: &str, empty: bool, returned: bool| Draft {
+            id: id.into(),
+            title: title.into(),
+            created: format!("{id}-created"),
+            empty,
+            returned,
+        };
+        let board = snapshot(
+            "0123456789abcdef",
+            1,
+            dir.path(),
+            &image,
+            &AgentFacts::default(),
+            Vec::new(),
+            &ProposalModels::default(),
+            vec![
+                draft("2026-11-02T09-00-00", "Older", false, true),
+                draft("2026-11-02T10-00-00", "Untitled request", true, false),
+            ],
+        );
+        let kinds: Vec<&str> = board
+            .backlog
+            .iter()
+            .map(|card| match card {
+                BoardCard::Drift { .. } => "drift",
+                BoardCard::Request { .. } => "request",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["drift", "request", "request"]);
+        let json = serde_json::to_value(&board).unwrap();
+        assert_eq!(
+            json["backlog"][1],
+            serde_json::json!({
+                "kind": "request",
+                "id": "2026-11-02T09-00-00",
+                "title": "Older",
+                "created": "2026-11-02T09-00-00-created",
+                "empty": false,
+                "returned": true,
+            })
+        );
+        assert_eq!(json["backlog"][2]["empty"], true);
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-request-leave"
+description = "Enables the request_leave command without any pre-configured scope."
+commands.allow = ["request_leave"]
+
+[[permission]]
+identifier = "deny-request-leave"
+description = "Denies the request_leave command without any pre-configured scope."
+commands.deny = ["request_leave"]

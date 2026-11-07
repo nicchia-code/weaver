@@ -1,17 +1,23 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { BoardCard } from "@/bindings/BoardCard";
 import type { BoardSnapshot } from "@/bindings/BoardSnapshot";
+import type { JobRow } from "@/bindings/JobRow";
+import type { ViewSnapshot } from "@/bindings/ViewSnapshot";
 import { BoardProvider } from "@/components/board/board-state";
 import { BoardActionsContext, type BoardActions } from "@/components/board/board-ui";
 import { BoardView } from "@/components/board/board-view";
+import { JobsProvider } from "@/components/jobs/use-jobs";
 import { ProjectContext } from "@/components/project-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on } from "@/lib/backend";
-import { leftBorderClass } from "@/lib/label-colour";
 import { driftView } from "@/components/board/drift-fixtures";
+import { useViews, ViewsProvider } from "@/components/views/views-state";
+import { snapshot as viewSnapshot } from "@/components/views/view-fixtures";
+import type { ViewId } from "@/views";
 
 vi.mock("@/lib/backend", () => ({
   call: vi.fn(),
@@ -27,12 +33,12 @@ function head(id: string, shortNumber: string | null, title: string, body = "") 
 
 type TaskCard = Extract<BoardCard, { kind: "task" }>;
 
-function task(id: string, shortNumber: string | null, title: string, patch: Partial<TaskCard> = {}): BoardCard {
+function task(id: string, shortNumber: string | null, title: string, patch: Partial<TaskCard> = {}): TaskCard {
   return {
     kind: "task",
     head: head(id, shortNumber, title),
     doing: false,
-    heldByAgent: false,
+    heldBy: null,
     technical: false,
     refs: [],
     label: null,
@@ -63,21 +69,52 @@ function snapshot(patch: Partial<BoardSnapshot>): BoardSnapshot {
   };
 }
 
-async function show(board: BoardSnapshot, actions: BoardActions = {}) {
+interface Extras {
+  /** The jobs of the project: wraps the Board in a `JobsProvider`. */
+  jobs?: JobRow[];
+  /** The views' snapshot: wraps the Board in a `ViewsProvider`, whose own `viewOn` and `focusSteps` replace the actions given. */
+  views?: ViewSnapshot;
+  openJob?: (jobId: string) => void;
+  showView?: (view: string) => void;
+  /** Rendered beside the Board, inside the providers. */
+  probe?: ReactNode;
+}
+
+function job(id: string, name: string, patch: Partial<JobRow> = {}): JobRow {
+  return { id, kind: "run", name, state: "running", reason: null, created: "2026-11-02T07:00:00.000Z", started: null, ended: null, note: null, target: null, request: null, requestSent: false, ...patch };
+}
+
+/** Tells the subject of the focus the Requirements were last opened on. */
+function FocusProbe() {
+  const { focus } = useViews();
+  return <output aria-label="Focus subject" data-subject={JSON.stringify(focus.requirements?.subject ?? null)} />;
+}
+
+async function show(board: BoardSnapshot, actions: BoardActions = {}, extras: Extras = {}) {
   vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as unknown as typeof on);
   vi.mocked(call).mockImplementation(((name: string) => {
     if (name === "board_snapshot") return Promise.resolve(board);
+    if (name === "jobs_snapshot") return Promise.resolve({ projectId: PROJECT, jobs: extras.jobs ?? [], ompReady: true });
+    if (name === "view_snapshot") return Promise.resolve(extras.views ?? viewSnapshot());
     if (name === "delete_task") return Promise.resolve(null);
     return Promise.reject(new Error(`unexpected command ${name}`));
   }) as unknown as typeof call);
+  let tree = (
+    <>
+      <BoardProvider projectId={PROJECT}>
+        <BoardView />
+      </BoardProvider>
+      {extras.probe}
+    </>
+  );
+  if (extras.jobs) tree = <JobsProvider projectId={PROJECT}>{tree}</JobsProvider>;
+  if (extras.views) tree = <ViewsProvider projectId={PROJECT}>{tree}</ViewsProvider>;
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
-        <BoardActionsContext.Provider value={actions}>
-          <BoardProvider projectId={PROJECT}>
-            <BoardView />
-          </BoardProvider>
-        </BoardActionsContext.Provider>
+      <ProjectContext.Provider
+        value={{ projectId: PROJECT, showView: (extras.showView ?? vi.fn()) as (view: ViewId) => void, openJob: extras.openJob ?? vi.fn(), openedJob: null, openedJobRequest: 0 }}
+      >
+        <BoardActionsContext.Provider value={actions}>{tree}</BoardActionsContext.Provider>
       </ProjectContext.Provider>
     </TooltipProvider>,
   );
@@ -100,22 +137,152 @@ beforeEach(() => {
 });
 
 describe("the card of a Task", () => {
-  it("shows the status dot with its name: To do, In progress, Agent working", async () => {
+  it("shows the status as a pill with its name: To do neutral with a hollow ring, In progress and Agent working in Sky", async () => {
     await show(
       snapshot({
         active: [
           task("aaaaaaaa", "T1", "First"),
           task("bbbbbbbb", "T2", "Second", { doing: true }),
-          task("cccccccc", "T3", "Third", { doing: true, heldByAgent: true }),
+          task("cccccccc", "T3", "Third", { doing: true, heldBy: "jjjjjjjj" }),
         ],
       }),
     );
-    const names = within(active())
-      .getAllByRole("img")
-      .map((img) => img.getAttribute("aria-label"))
-      .filter((name) => ["To do", "In progress", "Agent working"].includes(name ?? ""));
-    expect(names).toEqual(["To do", "In progress", "Agent working"]);
+    const pill = (id: string) => within(active().querySelector<HTMLElement>(`[data-card-id="${id}"]`)!).getByRole("img", { name: /To do|In progress|Agent working/ });
+    expect(pill("aaaaaaaa")).toHaveAttribute("aria-label", "To do");
+    expect(pill("aaaaaaaa")).toHaveClass("bg-muted");
+    expect(pill("aaaaaaaa").firstElementChild).toHaveClass("border");
+    expect(pill("bbbbbbbb")).toHaveAttribute("aria-label", "In progress");
+    expect(pill("bbbbbbbb")).toHaveClass("bg-sky-tint");
+    expect(pill("bbbbbbbb").firstElementChild).toHaveClass("bg-sky");
+    expect(pill("cccccccc")).toHaveAttribute("aria-label", "Agent working");
+    expect(pill("cccccccc")).toHaveClass("bg-sky-tint");
   });
+
+  it("tells the status in a tooltip", async () => {
+    const user = userEvent.setup();
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First")] }));
+    await user.hover(within(active()).getByRole("img", { name: "To do" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("To do");
+  });
+
+  it("puts the id, the label in Muted and the status in one row, then the title and the first paragraph of the body in plain text", async () => {
+    const card = task("aaaaaaaa", "T1", "Simplify with omp", { label: "omp ACP" });
+    const body = "The worker starts `omp acp`\nas a **child** process.\n\nA second paragraph that does not show.";
+    await show(snapshot({ active: [{ ...card, head: { ...card.head, body } } as BoardCard] }));
+    const frame = active().querySelector<HTMLElement>('[data-card-id="aaaaaaaa"]')!;
+    const row = frame.firstElementChild as HTMLElement;
+    expect(within(row).getByRole("img", { name: "Short number (temporary) T1" })).toBeInTheDocument();
+    expect(within(row).getByText("omp ACP")).toHaveClass("text-muted-foreground");
+    expect(within(row).getByRole("img", { name: "To do" })).toBeInTheDocument();
+    expect(within(frame).getByRole("heading", { level: 3 })).toHaveClass("text-[15px]", "font-semibold");
+    const summary = within(frame).getByText("The worker starts omp acp as a child process.");
+    expect(summary).toHaveClass("line-clamp-3", "text-ink-2");
+    expect(frame).not.toHaveTextContent("second paragraph");
+  });
+
+  it("shows no summary for a Task without text, and no phase of the work", async () => {
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First")] }));
+    const frame = active().querySelector<HTMLElement>('[data-card-id="aaaaaaaa"]')!;
+    expect(frame.querySelector("p")).toBeNull();
+    expect(within(frame).queryByRole("list", { name: "Progress" })).not.toBeInTheDocument();
+  });
+
+  it("ends with a footer after a rule: `View requirements` and `Run`, and no `Open job` while no job holds it", async () => {
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First", { refs: ["order/Paid"] })] }), { viewOn: vi.fn(), focusSteps: () => 1 });
+    const footer = active().querySelector<HTMLElement>("[data-card-controls]")!;
+    expect(footer).toHaveClass("border-t");
+    expect(within(footer).getAllByRole("button").map((button) => button.textContent)).toEqual(["View requirements", "Run"]);
+    expect(within(active()).queryByRole("button", { name: "Open job" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the card of a Task a job holds", () => {
+  const held = (patch: Partial<TaskCard> = {}) => task("cccccccc", "T3", "Held", { doing: true, heldBy: "jjjjjjjj", ...patch });
+  const frame = () => active().querySelector<HTMLElement>('[data-card-id="cccccccc"]')!;
+
+  it("shows in the footer the name of that job, `View requirements` and `Open job` instead of `Run`", async () => {
+    await show(snapshot({ active: [held({ refs: ["order/Paid"] })] }), { viewOn: vi.fn(), focusSteps: () => 1 }, { jobs: [job("jjjjjjjj", "Run T3")] });
+    const footer = frame().querySelector<HTMLElement>("[data-card-controls]")!;
+    expect(await within(footer).findByText("Run T3")).toBeInTheDocument();
+    expect(within(footer).getAllByRole("button").map((button) => button.textContent)).toEqual(["View requirements", "Open job"]);
+    expect(within(footer).queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
+  });
+
+  it("`Open job` shows Jobs with that job selected", async () => {
+    const user = userEvent.setup();
+    const openJob = vi.fn();
+    await show(snapshot({ active: [held()] }), {}, { jobs: [job("jjjjjjjj", "Run T3")], openJob });
+    await user.click(within(frame()).getByRole("button", { name: "Open job" }));
+    expect(openJob).toHaveBeenCalledWith("jjjjjjjj");
+  });
+
+  it("says `Agent working · <running time of that job>`, which ticks every second, and keeps the rotating border", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-02T08:00:00.000Z"));
+      const started = new Date("2026-11-02T07:57:44.000Z").toISOString();
+      await show(snapshot({ active: [held()] }), {}, { jobs: [job("jjjjjjjj", "Run T3", { started })] });
+      const pill = () => within(frame()).getByRole("img", { name: /^Agent working/ });
+      await waitFor(() => expect(pill()).toHaveAttribute("aria-label", "Agent working · 2m 16s"));
+      expect(frame()).toHaveClass("task-held");
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(pill()).toHaveAttribute("aria-label", "Agent working · 2m 17s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says only `Agent working` while the job has no session yet, and still names the job's Task", async () => {
+    await show(snapshot({ active: [held()] }), {}, { jobs: [job("jjjjjjjj", "Run T3", { state: "queued" })] });
+    expect(within(frame()).getByRole("img", { name: "Agent working" })).toBeInTheDocument();
+  });
+});
+
+describe("the file chips of a Task card", () => {
+  it("shows one chip per Requirements fragment and Specs field the refs name, in monospace, each opening the single-ref focus of the first ref it stands for", async () => {
+    const user = userEvent.setup();
+    const showView = vi.fn();
+    await show(
+      snapshot({ active: [task("aaaaaaaa", "T1", "First", { technical: true, refs: ["order", "requirements/orders#order", "specs#languages"] })] }),
+      {},
+      { views: viewSnapshot(), showView },
+    );
+    const frame = active().querySelector<HTMLElement>("[data-card-id]")!;
+    const checkout = await within(frame).findByRole("button", { name: "View requirements: checkout.md" });
+    expect(checkout).toHaveClass("font-mono");
+    expect(checkout).toHaveTextContent("checkout.md");
+    const specs = within(frame).getByRole("button", { name: "View specs: specs.yaml" });
+    expect(within(frame).getByText("technical")).toBeInTheDocument();
+    await user.click(checkout);
+    expect(showView).toHaveBeenLastCalledWith("requirements");
+    await user.click(specs);
+    expect(showView).toHaveBeenLastCalledWith("specs");
+  });
+
+  it("opens the single-ref focus of the first reference the chip stands for", async () => {
+    const user = userEvent.setup();
+    const probe = <FocusProbe />;
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First", { refs: ["order/Paid", "order", "requirements/orders#order"] })] }), {}, { views: viewSnapshot(), probe });
+    await user.click(await within(active()).findByRole("button", { name: "View requirements: checkout.md" }));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Focus subject" }).getAttribute("data-subject")).toBe(JSON.stringify({ kind: "ref", ref: "order" })));
+  });
+
+  it("shows no chip for a Task that names no file, nor without the views' snapshot", async () => {
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First", { refs: ["order/Paid"] }), task("bbbbbbbb", "T2", "Second", { refs: ["order"] })] }), {}, { views: viewSnapshot() });
+    await within(active()).findByRole("button", { name: "View requirements: checkout.md" });
+    const first = active().querySelector<HTMLElement>('[data-card-id="aaaaaaaa"]')!;
+    expect(within(first).queryByRole("button", { name: /^View (requirements|specs): / })).not.toBeInTheDocument();
+  });
+
+  it("shows no chip when no provider holds the Requirements", async () => {
+    await show(snapshot({ active: [task("aaaaaaaa", "T1", "First", { refs: ["order"] })] }));
+    expect(within(active()).queryByRole("button", { name: /^View (requirements|specs): / })).not.toBeInTheDocument();
+  });
+});
+
+describe("the badges and the border of a Task card", () => {
 
   it("shows technical, blocked and waiting badges, and the label badge, with their names", async () => {
     await show(
@@ -140,19 +307,20 @@ describe("the card of a Task", () => {
     expect(card.getByText("Checkout")).toBeInTheDocument();
   });
 
-  it("has a left border in the label's colour, the border token outside a design, and the rotating border while held", async () => {
+  it("has no coloured border for the label, and the rotating border only while held", async () => {
     await show(
       snapshot({
         active: [
           task("aaaaaaaa", "T1", "Labelled", { label: "Checkout" }),
           task("bbbbbbbb", "T2", "Plain"),
-          task("cccccccc", "T3", "Held", { doing: true, heldByAgent: true }),
+          task("cccccccc", "T3", "Held", { doing: true, heldBy: "jjjjjjjj" }),
         ],
       }),
     );
     const frame = (id: string) => active().querySelector<HTMLElement>(`[data-card-id="${id}"]`)!;
-    for (const name of leftBorderClass("Checkout").split(" ")) expect(frame("aaaaaaaa")).toHaveClass(name);
-    for (const name of leftBorderClass(null).split(" ")) expect(frame("bbbbbbbb")).toHaveClass(name);
+    for (const id of ["aaaaaaaa", "bbbbbbbb", "cccccccc"]) expect(frame(id).className).not.toMatch(/border-l-/);
+    expect(within(frame("aaaaaaaa")).getByText("Checkout")).toHaveClass("text-muted-foreground");
+    expect(within(frame("aaaaaaaa")).getByText("Checkout").className).not.toMatch(/-ink|border-(sky|sage|peach|lavender|rose)/);
     expect(frame("cccccccc")).toHaveClass("task-held");
     expect(frame("aaaaaaaa")).not.toHaveClass("task-held");
     expect(frame("bbbbbbbb")).not.toHaveClass("task-held");
@@ -232,7 +400,7 @@ describe("Run", () => {
 });
 
 describe("the details of a Task", () => {
-  const details = async (card: BoardCard, actions: BoardActions = {}) => {
+  const details = async (card: TaskCard, actions: BoardActions = {}) => {
     const user = userEvent.setup();
     await show(snapshot({ active: [card] }), actions);
     await user.click(within(active()).getByRole("button", { name: card.head.title }));
@@ -258,7 +426,7 @@ describe("the details of a Task", () => {
 
   it("shows the status, the references as chips and the text", async () => {
     const card = task("aaaaaaaa", "T1", "First", { refs: ["order/Paid", "user"], label: "Checkout" });
-    const withBody = { ...card, head: { ...card.head, body: "Carry out the **cart**." } } as BoardCard;
+    const withBody = { ...card, head: { ...card.head, body: "Carry out the **cart**." } } as TaskCard;
     const { dialog } = await details(withBody);
     expect(dialog).toHaveTextContent("To do");
     expect(dialog).toHaveTextContent("Carry out the cart.");
@@ -310,7 +478,7 @@ describe("the details of a Task", () => {
   });
 
   it("has no Delete once the Task is in progress, and shows `Run` with the agent's reason", async () => {
-    const { dialog } = await details(task("aaaaaaaa", "T1", "First", { doing: true, heldByAgent: true, runReasons: ["The agent is working on it"] }));
+    const { dialog } = await details(task("aaaaaaaa", "T1", "First", { doing: true, heldBy: "jjjjjjjj", runReasons: ["The agent is working on it"] }));
     expect(dialog).toHaveTextContent("Agent working");
     expect(within(dialog).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
     expect(reasonsOf(within(dialog).getByRole("button", { name: "Run" }))).toEqual(["The agent is working on it"]);

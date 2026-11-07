@@ -57,7 +57,7 @@ function task(runReasons: string[]): BoardCard {
     kind: "task",
     head: { id: "tttttttt", shortNumber: "T1", title: "Write the cart", body: "", created: "2026-11-02T07:00:00.000Z", agentFinishing: false },
     doing: false,
-    heldByAgent: false,
+    heldBy: null,
     technical: false,
     refs: [],
     label: null,
@@ -69,7 +69,7 @@ function task(runReasons: string[]): BoardCard {
 }
 
 function mergeJob(state: JobRow["state"]): JobRow {
-  return { id: "jjjjjjjj", kind: "merge", name: "Merge conflicts", state, reason: null, created: "2026-11-05T10:00:00.000Z", started: null, ended: null, note: null, target: null };
+  return { id: "jjjjjjjj", kind: "merge", name: "Merge conflicts", state, reason: null, created: "2026-11-05T10:00:00.000Z", started: null, ended: null, note: null, target: null, request: null, requestSent: false };
 }
 
 let calls: Array<[string, unknown]>;
@@ -124,7 +124,7 @@ function install(merge?: MergeStatus) {
 async function show(actions: BoardActions = {}) {
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <BoardActionsContext.Provider value={actions}>
           <ProjectStatusProvider projectId={PROJECT}>
             <BoardProvider projectId={PROJECT}>
@@ -178,7 +178,8 @@ describe("the Merge button", () => {
     const button = await mergeButton();
     expect(button).not.toHaveAttribute("aria-disabled");
     const buttons = within(header()).getAllByRole("button").map((b) => b.textContent);
-    expect(buttons).toEqual(["Merge", "Scan System"]);
+    expect(buttons.slice(0, 2)).toEqual(["Merge", "Scan System"]);
+    expect(buttons[2]).toMatch(/^Run all/);
     await userEvent.setup().hover(button);
     expect((await screen.findAllByText("Merge another branch into main"))[0]).toBeInTheDocument();
   });
@@ -474,7 +475,7 @@ describe("the other controls during a merge", () => {
     install(conflicts(2));
     snapshot = board({ runAllReasons: ["A merge is in progress", "Drifts are being resolved"], active: [task(["The agent is still finishing", "A merge is in progress", "Drifts are being resolved"])] });
     await show();
-    const runAll = await screen.findByRole("button", { name: "Run all" });
+    const runAll = await screen.findByRole("button", { name: /^Run all/ });
     expect(reasonsOf(runAll)).toEqual(["A merge is in progress", "Drifts are being resolved"]);
     const run = await screen.findByRole("button", { name: "Run" });
     expect(reasonsOf(run)).toEqual(["The agent is still finishing", "A merge is in progress", "Drifts are being resolved"]);

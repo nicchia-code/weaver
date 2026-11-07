@@ -21,14 +21,14 @@ vi.mock("@/lib/backend", () => ({
 const mocks = vi.hoisted(() => ({
   jobs: [] as unknown[],
   backlog: [] as unknown[],
-  newRequest: vi.fn(),
+  startFromScratch: vi.fn(),
   omp: { state: "ready" } as { state: string } | null,
 }));
 vi.mock("@/components/jobs/use-jobs", () => ({ useJobs: () => ({ jobs: mocks.jobs }) }));
 vi.mock("@/components/board/board-state", () => ({ useBoard: () => ({ snapshot: { backlog: mocks.backlog } }) }));
-vi.mock("@/components/requests/use-requests", () => ({ useRequests: () => ({ newRequest: mocks.newRequest }) }));
+vi.mock("@/components/requests/use-requests", () => ({ useRequests: () => ({ startFromScratch: mocks.startFromScratch }) }));
 vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: mocks.omp }) }));
-vi.mock("@/components/omp-status", () => ({ OmpSetup: () => <div role="status">omp is not ready</div> }));
+vi.mock("@/components/omp-status", () => ({ OmpSetup: () => <div role="status">the agent is not ready</div> }));
 
 const PROJECT = "0123456789abcdef";
 
@@ -43,9 +43,11 @@ const job = (kind: JobRow["kind"], state: JobRow["state"]): JobRow => ({
   ended: null,
   note: null,
   target: null,
+  request: null,
+  requestSent: false,
 });
 
-const proposal = { kind: "proposal", head: { id: "pppppppp", shortNumber: "P1", title: "Setup", body: "", created: "", agentFinishing: false }, standing: "open", proposalKind: "setup", view: proposalView() } as BoardCard;
+const proposal = { kind: "proposal", head: { id: "pppppppp", shortNumber: "P1", title: "Setup", body: "", created: "", agentFinishing: false }, standing: "open", proposalKind: "setup", view: proposalView() } as Extract<BoardCard, { kind: "proposal" }>;
 
 let state: ProjectStatus["state"];
 let folderHasFiles: boolean;
@@ -54,7 +56,7 @@ beforeEach(() => {
   mocks.jobs = [];
   mocks.backlog = [];
   mocks.omp = { state: "ready" };
-  mocks.newRequest.mockReset();
+  mocks.startFromScratch.mockReset();
   state = "empty-model";
   folderHasFiles = false;
   vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as unknown as typeof on);
@@ -110,10 +112,10 @@ describe("the setup layer of an empty Model", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("opens a new setup request with Start from Scratch", async () => {
+  it("opens the request being written, or a new one, with Start from Scratch", async () => {
     renderLayer();
     await userEvent.setup().click(await screen.findByRole("button", { name: /Start from Scratch/ }));
-    expect(mocks.newRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.startFromScratch).toHaveBeenCalledTimes(1);
   });
 
   it("warns that Start from Scratch ignores the files already in the folder", async () => {
@@ -145,10 +147,10 @@ describe("the setup layer of an empty Model", () => {
     expect(screen.queryByRole("button", { name: /Import from Code/ })).not.toBeInTheDocument();
   });
 
-  it("shows the omp status box above the cards while omp is not ready", async () => {
+  it("shows the agent status box above the cards while the agent is not ready", async () => {
     mocks.omp = { state: "missing" };
     renderLayer();
-    expect(await screen.findByRole("status")).toHaveTextContent("omp is not ready");
+    expect(await screen.findByRole("status")).toHaveTextContent("the agent is not ready");
     expect(screen.getByRole("button", { name: /Start from Scratch/ })).toBeInTheDocument();
   });
 

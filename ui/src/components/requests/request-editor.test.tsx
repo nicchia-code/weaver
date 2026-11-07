@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RequestStatus } from "@/bindings/RequestStatus";
+import { expectOneGeometry, pressWhileComposing } from "@/components/assets/tag-box-checks";
 import { ProjectContext } from "@/components/project-context";
 import { RequestEditor } from "@/components/requests/request-editor";
-import { RequestsProvider } from "@/components/requests/use-requests";
+import { RequestsProvider, useRequests } from "@/components/requests/use-requests";
 import { ViewShownContext } from "@/components/view-shown";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on, onFilesDropped } from "@/lib/backend";
@@ -45,16 +47,17 @@ let handlers = new Map<string, (payload: unknown) => void>();
 const openJob = vi.fn();
 const showView = vi.fn();
 
-function summary() {
-  return {
-    id: ID,
-    title: fake.text.trim() === "" ? ID : (fake.text.split("\n")[0] ?? "").replace(/^#\s*/, ""),
-    created: "2026-11-02T09:30:00",
-    status: fake.status,
-    jobId: fake.jobId,
-    jobName: fake.jobName,
-    returned: fake.returned,
-  };
+function readView() {
+  return { id: ID, text: fake.text, status: fake.status, jobId: fake.jobId, jobName: fake.jobName, returned: fake.returned, modelEmpty: fake.modelEmpty };
+}
+
+/** Opens the request `ID` in the editor, as a card of the Board does, and shows whether the editor is open. */
+function Open() {
+  const { openEditor, editing } = useRequests();
+  useEffect(() => {
+    openEditor(ID);
+  }, [openEditor]);
+  return <output aria-label="Editing">{editing ? "open" : "closed"}</output>;
 }
 
 function install() {
@@ -66,11 +69,9 @@ function install() {
   }) as unknown as typeof on);
   vi.mocked(call).mockImplementation((async (name: string, args: Record<string, unknown>) => {
     switch (name) {
-      case "requests_list":
-        return { projectId: PROJECT, requests: fake.gone ? [] : [summary()], modelEmpty: fake.modelEmpty };
       case "request_read":
         if (fake.gone) throw { code: "refused", message: "the request is gone" };
-        return { ...summary(), text: fake.text };
+        return readView();
       case "request_save":
         if (fake.failSave) {
           const message = fake.failSave;
@@ -87,6 +88,7 @@ function install() {
         fake.jobName = "Design Add a cart";
         return null;
       case "request_discard":
+      case "request_leave":
       case "requests_flushed":
         return null;
       default:
@@ -106,8 +108,9 @@ async function mount(patch: Partial<Fake> = {}) {
   install();
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob, openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob, openedJob: null, openedJobRequest: 0 }}>
         <RequestsProvider projectId={PROJECT}>
+          <Open />
           <RequestEditor projectId={PROJECT} />
         </RequestsProvider>
       </ProjectContext.Provider>
@@ -141,12 +144,15 @@ describe("the request editor", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("opens with the focus in the text, headed Design request, and Setup request on an empty Model", async () => {
+  it("opens with the focus in the text, headed Design request, with a back control and no list of requests", async () => {
     await mount();
     expect(screen.getByRole("heading", { name: "Design request" })).toBeInTheDocument();
     expect(area()).toHaveFocus();
-    expect(screen.getByRole("navigation", { name: "Open requests" })).toHaveTextContent("Untitled request");
-    expect(screen.getByText("Draft")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Board" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Open requests" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /New request/i })).toBeNull();
+    expect(screen.queryByText("Draft")).toBeNull();
+    expect(screen.queryByText("Sent")).toBeNull();
   });
 
   it("says Setup request when the Model is empty", async () => {
@@ -217,8 +223,8 @@ describe("the request editor", () => {
     const names = vi.mocked(call).mock.calls.map(([name]) => name);
     expect(names.indexOf("request_save")).toBeGreaterThan(-1);
     expect(names.indexOf("request_save")).toBeLessThan(names.indexOf("request_send"));
-    expect(screen.getByText("Sent to the agent · Design Add a cart")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Request text" })).toBeNull();
+    // Sent: the editor closes and the Board shows.
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
   });
 
   it("sends with Ctrl+Enter and with Cmd+Enter", async () => {
@@ -248,6 +254,8 @@ describe("the request editor", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Discard" }));
     await settle();
     expect(vi.mocked(call)).toHaveBeenCalledWith("request_discard", { projectId: PROJECT, requestId: ID });
+    // Discarded: the editor closes and the Board shows.
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
   });
 
   it("saves a pasted image in the request's folder and links it at the cursor", async () => {
@@ -312,6 +320,98 @@ describe("the request editor", () => {
     await act(async () => handlers.get("requests-changed")?.({ projectId: PROJECT }));
     await settle();
     expect(toasts.warning).toHaveBeenCalledWith("The request was deleted outside Weaver.");
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(openJob).not.toHaveBeenCalled();
+  });
+
+  it("closes a sent request that was consumed or discarded back to the conversation of its job, with no toast", async () => {
+    await mount({ text: "Add a cart", status: "sent", jobId: "jjjjjjjj", jobName: "Design" });
+    fake.gone = true;
+    await act(async () => handlers.get("requests-changed")?.({ projectId: PROJECT }));
+    await settle();
+    expect(toasts.warning).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(openJob).toHaveBeenCalledWith("jjjjjjjj");
+  });
+
+  it("turns a sent request into the writable one, with its banner, when its job ends without a Proposal", async () => {
+    await mount({ text: "Add a cart", status: "sent", jobId: "jjjjjjjj", jobName: "Design" });
+    expect(screen.queryByRole("combobox", { name: "Request text" })).toBeNull();
+    Object.assign(fake, { status: "writing", jobId: null, jobName: null, returned: true });
+    await act(async () => handlers.get("requests-changed")?.({ projectId: PROJECT }));
+    await settle();
+    expect(screen.getByText("The job ended without a Proposal. Change the request and send it again.")).toBeInTheDocument();
+    expect(area()).toHaveValue("Add a cart");
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("open");
+  });
+
+  it("discards an empty request when the developer goes back, without a confirmation or a toast", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    await settle();
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(vi.mocked(call)).toHaveBeenCalledWith("request_leave", { projectId: PROJECT, requestId: ID, closing: false });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(toasts.warning).not.toHaveBeenCalled();
+    expect(toasts.error).not.toHaveBeenCalled();
+  });
+
+  it("discards a request that holds only spaces when leaving it, and never one with text or images", async () => {
+    await mount();
+    await type("  \n ");
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    await settle();
+    expect(vi.mocked(call).mock.calls.filter(([name]) => name === "request_leave")).toHaveLength(1);
+
+    vi.mocked(call).mockClear();
+    await mount({ text: "Add a cart" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Board" }).at(-1) as HTMLElement);
+    await settle();
+    expect(vi.mocked(call).mock.calls.some(([name]) => name === "request_leave")).toBe(false);
+
+    vi.mocked(call).mockClear();
+    await mount({ text: `![](${ID}.images/image-1.png)` });
+    fireEvent.click(screen.getAllByRole("button", { name: "Board" }).at(-1) as HTMLElement);
+    await settle();
+    expect(vi.mocked(call).mock.calls.some(([name]) => name === "request_leave")).toBe(false);
+  });
+
+  it("discards an empty request when the window closes, and keeps one with text", async () => {
+    await mount();
+    await act(async () => handlers.get("requests-flush")?.({ projectId: PROJECT }));
+    await settle();
+    expect(vi.mocked(call)).toHaveBeenCalledWith("request_leave", { projectId: PROJECT, requestId: ID, closing: true });
+    expect(toasts.warning).not.toHaveBeenCalled();
+    expect(vi.mocked(call).mock.calls.map(([name]) => name).at(-1)).toBe("requests_flushed");
+
+    vi.mocked(call).mockClear();
+    await mount({ text: "Half written" });
+    await act(async () => handlers.get("requests-flush")?.({ projectId: PROJECT }));
+    await settle();
+    expect(vi.mocked(call).mock.calls.some(([name]) => name === "request_leave")).toBe(false);
+  });
+
+  it("closes the editor, discarding an empty request, when another view takes the Board's place", async () => {
+    Object.assign(fake, { text: "", status: "writing", jobId: null, jobName: null, returned: false, failSave: null, modelEmpty: false, gone: false });
+    install();
+    const tree = (shown: boolean) => (
+      <TooltipProvider>
+        <ViewShownContext.Provider value={shown}>
+          <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob, openedJob: null, openedJobRequest: 0 }}>
+            <RequestsProvider projectId={PROJECT}>
+              <Open />
+              <RequestEditor projectId={PROJECT} />
+            </RequestsProvider>
+          </ProjectContext.Provider>
+        </ViewShownContext.Provider>
+      </TooltipProvider>
+    );
+    const { rerender } = render(tree(true));
+    await settle();
+    rerender(tree(false));
+    await settle();
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(vi.mocked(call)).toHaveBeenCalledWith("request_leave", { projectId: PROJECT, requestId: ID, closing: false });
   });
 
   it("shows a sent request read-only, with its job, and opens the conversation", async () => {
@@ -319,7 +419,7 @@ describe("the request editor", () => {
     expect(screen.getByText("Sent to the agent · Design Cart")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Request text" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(screen.getByText("Sent")).toBeInTheDocument();
+    expect(screen.queryByText("Sent")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open conversation" }));
     expect(openJob).toHaveBeenCalledWith("jjjjjjjj");
   });
@@ -370,6 +470,74 @@ describe("the @ tags in the request editor", () => {
     await type("Use @logo.png and @nothing");
     expect(document.querySelectorAll("[data-tag]")).toHaveLength(1);
   });
+
+  it("gives the textarea and the mirror the same metrics, the monospace font included", async () => {
+    await mount();
+    expectOneGeometry(area(), { has: ["font-mono"] });
+  });
+
+  it("leaves Enter and Tab of a composition to the input method: nothing is sent, picked or moved", async () => {
+    await mount({ text: "Add a cart" });
+    area().focus();
+    await type("Add a cart @sp");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["spec.pdf"]);
+    pressWhileComposing(area(), "Enter");
+    pressWhileComposing(area(), "Tab");
+    expect(fireEvent.keyDown(area(), { key: "Enter", metaKey: true, isComposing: true })).toBe(true);
+    await settle();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["spec.pdf"]);
+    expect(area()).toHaveValue("Add a cart @sp");
+    expect(area()).toHaveFocus();
+    expect(vi.mocked(call).mock.calls.some(([name]) => name === "request_send")).toBe(false);
+  });
+});
+
+describe("the back control of the request editor", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    openJob.mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function OpenedFrom({ from }: { from?: { kind: "jobs"; jobId: string } }) {
+    const { openEditor, editing } = useRequests();
+    useEffect(() => {
+      openEditor(ID, from);
+    }, [openEditor, from]);
+    return <output aria-label="Editing">{editing ? "open" : "closed"}</output>;
+  }
+
+  async function mountFrom(from?: { kind: "jobs"; jobId: string }) {
+    Object.assign(fake, { text: "A cart.", status: "sent", jobId: "jjjjjjjj", jobName: "Design", returned: false, failSave: null, modelEmpty: false, gone: false });
+    install();
+    render(
+      <TooltipProvider>
+        <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob, openedJob: null, openedJobRequest: 0 }}>
+          <RequestsProvider projectId={PROJECT}>
+            <OpenedFrom from={from} />
+            <RequestEditor projectId={PROJECT} />
+          </RequestsProvider>
+        </ProjectContext.Provider>
+      </TooltipProvider>,
+    );
+    await settle();
+  }
+
+  it("says `Board` and only closes the editor when it was opened from the Board", async () => {
+    await mountFrom();
+    expect(screen.queryByRole("button", { name: "Jobs" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(openJob).not.toHaveBeenCalled();
+  });
+
+  it("says `Jobs` and goes back to the conversation of the job when it was opened from it", async () => {
+    await mountFrom({ kind: "jobs", jobId: "jjjjjjjj" });
+    expect(screen.queryByRole("button", { name: "Board" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
+    expect(screen.getByLabelText("Editing")).toHaveTextContent("closed");
+    expect(openJob).toHaveBeenCalledWith("jjjjjjjj");
+  });
 });
 
 describe("files dropped on the window", () => {
@@ -383,8 +551,9 @@ describe("files dropped on the window", () => {
     render(
       <TooltipProvider>
         <ViewShownContext.Provider value={false}>
-          <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob, openedJob: null }}>
+          <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob, openedJob: null, openedJobRequest: 0 }}>
             <RequestsProvider projectId={PROJECT}>
+              <Open />
               <RequestEditor projectId={PROJECT} />
             </RequestsProvider>
           </ProjectContext.Provider>
