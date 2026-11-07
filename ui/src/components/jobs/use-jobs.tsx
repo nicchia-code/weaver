@@ -11,6 +11,8 @@ export interface JobsState {
   ompReady: boolean;
   /** Jobs waiting for the developer: the number the sidebar shows. */
   waiting: number;
+  /** Jobs in Running: the sidebar shows them when none waits. */
+  running: number;
   /** A decision refused when applied: the text of the notice, `null` once closed. */
   refusal: string | null;
   clearRefusal: () => void;
@@ -26,6 +28,11 @@ export function useJobs(): JobsState {
   const value = useContext(JobsContext);
   if (!value) throw new Error("useJobs needs a JobsProvider");
   return value;
+}
+
+/** The Jobs of the project, or `null` where no provider is above (a card that only decorates itself with them). */
+export function useOptionalJobs(): JobsState | null {
+  return useContext(JobsContext);
 }
 
 export function JobsProvider({ projectId, children }: { projectId: string; children: ReactNode }) {
@@ -66,6 +73,7 @@ export function JobsProvider({ projectId, children }: { projectId: string; child
       jobs,
       ompReady,
       waiting: jobs.filter((job) => job.state === "waiting").length,
+      running: jobs.filter((job) => job.state === "running").length,
       refusal,
       clearRefusal: () => setRefusal(null),
       runTask: (taskId) => decide(() => call("run_task", { projectId, taskId })),
@@ -79,12 +87,14 @@ export function JobsProvider({ projectId, children }: { projectId: string; child
 }
 
 /** The conversation of one job: the snapshot, then the batches of changes that follow it. */
-export function useConversation(projectId: string, jobId: string | null): readonly Entry[] {
+export function useConversation(projectId: string, jobId: string | null): { entries: readonly Entry[]; arrivals: readonly number[] } {
   const [entries, setEntries] = useState<readonly Entry[]>([]);
+  const [arrivals, setArrivals] = useState<readonly number[]>([]);
   const seq = useRef(0);
 
   useEffect(() => {
     setEntries([]);
+    setArrivals([]);
     seq.current = 0;
     if (!jobId) return;
     let alive = true;
@@ -94,6 +104,7 @@ export function useConversation(projectId: string, jobId: string | null): readon
           if (!alive || snapshot.jobId !== jobId) return;
           seq.current = snapshot.seq;
           setEntries(snapshot.entries);
+          setArrivals(snapshot.arrivals);
         })
         .catch(() => {});
     const stop = on("job-entries", (event) => {
@@ -109,6 +120,11 @@ export function useConversation(projectId: string, jobId: string | null): readon
         for (const { index, entry } of event.changes) next[index] = entry;
         return next;
       });
+      setArrivals((previous) => {
+        const next = [...previous];
+        for (const { index, at } of event.changes) next[index] = at;
+        return next;
+      });
     });
     void fetchSnapshot();
     return () => {
@@ -117,5 +133,5 @@ export function useConversation(projectId: string, jobId: string | null): readon
     };
   }, [projectId, jobId]);
 
-  return entries;
+  return { entries, arrivals };
 }

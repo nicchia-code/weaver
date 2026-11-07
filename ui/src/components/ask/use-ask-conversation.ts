@@ -4,12 +4,14 @@ import type { Entry } from "@/bindings/Entry";
 import { call, on } from "@/lib/backend";
 
 /** The conversation of one Ask more conversation: the snapshot, then the batches of changes that follow it. */
-export function useAskConversation(askId: string): readonly Entry[] {
+export function useAskConversation(askId: string): { entries: readonly Entry[]; arrivals: readonly number[] } {
   const [entries, setEntries] = useState<readonly Entry[]>([]);
+  const [arrivals, setArrivals] = useState<readonly number[]>([]);
   const seq = useRef(0);
 
   useEffect(() => {
     setEntries([]);
+    setArrivals([]);
     seq.current = 0;
     let alive = true;
     const fetchSnapshot = () =>
@@ -18,6 +20,7 @@ export function useAskConversation(askId: string): readonly Entry[] {
           if (!alive || snapshot.row.id !== askId) return;
           seq.current = snapshot.seq;
           setEntries(snapshot.entries);
+          setArrivals(snapshot.arrivals);
         })
         .catch(() => {});
     // Listen first, then ask: a change between the two is not lost.
@@ -34,6 +37,11 @@ export function useAskConversation(askId: string): readonly Entry[] {
         for (const { index, entry } of event.changes) next[index] = entry;
         return next;
       });
+      setArrivals((previous) => {
+        const next = [...previous];
+        for (const { index, at } of event.changes) next[index] = at;
+        return next;
+      });
     });
     void fetchSnapshot();
     return () => {
@@ -42,5 +50,5 @@ export function useAskConversation(askId: string): readonly Entry[] {
     };
   }, [askId]);
 
-  return entries;
+  return { entries, arrivals };
 }

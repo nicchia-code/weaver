@@ -18,7 +18,7 @@ import { NotesView } from "@/components/notes/notes-view";
 import { NotesProvider } from "@/components/notes/use-notes";
 import { ConnectedSettingsView } from "@/components/omp-status";
 import { ProjectWindow } from "@/components/project-window";
-import { QuestionRoundLayer } from "@/components/questions/question-overlay";
+import { QuestionBar, QuestionRoundLayer } from "@/components/questions/question-overlay";
 import { RequestsBoardActions, RequestsLayer } from "@/components/requests/requests-layer";
 import { AtomicCommitsSetting } from "@/components/project/atomic-commits";
 import { SetupLayer } from "@/components/project/empty-model";
@@ -109,6 +109,8 @@ function ProjectShell({ projectId }: { projectId: string }) {
           <SkillsBanner />
         </>
       }
+      // The bar of a minimized question round: at the bottom of the work surface, below the view.
+      footer={<QuestionBar />}
       // The sidebar shows the real cards of Backlog, drafts of requests included (ghosts never count,
       // they are not in `backlog`), the jobs waiting for the developer (never Chat) and whether Chat
       // waits for the answers of its round; the backend counts them.

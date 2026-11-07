@@ -114,6 +114,10 @@ pub struct AskSnapshot {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
 }
 
 /// A batch of changes of an Ask more conversation (`reset`: the UI fetches the snapshot again).

@@ -59,6 +59,7 @@ use crate::updates::{UpdateInfo, UpdateStatus};
 use crate::usage::{UsagePhase, UsageStatus};
 use crate::windows::commands::{RecentEntry, WelcomeState};
 use crate::windows::git_state::ProjectGit;
+use crate::windows::local_state::JobsList;
 use crate::windows::switcher::{OpenProjectEntry, ProjectSwitcher};
 use crate::windows::manager::{HideFailed, MenuOpenFailed, ShowRequest, ShowView};
 use crate::windows::unsaved::{
@@ -180,6 +181,7 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     OpenProjectEntry::export_all_to(dir)?;
     ProjectSwitcher::export_all_to(dir)?;
     ProjectGit::export_all_to(dir)?;
+    JobsList::export_all_to(dir)?;
     WelcomeState::export_all_to(dir)?;
     ShowRequest::export_all_to(dir)?;
     HideFailed::export_all_to(dir)?;

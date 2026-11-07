@@ -12,16 +12,22 @@
 //!   window removes it from the list, quitting does not;
 //! * `systemCertificates`: `{autoEnabledAt}`, when Weaver turned System Certificates on by itself
 //!   because Zscaler is installed (`requirements/data#system-certificates`). Written once, never
-//!   removed; absent from the file until then.
+//!   removed; absent from the file until then;
+//! * `jobsList`: the Jobs list of each project's window (`requirements/ui#job`), keyed by the
+//!   project hash: `{width, hidden}`. A project without an entry, or with a value out of range or
+//!   of the wrong type, counts as [`JOBS_LIST_DEFAULT_WIDTH`] px and shown.
 //!
 //! [`LocalState`] is the pure value and its rules; [`StateStore`] keeps it in memory and writes it
 //! atomically. The store does file I/O: call it from the blocking pool.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use ts_rs::TS;
 use weaver_core::{atomic, paths};
 
 use crate::log_warn;
@@ -31,6 +37,49 @@ pub const FILE_NAME: &str = "state.json";
 
 /// Most projects the list of recent projects keeps.
 pub const RECENT_LIMIT: usize = 10;
+
+/// The width of the Jobs list at first, in px.
+pub const JOBS_LIST_DEFAULT_WIDTH: u32 = 280;
+/// The narrowest and the widest the developer can make the Jobs list, in px.
+pub const JOBS_LIST_MIN_WIDTH: u32 = 240;
+pub const JOBS_LIST_MAX_WIDTH: u32 = 420;
+
+/// What the window of a project remembers of its Jobs list: the width the developer chose and
+/// whether the list is hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct JobsList {
+    /// The chosen width in px, from 240 to 420.
+    pub width: u32,
+    pub hidden: bool,
+}
+
+impl Default for JobsList {
+    fn default() -> Self {
+        Self {
+            width: JOBS_LIST_DEFAULT_WIDTH,
+            hidden: false,
+        }
+    }
+}
+
+impl JobsList {
+    /// Whether the width is one the developer can choose.
+    pub fn in_range(self) -> bool {
+        (JOBS_LIST_MIN_WIDTH..=JOBS_LIST_MAX_WIDTH).contains(&self.width)
+    }
+}
+
+/// The entries of `jobsList` as they are in the file, so that one entry of the wrong type never
+/// costs the rest of the state; anything that is not an object is an empty map.
+fn lenient_entries<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Value>, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Object(entries) => entries.into_iter().collect(),
+        _ => BTreeMap::new(),
+    })
+}
 
 /// One recent project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +117,10 @@ pub struct LocalState {
     pub last_session: Vec<String>,
     #[serde(skip_serializing_if = "SystemCertificatesMark::is_empty")]
     pub system_certificates: SystemCertificatesMark,
+    /// The Jobs list of each project's window, by project hash, as the file holds it (see
+    /// [`LocalState::jobs_list`], which applies the rules).
+    #[serde(deserialize_with = "lenient_entries", skip_serializing_if = "BTreeMap::is_empty")]
+    pub jobs_list: BTreeMap<String, Value>,
 }
 
 /// Whether two canonical paths name the same project: the same text, or on Windows the same text
@@ -77,6 +130,22 @@ pub fn same_path(a: &str, b: &str) -> bool {
 }
 
 impl LocalState {
+    /// The Jobs list of the project `hash`: the stored value, or 280 px and shown when there is
+    /// none, when its width is out of range or when it is of the wrong type.
+    pub fn jobs_list(&self, hash: &str) -> JobsList {
+        self.jobs_list
+            .get(hash)
+            .and_then(|value| serde_json::from_value::<JobsList>(value.clone()).ok())
+            .filter(|list| list.in_range())
+            .unwrap_or_default()
+    }
+
+    /// The developer chose a width or hid or showed the list of the project `hash`.
+    pub fn set_jobs_list(&mut self, hash: &str, list: JobsList) {
+        let value = serde_json::to_value(list).expect("a JobsList is JSON");
+        self.jobs_list.insert(hash.to_owned(), value);
+    }
+
     /// What a file holds, made to respect the rules: one entry per path (the first, most recent,
     /// wins) and at most [`RECENT_LIMIT`] of them. Anything unreadable is an error.
     pub fn parse(text: &str) -> Result<Self, String> {
@@ -370,5 +439,79 @@ mod tests {
         std::fs::write(dir.path().join(FILE_NAME), r#"{"systemCertificates": 7}"#).unwrap();
         let store = StateStore::in_dir(dir.path());
         assert_eq!(store.snapshot().system_certificates.auto_enabled_at, None);
+    }
+
+    #[test]
+    fn a_project_without_a_jobs_list_entry_counts_as_280_px_and_shown() {
+        let state = LocalState::default();
+        assert_eq!(
+            state.jobs_list("0123456789abcdef"),
+            JobsList {
+                width: 280,
+                hidden: false
+            }
+        );
+    }
+
+    #[test]
+    fn the_jobs_list_is_kept_per_project_and_written_with_the_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::in_dir(dir.path());
+        store
+            .update(|state| {
+                state.set_jobs_list(
+                    "aaaaaaaaaaaaaaaa",
+                    JobsList {
+                        width: 360,
+                        hidden: true,
+                    },
+                )
+            })
+            .unwrap();
+        store
+            .update(|state| state.record_open("/work/a", "a", &at(1)))
+            .unwrap();
+        let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+        assert!(text.contains(r#""jobsList""#), "{text}");
+        let again = StateStore::in_dir(dir.path()).snapshot();
+        assert_eq!(
+            again.jobs_list("aaaaaaaaaaaaaaaa"),
+            JobsList {
+                width: 360,
+                hidden: true
+            }
+        );
+        assert_eq!(again.jobs_list("bbbbbbbbbbbbbbbb"), JobsList::default());
+        assert_eq!(again.recent.len(), 1, "the projects are kept");
+    }
+
+    #[test]
+    fn a_jobs_list_out_of_range_or_of_the_wrong_type_counts_as_the_default_and_costs_nothing_else() {
+        let text = r#"{
+            "recent": [{"path":"/work/a","name":"a","opened":"2026-11-02T07:00:00.000Z"}],
+            "jobsList": {
+                "low": {"width": 239, "hidden": true},
+                "high": {"width": 421, "hidden": true},
+                "edge": {"width": 420, "hidden": true},
+                "text": {"width": "300", "hidden": false},
+                "flag": {"width": 300, "hidden": "yes"},
+                "float": {"width": 300.5, "hidden": false},
+                "bare": 7
+            }
+        }"#;
+        let state = LocalState::parse(text).unwrap();
+        assert_eq!(state.recent.len(), 1);
+        for hash in ["low", "high", "text", "flag", "float", "bare", "absent"] {
+            assert_eq!(state.jobs_list(hash), JobsList::default(), "{hash}");
+        }
+        assert_eq!(
+            state.jobs_list("edge"),
+            JobsList {
+                width: 420,
+                hidden: true
+            }
+        );
+        let wrong = LocalState::parse(r#"{"jobsList": 7}"#).unwrap();
+        assert!(wrong.jobs_list.is_empty());
     }
 }

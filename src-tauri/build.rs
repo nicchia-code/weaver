@@ -56,6 +56,8 @@ const COMMANDS: &[&str] = &[
     "project_git",
     "remove_recent",
     "open_in_editor",
+    "jobs_list_state",
+    "jobs_list_set",
     "jobs_snapshot",
     "job_conversation",
     "job_send_message",

@@ -5,7 +5,9 @@
 //! * `open_project`: `developer.OPEN_PROJECT` for a folder (a recent project);
 //! * `open_folder`: the system folder picker, then `developer.OPEN_PROJECT` for the choice;
 //! * `remove_recent`: removes a recent project (offered for a folder that no longer exists);
-//! * `open_in_editor`: a file at a line in the editor of the settings.
+//! * `open_in_editor`: a file at a line in the editor of the settings;
+//! * `jobs_list_state` and `jobs_list_set`: the width and the hidden state of the Jobs list of a
+//!   project's window, kept in the local state.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +19,7 @@ use ts_rs::TS;
 
 use super::editor::{self, ProgramSearch};
 use super::jobs::OpenReason;
-use super::local_state::LocalState;
+use super::local_state::{JobsList, LocalState};
 use super::manager::{MenuOpenFailed, WindowManager};
 use crate::blocking;
 use crate::error::{AppError, ErrorCode};
@@ -135,6 +137,19 @@ pub async fn open_folder(
     Ok(true)
 }
 
+/// `Open Folder…` of the project switcher and of the palette: the picker of the File menu, modal to
+/// the asking window. It answers at once; the opening of the folder chosen goes on in the
+/// background and a failure reaches that window as `menu-open-failed`, which shows the error toast
+/// of the File menu.
+#[tauri::command]
+pub async fn open_folder_from_window(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<(), AppError> {
+    super::menu_open::open_folder_from(&app, Some(window));
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn remove_recent(
     manager: State<'_, Arc<WindowManager>>,
@@ -147,6 +162,44 @@ pub async fn remove_recent(
             .map(|state| welcome_state_of(&state, Path::is_dir))
     })
     .await?
+}
+
+/// The Jobs list of the window of `project_id`: the width and the hidden state the developer left,
+/// or 280 px and shown (`requirements/data#window`).
+#[tauri::command]
+pub async fn jobs_list_state(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<JobsList, AppError> {
+    let store = state.local_state.clone();
+    blocking::disk_named("jobs_list_state", None, move || {
+        store.snapshot().jobs_list(&project_id)
+    })
+    .await
+}
+
+/// Remembers the width and the hidden state of the Jobs list of `project_id`. The UI sends it when
+/// a drag ends, at each keyboard step of the separator and when the list is hidden or shown.
+#[tauri::command]
+pub async fn jobs_list_set(
+    state: State<'_, AppState>,
+    project_id: String,
+    width: u32,
+    hidden: bool,
+) -> Result<(), AppError> {
+    let list = JobsList { width, hidden };
+    if !list.in_range() {
+        return Err(AppError::new(
+            ErrorCode::InvalidInput,
+            "The width of the list is not one the list can have.",
+        ));
+    }
+    let store = state.local_state.clone();
+    blocking::disk_named("jobs_list_set", None, move || {
+        store.update(|state| state.set_jobs_list(&project_id, list))
+    })
+    .await?
+    .map_err(AppError::internal)
 }
 
 /// The file `file` names: itself when absolute, else relative to the root of `project_root`.

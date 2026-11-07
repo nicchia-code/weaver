@@ -7,13 +7,14 @@ import { ProjectWindow } from "@/components/project-window";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on } from "@/lib/backend";
 
+vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: null }) }));
 vi.mock("@/lib/backend", () => ({ call: vi.fn(), on: vi.fn() }));
 
 const PROJECT = "0123456789abcdef";
 let push: (request: ShowRequest) => void;
 
 beforeEach(() => {
-  vi.mocked(call).mockResolvedValue([] as never);
+  vi.mocked(call).mockImplementation(((name: string) => Promise.resolve(name === "startup_failures" ? [] : null)) as never);
   vi.mocked(on).mockImplementation(((name: string, handler: (request: ShowRequest) => void) => {
     if (name === "show-requested") push = handler;
     return Promise.resolve(() => {});
@@ -28,7 +29,11 @@ function mount() {
   );
 }
 
-const shown = () => screen.getByRole("button", { current: "page" }).textContent;
+/** The entry that is selected: its name (the gear of Settings is named by its label, not by text). */
+const shown = () => {
+  const entry = screen.getByRole("button", { current: "page" });
+  return entry.getAttribute("aria-label") ?? entry.textContent;
+};
 
 describe("a window asked to show something", () => {
   it("shows the view a notification was about", () => {
@@ -60,7 +65,9 @@ describe("a window asked to show something", () => {
               turnOnNotice: true,
               failureBanner: false, failureReason: null,
             }
-          : [],
+          : name === "startup_failures"
+            ? []
+            : null,
       )) as never);
     mount();
     await act(async () => {});
@@ -80,6 +87,47 @@ describe("a window asked to show something", () => {
     mount();
     act(() => push({ projectId: "ffffffffffffffff", view: "history", jobId: null }));
     expect(shown()).toMatch(/^Board/);
+  });
+});
+
+describe("the frame of the window", () => {
+  it("stands on Paper, with the sidebar on it and the view in a Surface panel inset 8 px with a Line ring", () => {
+    mount();
+    const panel = document.querySelector<HTMLElement>("[data-work-surface]")!;
+    expect(panel).toHaveClass("bg-surface", "m-2", "rounded-xl", "shadow-ring");
+    expect(panel.parentElement).toHaveClass("bg-paper");
+    const sidebar = screen.getByRole("navigation", { name: "Views" });
+    expect(sidebar.parentElement).toBe(panel.parentElement);
+    expect(sidebar.className).not.toMatch(/bg-|border-/);
+    expect(panel).toContainElement(screen.getByRole("heading", { level: 1, name: "Board" }));
+  });
+
+  it("shows the banners of the window at the top of the work surface, above the header of the view", async () => {
+    const failure = { projectId: null, projectName: null, step: "git", reason: "git is missing" };
+    vi.mocked(call).mockImplementation(((name: string) => Promise.resolve(name === "startup_failures" ? [failure] : null)) as never);
+    mount();
+    const panel = document.querySelector<HTMLElement>("[data-work-surface]")!;
+    const banner = await screen.findByRole("alert");
+    expect(panel).toContainElement(banner);
+    const heading = screen.getByRole("heading", { level: 1, name: "Board" });
+    expect(banner.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows its footer at the bottom of the work surface, in the layout under the view and outside the sidebar", () => {
+    render(
+      <TooltipProvider>
+        <ProjectWindow projectId={PROJECT} footer={<div role="region" aria-label="Footer" />} />
+      </TooltipProvider>,
+    );
+    const panel = document.querySelector<HTMLElement>("[data-work-surface]")!;
+    const footer = screen.getByRole("region", { name: "Footer" });
+    const main = panel.querySelector("main")!;
+    // A sibling after the views, in the flow: the main area is what gets shorter.
+    expect(footer.parentElement).toBe(panel);
+    expect(main.nextElementSibling).toBe(footer);
+    expect(main).not.toContainElement(footer);
+    expect(main).toHaveClass("min-h-0", "flex-1");
+    expect(screen.getByRole("navigation", { name: "Views" })).not.toContainElement(footer);
   });
 });
 

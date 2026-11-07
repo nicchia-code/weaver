@@ -13,11 +13,17 @@ export const VISIBLE_TOASTS = 3;
 /** The `Alt+T` hotkey (sonner's own default, kept explicit): it moves the focus to the toasts. */
 const HOTKEY = ["altKey", "KeyT"];
 
-/** The part of a toast's text and icon that carries the colour of its kind (600 light, 400 dark). */
-function kindClasses(tone: "amber" | "red"): string {
-  return tone === "amber"
-    ? "!border-amber-600 dark:!border-amber-400 [&_[data-icon]]:text-amber-600 dark:[&_[data-icon]]:text-amber-400 [&_[data-title]]:!text-amber-600 dark:[&_[data-title]]:!text-amber-400"
-    : "!border-red-600 dark:!border-red-400 [&_[data-icon]]:text-red-600 dark:[&_[data-icon]]:text-red-400 [&_[data-title]]:!text-red-600 dark:[&_[data-title]]:!text-red-400";
+/**
+ * The CSS variable on the root that raises the toasts: what a bar at the bottom of the window (the
+ * minimized question round) takes, in px, set while it shows. The toasts then sit above it.
+ */
+export const TOAST_BOTTOM_EXTRA = "--toast-bottom-extra";
+
+/** The border (the thread's base), icon and title (its ink) of a toast carry the colour of its kind. */
+function kindClasses(tone: "peach" | "rose"): string {
+  return tone === "peach"
+    ? "!border-peach [&_[data-icon]]:text-peach-ink [&_[data-title]]:!text-peach-ink"
+    : "!border-rose [&_[data-icon]]:text-rose-ink [&_[data-title]]:!text-rose-ink";
 }
 
 /**
@@ -56,8 +62,8 @@ function ToastCloseIcon() {
 /**
  * Toasts (`toast(...)` from `sonner`), themed with the tokens of the current theme: bottom right, at
  * most 3 visible, gone after 4 s, each with an icon-only close button reachable with `Alt+T` then
- * `Tab`. Info is the neutral popover look without icon; a warning is amber with `TriangleAlert`, an
- * error red with `CircleX`. Esc never closes a toast (sonner only collapses the stack on it).
+ * `Tab`. Info is the neutral popover look without icon; a warning is Peach with `TriangleAlert`, an
+ * error Rose with `CircleX`. Esc never closes a toast (sonner only collapses the stack on it).
  */
 const Toaster = (props: ToasterProps) => {
   const theme = useResolvedTheme();
@@ -70,6 +76,8 @@ const Toaster = (props: ToasterProps) => {
       duration={TOAST_DURATION_MS}
       visibleToasts={VISIBLE_TOASTS}
       hotkey={HOTKEY}
+      offset={{ bottom: `calc(24px + var(${TOAST_BOTTOM_EXTRA}, 0px))` }}
+      mobileOffset={{ bottom: `calc(16px + var(${TOAST_BOTTOM_EXTRA}, 0px))` }}
       icons={{
         info: null,
         warning: <TriangleAlert className="size-4" aria-hidden />,
@@ -79,12 +87,12 @@ const Toaster = (props: ToasterProps) => {
       toastOptions={{
         closeButtonAriaLabel: "Close",
         classNames: {
-          toast: "group toast !bg-popover !text-popover-foreground !border-border !shadow-lg",
+          toast: "group toast !rounded-lg !bg-popover !text-popover-foreground !border-border !shadow-pop",
           description: "!text-muted-foreground",
           closeButton:
             "!size-6 !border-border !bg-popover !text-foreground hover:!bg-accent focus-visible:!outline-none focus-visible:!shadow-none focus-visible:!ring-2 focus-visible:!ring-ring",
-          warning: kindClasses("amber"),
-          error: kindClasses("red"),
+          warning: kindClasses("peach"),
+          error: kindClasses("rose"),
         },
       }}
       {...props}

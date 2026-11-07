@@ -28,6 +28,7 @@ import type { MergeAnswer } from "@/bindings/MergeAnswer";
 import type { MergeBranches } from "@/bindings/MergeBranches";
 import type { MergeStatus } from "@/bindings/MergeStatus";
 import type { ProjectStatus } from "@/bindings/ProjectStatus";
+import type { JobsList } from "@/bindings/JobsList";
 import type { SoloChange } from "@/bindings/SoloChange";
 import type { SoloMode } from "@/bindings/SoloMode";
 import type { SkillsReport } from "@/bindings/SkillsReport";
@@ -278,6 +279,10 @@ export interface Commands {
   remove_recent: { args: { path: string }; result: WelcomeState };
   /** `Open in editor`: `file` (absolute, or relative to the project) at `line`; a failure carries the reason. */
   open_in_editor: { args: { file: string; line?: number | null; projectId?: string | null }; result: null };
+  /** The width and the hidden state of the Jobs list of a project's window, as the backend remembers them. */
+  jobs_list_state: { args: { projectId: string }; result: JobsList };
+  /** Remembers the width (240–420 px) and the hidden state of the Jobs list of a project's window. */
+  jobs_list_set: { args: { projectId: string; width: number; hidden: boolean }; result: null };
   /** The Jobs list of an open project. */
   jobs_snapshot: { args: { projectId: string }; result: JobsSnapshot };
   /** The conversation of a job, with the count of change batches it holds. */

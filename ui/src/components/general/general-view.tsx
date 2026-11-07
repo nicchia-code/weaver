@@ -1,14 +1,13 @@
 import { ArrowDown, ArrowLeft, ArrowUp, Plus, Square } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { Entry } from "@/bindings/Entry";
 import type { Step } from "@/bindings/Step";
 import { AgentPill } from "@/components/agent-pill";
 import { TaggedTextarea } from "@/components/assets/tagged-textarea";
 import { ConfirmDialog } from "@/components/dialogs";
-import { ChatEntry, SenderRow, WorkSummary } from "@/components/general/chat-conversation";
-import { chatItems } from "@/components/general/chat-model";
 import { ChatProposalCard } from "@/components/general/chat-proposal-card";
+import { ConversationEntries, ComposerFrame } from "@/components/jobs/conversation-ui";
 import { ModelControl } from "@/components/general/model-control";
 import { useChatProposals } from "@/components/general/use-chat-proposals";
 import { useChatDraftRequest, withDraft } from "@/components/general/chat-draft";
@@ -65,7 +64,6 @@ export function GeneralView() {
 
   const jobs = useMemo(() => entries.flatMap((entry) => (entry.kind === "job-started" ? [entry.job] : [])), [entries]);
   const { proposals, refresh } = useChatProposals(projectId, jobs);
-  const items = useMemo(() => chatItems(entries, arrivals), [entries, arrivals]);
 
   const working = state?.working ?? false;
   const waiting = state?.starting ? lastQueued(entries) : -1;
@@ -134,29 +132,21 @@ export function GeneralView() {
           ) : (
             entries.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">{EMPTY}</p>
           )}
-          {items.map((item) => {
-            if (item.kind === "work") {
-              const running = working && item.to === entries.length - 1;
-              return (
-                <Fragment key={`work-${item.from}`}>
-                  {item.starts && <SenderRow at={item.sender} />}
-                  <WorkSummary item={item} entries={entries} running={running} answer={answer} />
-                </Fragment>
-              );
-            }
-            const entry = entries[item.index]!;
-            return (
-              <Fragment key={`entry-${item.index}`}>
-                {item.starts && <SenderRow at={item.sender} />}
-                <ChatEntry entry={entry} answer={answer} />
-                {item.index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
+          <ConversationEntries
+            entries={entries}
+            arrivals={arrivals}
+            working={working}
+            answer={answer}
+            after={(entry, index) => (
+              <>
+                {index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
                 {entry.kind === "job-started" &&
                   proposals
                     .filter((proposal) => proposal.job === entry.job)
                     .map((proposal) => <ChatProposalCard key={proposal.head.id} proposal={proposal} refresh={refresh} />)}
-              </Fragment>
-            );
-          })}
+              </>
+            )}
+          />
           {state?.waiting && (
             <div className="flex flex-wrap items-center gap-2.5 rounded-xl px-3.5 py-3 shadow-[inset_0_0_0_1px_#E2DDF0] dark:shadow-[inset_0_0_0_1px_var(--color-line)]">
               <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-lavender-tint text-xs font-semibold text-lavender-ink">
@@ -189,25 +179,10 @@ export function GeneralView() {
           {problem}
         </p>
       )}
-      <div className="flex justify-center bg-gradient-to-b from-transparent to-surface to-[28%] px-6 pb-6 pt-5">
-        <div className="flex w-full max-w-[760px] flex-col gap-2 rounded-2xl bg-surface py-3 pl-4 pr-3 shadow-[0_0_0_1px_#E0DDD5,0_6px_20px_rgba(24,24,27,0.06)] dark:shadow-[0_0_0_1px_var(--color-line),0_6px_20px_rgba(0,0,0,0.3)]">
-          <TaggedTextarea
-            ref={area}
-            aria-label="Message Weaver"
-            placeholder="Message Weaver… use @ to add assets"
-            rows={2}
-            className="max-h-60 min-h-[3.75rem] bg-transparent"
-            areaClassName="resize-none border-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-1.5">
+      <ComposerFrame
+        column="chat"
+        controls={
+          <>
             <ModelControl reasons={[busy && MODEL_REASON]} />
             {working ? (
               <Button variant="outline" size="sm" className="h-[34px]" onClick={stop}>
@@ -219,9 +194,26 @@ export function GeneralView() {
                 <ArrowUp aria-hidden />
               </Button>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      >
+        <TaggedTextarea
+          ref={area}
+          aria-label="Message Weaver"
+          placeholder="Message Weaver… use @ to add assets"
+          rows={2}
+          className="max-h-60 min-h-[3.75rem] bg-transparent"
+          areaClassName="resize-none border-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+      </ComposerFrame>
     </div>
   );
 

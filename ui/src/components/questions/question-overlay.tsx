@@ -1,7 +1,6 @@
 import { Minus, X } from "lucide-react";
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
-import type { ActionInput } from "@/bindings/ActionInput";
 import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { QuestionIndex } from "@/components/questions/question-index";
@@ -21,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TOAST_BOTTOM_EXTRA } from "@/components/ui/sonner";
 
 /** Below this window width the index becomes a row of numbered dots. */
 const COMPACT_BELOW = 600;
@@ -29,20 +29,46 @@ function isTextEntry(target: EventTarget): boolean {
   return target instanceof HTMLElement && (target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && (target as HTMLInputElement).type === "text"));
 }
 
-/** The bar that stays when the overlay is reduced: the agent still waits. */
-function MinimizedBar({ round, act }: { round: QuestionRoundView; act: (action: ActionInput) => void }) {
-  const where = round.position.kind === "summary" ? "summary" : `question ${round.position.index + 1} of ${round.questions.length}`;
-  const who = round.origin.kind === "drift" ? "Weaver" : "The agent";
+/** The height of the bar of a reduced round, in px: one line, whatever the width of the window. */
+const BAR_HEIGHT = 44;
+/** The work surface is inset 8 px from the window's edges (`requirements/ui#window`): the bar takes this much more of the window's bottom. */
+const WORK_SURFACE_INSET = 8;
+
+/** The text of the bar: the agent still waits, at the question the round was reduced on. */
+function barText(round: QuestionRoundView): string {
+  const at = round.position.kind === "summary" ? round.questions.length : round.position.index + 1;
+  return `The agent is waiting for your answers (question ${at} of ${round.questions.length})`;
+}
+
+/**
+ * The bar that stays when the overlay is reduced: the agent still waits. It takes its own place at
+ * the bottom of the work surface, below the selected view, which is shorter by its height; it is
+ * never drawn over the view. While it shows, the toasts rise above it (`TOAST_BOTTOM_EXTRA`).
+ */
+export function QuestionBar() {
+  const { round, act } = useQuestionRound();
+  const shown = round?.minimized === true;
+  useEffect(() => {
+    if (!shown) return;
+    const root = document.documentElement;
+    root.style.setProperty(TOAST_BOTTOM_EXTRA, `${BAR_HEIGHT + WORK_SURFACE_INSET}px`);
+    return () => {
+      root.style.removeProperty(TOAST_BOTTOM_EXTRA);
+    };
+  }, [shown]);
+  if (!round || !shown) return null;
+  const text = barText(round);
   return (
     <div
       role="region"
       aria-label="Questions waiting"
-      className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-2 border-t border-peach bg-background px-4 py-2 text-sm text-peach-ink"
+      style={{ height: BAR_HEIGHT }}
+      className="flex shrink-0 items-center gap-3 border-t border-peach bg-peach-tint px-4 text-sm text-peach-ink"
     >
-      <span className="font-medium">
-        {who} is waiting for your answers ({where})
+      <span className="min-w-0 flex-1 truncate font-medium" title={text}>
+        {text}
       </span>
-      <Button size="sm" onClick={() => act({ kind: "minimize", minimized: false })}>
+      <Button size="sm" className="shrink-0" onClick={() => act({ kind: "minimize", minimized: false })}>
         Open questions
       </Button>
     </div>
@@ -56,8 +82,7 @@ export function QuestionOverlay() {
   const [confirmingSkipAll, setConfirmingSkipAll] = useState(false);
   const handlers = useRef<KeyHandlers>(NO_HANDLERS);
 
-  if (!round) return null;
-  if (round.minimized) return <MinimizedBar round={round} act={act} />;
+  if (!round || round.minimized) return null;
 
   const waiting = waitingOf(round);
 
