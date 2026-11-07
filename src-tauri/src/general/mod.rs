@@ -1,10 +1,11 @@
 //! General chat (task "Chat General") and Ask more conversations: the free conversations with omp.
 //!
-//! General is not a job: it holds no Task, announces no card, holds the turn of its agent for no
-//! question, notifies nothing and shows nothing on the Board. It has no instruction, skill or
-//! written request; the developer writes what he wants, and on his explicit request the agent
-//! starts a job of Weaver with `weaver job new`, which is a normal job with a conversation of its
-//! own. The agent asks its questions as cards inside the conversation ([`cards`]).
+//! General is not a job: it holds no Task, announces no card and shows nothing on the Board. Its
+//! agent asks a question round only when the developer asked to be asked that way, and the only
+//! notification of General is the wait for the answers of that round. It has no instruction,
+//! skill or written request; the developer writes what he wants, and on his explicit request the
+//! agent starts a job of Weaver with `weaver job new`, which is a normal job with a conversation
+//! of its own.
 //!
 //! An Ask more conversation (`requirements/tech#ask-conversation`) is the same kind of
 //! conversation about one thing the developer is reading. It runs on the service and the actor of
@@ -32,16 +33,13 @@
 //!   prompt); the window closing cancels the turn and ends omp.
 
 pub mod actor;
-pub mod cards;
 pub mod commands;
 pub mod proposals;
 pub mod service;
 pub mod wire;
 
 #[cfg(test)]
-mod card_tests;
-#[cfg(test)]
-mod chat_tests;
+mod round_tests;
 #[cfg(test)]
 mod tests;
 
@@ -73,10 +71,6 @@ impl GeneralEvents for TauriEvents {
 
     fn entries(&self, entries: &GeneralEntries) {
         let _ = self.app.emit(EventName::GeneralEntries.as_str(), entries);
-    }
-
-    fn cards(&self, cards: &cards::ChatCards) {
-        let _ = self.app.emit(EventName::ChatCardsChanged.as_str(), cards);
     }
 
     fn ask_changed(&self, row: &AskRow) {

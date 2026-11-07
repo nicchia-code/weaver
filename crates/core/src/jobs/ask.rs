@@ -128,14 +128,13 @@ pub struct HistoryEntryPart {
 pub enum QuestionOrigin {
     /// The agent of a job.
     Job { name: String, id: String },
-    /// The agent of the project's Chat: the question belongs to its active card of questions.
+    /// The agent of the project's Chat, in a round the developer asked it to use.
     Chat,
     /// Weaver itself: the prepared question of a Drift (permanent identity).
     Drift { id: String },
 }
 
-/// The question in view of an open round or of the active card of questions of Chat: the questions
-/// only, never the developer's side of them.
+/// The question in view of an open round: the questions only, never the developer's side of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuestionPart<'a> {
     pub request: &'a RoundRequest,
@@ -419,12 +418,7 @@ fn history_part(out: &mut String, entry: &HistoryEntryPart) {
 }
 
 fn question_part(out: &mut String, part: &QuestionPart<'_>) {
-    let card = part.origin == QuestionOrigin::Chat;
-    out.push_str(if card {
-        "Chosen thing: the question in view of the active card of questions of the Chat\n"
-    } else {
-        "Chosen thing: the question in view of a round of questions\n"
-    });
+    out.push_str("Chosen thing: the question in view of a round of questions\n");
     let questions = &part.request.questions;
     let Some(view) = questions.get(part.index) else {
         return;
@@ -433,11 +427,7 @@ fn question_part(out: &mut String, part: &QuestionPart<'_>) {
     question_in_full(out, view);
     let others: Vec<(usize, &Question)> = questions.iter().enumerate().collect();
     if others.len() > 1 {
-        out.push_str(if card {
-            "\nThe questions of the card, in their order:\n"
-        } else {
-            "\nThe questions of the round, in their order:\n"
-        });
+        out.push_str("\nThe questions of the round, in their order:\n");
         for (index, question) in others {
             if index == part.index {
                 let _ = writeln!(
@@ -459,17 +449,15 @@ fn question_part(out: &mut String, part: &QuestionPart<'_>) {
             let _ = writeln!(out, "Asked by the job: {name} ({id})");
         }
         QuestionOrigin::Chat => {
-            out.push_str("Asked by: Chat\n");
+            out.push_str("Asked by the Chat\n");
         }
         QuestionOrigin::Drift { id } => {
             let _ = writeln!(out, "Prepared question of the Drift: {id}");
         }
     }
-    out.push_str(if card {
-        "The card is still active: the developer has not answered it. Do not answer it for the developer.\n"
-    } else {
-        "The round is still open: the developer has not answered it. Do not answer it for the developer.\n"
-    });
+    out.push_str(
+        "The round is still open: the developer has not answered it. Do not answer it for the developer.\n",
+    );
 
     let mut read = Vec::new();
     if let QuestionOrigin::Drift { id } = &part.origin {
@@ -994,33 +982,6 @@ mod tests {
         ] {
             assert!(text.contains(line), "missing: {line}");
         }
-        assert!(!text.contains("weaver drift show"));
-        assert!(!text.contains("Commands that read it"));
-    }
-
-    #[test]
-    fn a_question_part_of_the_card_of_the_chat_names_the_chat_and_says_the_card_is_active() {
-        let request = round();
-        let text = instruction(
-            &Chosen::Question(QuestionPart {
-                request: &request,
-                index: 1,
-                origin: QuestionOrigin::Chat,
-            }),
-            None,
-        );
-        for line in [
-            "Chosen thing: the question in view of the active card of questions of the Chat\n",
-            "Question 2 of 2:\n",
-            "The questions of the card, in their order:\n",
-            "1. First?\n   - Yes: Yes description\n   - No: No description\n",
-            "2. (the question in view, described above)\n",
-            "Asked by: Chat\n",
-            "The card is still active: the developer has not answered it. Do not answer it for the developer.\n",
-        ] {
-            assert!(text.contains(line), "missing: {line}");
-        }
-        assert!(!text.contains("round"));
         assert!(!text.contains("weaver drift show"));
         assert!(!text.contains("Commands that read it"));
     }

@@ -8,10 +8,4 @@ import type { Tool } from "./Tool";
 /**
  * An entry of the conversation, top to bottom.
  */
-export type Entry = { "kind": "instruction", text: string, } | { "kind": "assignment", from: string, text: string, } | { "kind": "developer", message: number, text: string, delivery: Delivery, 
-/**
- * General: the card of questions this message closed (`developer.SEND_ANSWERS`, or a
- * message written while the card was active): the card shows right before it. A message
- * made only of the answers has an empty `text` and shows no message of the developer.
- */
-card?: string, } | { "kind": "agent", text: string, complete: boolean, } | { "kind": "thinking", text: string, } | { "kind": "tool" } & Tool | { "kind": "note", text: string, at: string, } | { "kind": "permission", request: number, tool: Tool | null, options: Array<PermissionOption>, state: PermissionState, } | { "kind": "reloaded" } | { "kind": "job-started", job: string, name: string, } | { "kind": "job-refused", jobKind: string, reason: string, } | { "kind": "notice", text: string, } | { "kind": "turn-failed", reason: string, } | { "kind": "omp-stopped", reason: string, details: string | null, } | { "kind": "end" } & EndLine;
+export type Entry = { "kind": "instruction", text: string, } | { "kind": "assignment", from: string, text: string, } | { "kind": "developer", message: number, text: string, delivery: Delivery, } | { "kind": "agent", text: string, complete: boolean, } | { "kind": "thinking", text: string, } | { "kind": "tool" } & Tool | { "kind": "note", text: string, at: string, } | { "kind": "permission", request: number, tool: Tool | null, options: Array<PermissionOption>, state: PermissionState, } | { "kind": "reloaded" } | { "kind": "job-started", job: string, name: string, } | { "kind": "job-refused", jobKind: string, reason: string, } | { "kind": "notice", text: string, } | { "kind": "turn-failed", reason: string, } | { "kind": "omp-stopped", reason: string, details: string | null, } | { "kind": "end" } & EndLine;

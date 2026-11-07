@@ -31,8 +31,8 @@ function countOf(view: ViewId, counts: ShellCounts): EntryCount | null {
   if (view === "jobs" && counts.jobsRunning > 0) {
     return { value: counts.jobsRunning, meaning: counts.jobsRunning === 1 ? "job running" : "jobs running", tone: "sky" };
   }
-  if (view === "general" && counts.chatCard) {
-    return { value: 1, meaning: "card of questions waiting for your answers", tone: "peach", tooltip: "Chat has questions for you" };
+  if (view === "general" && counts.chatWaiting) {
+    return { value: 1, meaning: "round waiting for your answers", tone: "peach", tooltip: "Chat is waiting for your answers" };
   }
   return null;
 }

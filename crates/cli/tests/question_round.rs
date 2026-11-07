@@ -198,16 +198,12 @@ fn assert_unavailable(result: &Result) {
     assert_eq!(found["reason"], "Weaver cannot show questions for this command. Do not ask in any other way: stop and tell the developer.");
 }
 
-fn published() -> Value {
-    json!({ "status": "published", "card": "abcd1234", "message": "End your turn now." })
-}
-
 #[test]
-fn the_chat_publishes_a_card_with_its_identity_and_no_job_and_the_command_returns_at_once() {
+fn the_chat_submits_a_round_with_its_identity_and_no_job() {
     let sandbox = sandbox();
-    let app = app(&sandbox, |_, _| Some(Response::ok(published())));
+    let app = app(&sandbox, |_, _| Some(Response::ok(answered())));
     let result = run(&sandbox, &in_chat(&app.endpoint.clone()), &round());
-    assert_eq!((result.exit, result.json()), (Some(0), published()));
+    assert_eq!((result.exit, result.json()), (Some(0), answered()));
 
     let request = app.seen.recv_timeout(PATIENCE).unwrap();
     assert_eq!(request.kind, "question.new");
@@ -215,26 +211,6 @@ fn the_chat_publishes_a_card_with_its_identity_and_no_job_and_the_command_return
     assert_eq!(request.general.as_deref(), Some(SECRET_CHAT));
     assert_eq!(request.payload, round());
     app.done.join().unwrap();
-}
-
-#[test]
-fn a_second_card_in_the_turn_is_exit_one_with_its_code_and_publishes_nothing() {
-    let sandbox = sandbox();
-    let app = app(&sandbox, |_, _| {
-        Some(Response::failure(
-            "card-already-published",
-            "Put every question of the turn in one card.",
-        ))
-    });
-    let result = run(&sandbox, &in_chat(&app.endpoint.clone()), &round());
-    assert_eq!(result.exit, Some(1));
-    let found = result.json();
-    assert_eq!(found["error"]["code"], "card-already-published");
-    assert_eq!(
-        found["error"]["message"],
-        "Put every question of the turn in one card."
-    );
-    assert!(found.get("status").is_none() && found.get("card").is_none());
 }
 
 #[test]

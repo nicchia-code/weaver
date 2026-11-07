@@ -25,7 +25,6 @@ use crate::file_tabs::wire::{
     FileSaveResult, FileTabChanged, ReadOnlyReason, TabChange,
 };
 use crate::file_view::{CopyInResult, EntryChange, TreeChanged};
-use crate::general::cards::{CardActionInput, ChatCardState, ChatCardView, ChatCards};
 use crate::general::proposals::{ChatProposal, ChatProposalStatus, ChatProposals};
 use crate::general::wire::{
     AskClosed, AskEntries, AskKind, AskRow, AskSnapshot, AskStatus, AsksSnapshot, GeneralEntries,
@@ -193,10 +192,6 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     ChatProposals::export_all_to(dir)?;
     ChatProposal::export_all_to(dir)?;
     ChatProposalStatus::export_all_to(dir)?;
-    ChatCards::export_all_to(dir)?;
-    ChatCardView::export_all_to(dir)?;
-    ChatCardState::export_all_to(dir)?;
-    CardActionInput::export_all_to(dir)?;
     GeneralState::export_all_to(dir)?;
     GeneralEntries::export_all_to(dir)?;
     AskKind::export_all_to(dir)?;

@@ -26,7 +26,6 @@ use crate::jobs::Jobs;
 struct Quiet;
 
 impl GeneralEvents for Quiet {
-    fn cards(&self, _: &crate::general::cards::ChatCards) {}
     fn state(&self, _: &GeneralState) {}
     fn entries(&self, _: &GeneralEntries) {}
     fn ask_changed(&self, _: &AskRow) {}
@@ -548,7 +547,6 @@ async fn closing_an_ask_more_conversation_releases_what_its_agent_held() {
         name: "Ask T1".to_owned(),
         kind: AskKind::Task,
         round: None,
-        card: None,
         instruction: "Weaver: Ask more\n".to_owned(),
         rebuild: Arc::new(|| None),
     });

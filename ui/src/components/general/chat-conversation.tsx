@@ -44,17 +44,8 @@ function DeveloperMessage({ entry }: { entry: Extract<Entry, { kind: "developer"
   );
 }
 
-/**
- * One entry of the conversation: the messages are Chat's own, every other entry renders as in a job.
- * A message made only of the answers of a card (`text` empty) is no message of the developer: the
- * card shows in its place, and only a refused delivery says so.
- */
+/** One entry of the conversation: the messages are Chat's own, every other entry renders as in a job. */
 export function ChatEntry({ entry, answer }: { entry: Entry; answer: Answer }) {
-  if (entry.kind === "developer" && entry.text === "") {
-    return entry.delivery.status === "not-delivered" ? (
-      <p className="text-right text-xs text-rose-ink">Not delivered: {entry.delivery.reason}.</p>
-    ) : null;
-  }
   if (entry.kind === "developer") return <DeveloperMessage entry={entry} />;
   if (entry.kind === "agent") {
     return (

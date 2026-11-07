@@ -36,8 +36,8 @@ export interface ShellCounts {
   jobsWaiting: number;
   /** Jobs in Running: shown as a pill on Jobs when none waits. */
   jobsRunning: number;
-  /** A card of questions of Chat is active: `1` in Peach on Chat. */
-  chatCard: boolean;
+  /** Chat waits for the answers of its round: the entry shows `1`. Jobs never count Chat. */
+  chatWaiting: boolean;
 }
 
-export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0, jobsRunning: 0, chatCard: false };
+export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0, jobsRunning: 0, chatWaiting: false };

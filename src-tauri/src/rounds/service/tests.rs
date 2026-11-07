@@ -18,8 +18,6 @@ struct FakeHost {
     log: Mutex<Vec<String>>,
     /// The live Chats with a turn in progress: identity to project.
     chats: Mutex<HashMap<String, String>>,
-    /// The cards published, in order: project and questions.
-    cards: Mutex<Vec<(String, RoundRequest)>>,
     changes: Mutex<Option<Sender<QuestionRoundChanged>>>,
 }
 
@@ -46,17 +44,16 @@ impl RoundsHost for FakeHost {
         self.push(format!("closed {job}"));
     }
 
-    fn publish_card(&self, token: &str, request: RoundRequest) -> CardPublication {
-        let Some(project) = self.chats.lock().unwrap().get(token).cloned() else {
-            return CardPublication::Unavailable;
-        };
-        let mut cards = self.cards.lock().unwrap();
-        // One card per turn: the fake Chat never ends its turn.
-        if cards.iter().any(|(card_project, _)| *card_project == project) {
-            return CardPublication::AlreadyPublished;
-        }
-        cards.push((project, request));
-        CardPublication::Published(format!("card{:04}", cards.len()))
+    fn chat(&self, token: &str) -> Option<String> {
+        self.chats.lock().unwrap().get(token).cloned()
+    }
+
+    fn chat_round_opened(&self, project_id: &str) {
+        self.push(format!("chat opened {project_id}"));
+    }
+
+    fn chat_round_closed(&self, project_id: &str) {
+        self.push(format!("chat closed {project_id}"));
     }
 
     fn focus_project(&self, project_id: &str) {
@@ -239,61 +236,63 @@ fn a_round_is_presented_answered_and_closed_for_its_job() {
     assert_eq!(f.host.log(), ["opened job1", "focus p1", "closed job1"]);
 }
 
-/// What the agent of the Chat asks for: the answer comes at once.
-fn ask_as_chat(f: &Fixture, token: &str, ids: &[&str]) -> Response {
+/// Asks a round as the agent of the Chat does and waits until it is in its queue.
+fn ask_as_chat(f: &Fixture, token: &str, ids: &[&str]) -> JoinHandle<Response> {
+    let rounds = f.rounds.clone();
     let mut request = request(None, payload(ids));
     request.general = Some(token.into());
-    f.rounds.handle(request, Peer::default())
+    let handle = thread::spawn(move || rounds.handle(request, Peer::default()));
+    f.changes
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("the round was not submitted");
+    handle
 }
 
 #[test]
-fn the_chat_during_a_turn_publishes_a_card_and_is_answered_at_once() {
+fn the_chat_during_a_turn_asks_a_round_that_belongs_to_it_and_its_project() {
     let f = fixture();
-    let response = ask_as_chat(&f, "chat1", &["a", "b"]);
-    assert!(response.error.is_none(), "{response:?}");
+    let waiting = ask_as_chat(&f, "chat1", &["a"]);
+    let view = presented(&f, "p1");
+    assert_eq!(view.origin, OriginView::Chat);
+    assert_eq!(view.project_id, "p1");
+    // The Chat hears of the opening, not a job; the window of the project comes forward.
+    assert_eq!(f.host.log(), ["chat opened p1", "focus p1"]);
+    assert!(f.rounds.view("p2").is_none(), "no other project shows it");
+
+    let seen = f.rounds.question_in_view("p1", view.id, 0).unwrap();
+    assert_eq!(seen.origin, Origin::Chat { project: "p1".into() });
+    assert_eq!(seen.job, None);
+
+    f.rounds
+        .act("p1", view.id, Action::Go(Position::Question { index: 0 }))
+        .unwrap();
+    f.rounds
+        .act(
+            "p1",
+            view.id,
+            Action::Draft {
+                index: 0,
+                selected: vec![1],
+                text: String::new(),
+            },
+        )
+        .unwrap();
+    f.rounds
+        .act("p1", view.id, Action::Confirm { index: 0 })
+        .unwrap();
+    f.rounds.act("p1", view.id, Action::Send).unwrap();
+
+    let response = waiting.join().unwrap();
+    assert!(response.error.is_none());
     assert_eq!(
         response.payload,
-        json!({ "status": "published", "card": "card0001", "message": question::PUBLISHED_MESSAGE })
+        json!({ "status": "answered", "answers": { "a": { "status": "answered", "selected": ["b"] } } })
     );
-    // The card went to the Chat of its project, with its questions, and nowhere else.
-    let cards = f.host.cards.lock().unwrap().clone();
-    assert_eq!(cards.len(), 1);
-    assert_eq!(cards[0].0, "p1");
+    // The close reaches the Chat, with no job in between.
     assert_eq!(
-        cards[0].1.questions.iter().map(|q| q.id.as_str()).collect::<Vec<_>>(),
-        ["a", "b"]
+        f.host.log(),
+        ["chat opened p1", "focus p1", "chat closed p1"]
     );
-    // It never entered the queue: no round is presented, the window is not brought forward, no
-    // job hears of it and nobody is told that a round changed.
-    assert!(f.rounds.view("p1").is_none());
-    assert!(f.host.log().is_empty());
-    assert!(f.changes.try_recv().is_err());
-}
-
-#[test]
-fn a_second_card_in_the_turn_is_refused_whole_and_publishes_nothing() {
-    let f = fixture();
-    assert!(ask_as_chat(&f, "chat1", &["a"]).error.is_none());
-    let again = ask_as_chat(&f, "chat1", &["b"]);
-    let error = again.error.expect("the second card is refused");
-    assert_eq!(error.code, "card-already-published");
-    assert_eq!(error.message, question::CARD_ALREADY_PUBLISHED_MESSAGE);
-    assert_eq!(f.host.cards.lock().unwrap().len(), 1);
-    // Another project's Chat has its own turn.
-    assert!(ask_as_chat(&f, "chat2", &["a"]).error.is_none());
-}
-
-#[test]
-fn a_card_is_validated_whole_before_it_is_published() {
-    let f = fixture();
-    let mut bad = payload(&["a"]);
-    bad["questions"][0]["recommended"] = json!(7);
-    let mut asking = request(None, bad);
-    asking.general = Some("chat1".into());
-    let refused = f.rounds.handle(asking, Peer::default());
-    assert_eq!(code_of(&refused), "invalid-input");
-    assert!(refused.error.unwrap().message.contains("questions[0].recommended"));
-    assert!(f.host.cards.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -301,7 +300,9 @@ fn a_chat_identity_that_is_not_the_live_one_or_has_no_turn_is_unavailable() {
     let f = fixture();
     // Unknown, or known with no turn in progress: the host does not vouch for it.
     for token in ["nobody", "chat-without-turn"] {
-        let response = ask_as_chat(&f, token, &["a"]);
+        let mut asking = request(None, payload(&["a"]));
+        asking.general = Some(token.into());
+        let response = f.rounds.handle(asking, Peer::default());
         assert_eq!(code_of(&response), "unavailable", "{token}");
         assert_eq!(
             response.error.unwrap().message,
@@ -316,29 +317,56 @@ fn a_chat_identity_that_is_not_the_live_one_or_has_no_turn_is_unavailable() {
         "unavailable"
     );
     assert!(f.host.log().is_empty() && f.rounds.view("p1").is_none());
-    assert!(f.host.cards.lock().unwrap().is_empty());
 }
 
 #[test]
-fn a_card_of_the_chat_never_waits_for_a_round_and_no_round_waits_for_it() {
+fn a_job_and_the_chat_of_a_project_share_its_queue_and_each_hears_of_its_own_round() {
     let f = fixture();
-    // A round of a job is presented; the card shows at once and does not queue behind it.
     let job = ask(&f, "job1", &["j"]);
+    let chat = ask_as_chat(&f, "chat1", &["c"]);
     let first = presented(&f, "p1");
-    assert_eq!(first.waiting, 0);
+    assert_eq!(
+        (first.origin.clone(), first.waiting),
+        (
+            OriginView::Agent {
+                job_name: "Scan".into()
+            },
+            1
+        )
+    );
     assert_eq!(f.host.log(), ["opened job1", "focus p1"]);
-    assert!(ask_as_chat(&f, "chat1", &["c"]).error.is_none());
-    assert_eq!(presented(&f, "p1").waiting, 0, "the card is not waiting behind the round");
 
-    // The next round waits for the round on screen, never for the card.
-    let other = ask(&f, "job2", &["k"]);
-    assert_eq!(presented(&f, "p1").waiting, 1);
+    // The Chat's round is presented when the job's closes, and only then does the Chat hear of it.
     f.rounds.abandon("p1", first.id);
     assert_eq!(job.join().unwrap().error.unwrap().code, "cancelled");
+    assert_eq!(presented(&f, "p1").origin, OriginView::Chat);
+    assert_eq!(
+        f.host.log(),
+        ["opened job1", "focus p1", "closed job1", "chat opened p1", "focus p1"]
+    );
+
+    // Closing the window interrupts the Chat's round and tells the Chat.
     f.rounds.window_closed("p1");
-    assert_eq!(other.join().unwrap().error.unwrap().code, "interrupted");
-    // Closing the window interrupts rounds only: the card stays with its Chat.
-    assert_eq!(f.host.cards.lock().unwrap().len(), 1);
+    assert_eq!(chat.join().unwrap().error.unwrap().code, "interrupted");
+    assert_eq!(
+        f.host.log().last().map(String::as_str),
+        Some("chat closed p1")
+    );
+}
+
+#[test]
+fn the_end_of_a_connection_of_the_chat_closes_its_round_for_the_chat() {
+    let f = fixture();
+    let waiting = ask_as_chat(&f, "chat1", &["a"]);
+    let id = presented(&f, "p1").id;
+    // Stop, Clear or an exit of omp end the command: its connection closes.
+    f.rounds.abandon("p1", id);
+    assert_eq!(waiting.join().unwrap().error.unwrap().code, "cancelled");
+    assert_eq!(
+        f.host.log(),
+        ["chat opened p1", "focus p1", "chat closed p1"]
+    );
+    assert!(f.rounds.view("p1").is_none());
 }
 
 #[test]

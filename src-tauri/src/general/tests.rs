@@ -25,7 +25,6 @@ struct Recorder {
     rows: Mutex<Vec<AskRow>>,
     ask_entries: Mutex<Vec<AskEntries>>,
     closed: Mutex<Vec<AskClosed>>,
-    cards: Mutex<Vec<super::cards::ChatCards>>,
 }
 
 impl GeneralEvents for Recorder {
@@ -35,10 +34,6 @@ impl GeneralEvents for Recorder {
 
     fn entries(&self, entries: &GeneralEntries) {
         self.entries.lock().unwrap().push(entries.clone());
-    }
-
-    fn cards(&self, cards: &super::cards::ChatCards) {
-        self.cards.lock().unwrap().push(cards.clone());
     }
 
     fn ask_changed(&self, row: &AskRow) {
@@ -1612,7 +1607,6 @@ async fn clear_right_after_the_window_opened_leaves_no_omp_alive_however_far_it_
                     project: f.project.root.to_string_lossy().into_owned(),
                     session_id: "fake-session".into(),
                     updated: "2026-11-02T07:00:01.000Z".into(),
-                    cards: None,
                 },
             )
             .unwrap();
@@ -1880,7 +1874,6 @@ mod ask_more {
             name: "Ask T3".to_owned(),
             kind: AskKind::Task,
             round: None,
-            card: None,
             instruction: INSTRUCTION.to_owned(),
             rebuild,
         })
@@ -2456,7 +2449,6 @@ mod ask_job_new {
             name: "Ask T3".into(),
             kind: AskKind::Task,
             round: None,
-            card: None,
             instruction: "Weaver: Ask more\n".into(),
             rebuild,
         });
@@ -2517,4 +2509,32 @@ mod ask_job_new {
         let closed = run(&f, &authority, json!({ "kind": "scan" }), Some(&id), false);
         assert_eq!(closed.unwrap_err().code, code::FORBIDDEN, "closed");
     }
+}
+
+#[tokio::test]
+async fn the_state_says_waiting_while_a_round_of_the_chat_is_open_and_stays_working() {
+    let f = fixture().await;
+    f.host.script(
+        json!({ "log": f.host.received_log(), "prompts": [[agent("Asking"), { "hold": true }]] }),
+    );
+    f.send("Ask me");
+    // omp is open once the agent answers: only then can it open a round.
+    until("the agent to answer", LIMIT, || {
+        f.entries().contains(&Entry::Agent {
+            text: "Asking".into(),
+            complete: false,
+        })
+    })
+    .await;
+    assert!(!f.general.snapshot(f.id()).unwrap().state.waiting);
+
+    f.general.round_opened(f.id());
+    let state = f.general.snapshot(f.id()).unwrap().state;
+    assert!(state.waiting, "the Machine is in Waiting for answers");
+    assert!(state.working, "a turn is in progress, so Stop shows");
+
+    f.general.round_closed(f.id());
+    let state = f.general.snapshot(f.id()).unwrap().state;
+    assert!(!state.waiting);
+    assert!(state.working);
 }

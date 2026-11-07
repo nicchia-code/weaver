@@ -56,9 +56,6 @@ pub enum EventName {
     GeneralChanged,
     /// The conversation of a project's General changed; carries the entries that changed.
     GeneralEntries,
-    /// The cards of questions of a project's Chat changed; carries the whole list (see
-    /// [`crate::general::cards`]).
-    ChatCardsChanged,
     /// An Ask more conversation of a project opened or changed its row (see [`crate::general`]).
     AskChanged,
     /// The conversation of an Ask more conversation changed; carries the entries that changed.
@@ -129,7 +126,6 @@ impl EventName {
             EventName::SubAgentEntries => "sub-agent-entries",
             EventName::GeneralChanged => "general-changed",
             EventName::GeneralEntries => "general-entries",
-            EventName::ChatCardsChanged => "chat-cards-changed",
             EventName::AskChanged => "ask-changed",
             EventName::AskEntries => "ask-entries",
             EventName::AskClosed => "ask-closed",

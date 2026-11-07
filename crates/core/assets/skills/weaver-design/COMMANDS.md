@@ -544,15 +544,15 @@ Example: `weaver job edit --input '{"note":"Reading the order Machine"}'`
 
 ### `weaver question new [--input <json>|-] [--root <dir>] [--json]`
 
-Asks the developer a group of questions: a round in a job, a card of questions in Chat.
+Asks the developer a round of questions and waits for the answers.
 
-Prints only JSON on standard output, always. The input is validated whole before Weaver is contacted. In a job the command then waits with no time limit until a result exists: run it with no time limit and wait until it ends. In Chat it returns as soon as Weaver has published the card of questions or refused it.
+Prints only JSON on standard output, always. The input is validated whole before Weaver is contacted; then the command waits with no time limit until a result exists: run it with no time limit and wait until it ends.
 
-Write every text so that it stands alone: the developer sees only the questions, not the conversation. Texts are Markdown except labels. Use no first person and no "Other" option: a free answer is always offered.
+Write every text so that it stands alone: the developer sees only the round, not the conversation. Texts are Markdown except labels. Use no first person and no "Other" option: a free answer is always offered.
 
-In Chat, use it for every question with distinct options, in one card per turn: a second card in the same turn is refused whole. After `published`, end the turn now, do not repeat the questions in the reply and do not wait. The answers come in a later message of the developer, in a block that starts with `Answers to the card of questions <card>`: each question is `answered`, `skipped` (use the recommendation and list it as a decision to verify) or `not-answered` (still open: use no recommendation and do not decide it). Open questions without options stay in the reply.
+In Chat, use it only when the developer asked to be asked with a round; otherwise ask in your replies.
 
-Results: `{"status":"answered","answers":{<id>:{"status":"answered","selected":[...],"text":...}|{"status":"skipped"}}}` (exit 0, in a job); `{"status":"published","card":<card>,"message":...}` (exit 0, in Chat); `{"status":"unavailable","reason":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the questions are submitted: stop and tell the developer; `{"error":{"code":"invalid-input"|"interrupted"|"cancelled"|"card-already-published","message":...}}`, exit 2 for `invalid-input` and 1 for the others.
+Results: `{"status":"answered","answers":{<id>:{"status":"answered","selected":[...],"text":...}|{"status":"skipped"}}}` (exit 0); `{"status":"unavailable","reason":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the round is submitted: stop and tell the developer; `{"error":{"code":"invalid-input"|"interrupted"|"cancelled","message":...}}`, exit 2 for `invalid-input` and 1 for the others.
 
 Who: Only the agent of a job Weaver started or the agent of the project's Chat during a turn can use it (Weaver sets `WEAVER_JOB` or `WEAVER_GENERAL` in the environment of that agent). For any other caller the outcome is `unavailable`, with exit 0.
 
@@ -569,7 +569,7 @@ Input:
   - `recommended`, integer >= 0, required: The index of the recommended option, from 0.
   - `multi`, boolean, required: Whether several options may be chosen.
 
-Output with `--json`: `status`, `answers`, `card`, `message`, `reason`. `--help` gives their types.
+Output with `--json`: `status`, `answers`, `reason`. `--help` gives their types.
 
 The output is always JSON, with or without `--json`.
 

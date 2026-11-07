@@ -40,7 +40,7 @@ function job(id: string, state: JobRow["state"], patch: Partial<JobRow> = {}): J
 }
 
 function ask(id: string, name: string, patch: Partial<AskRow> = {}): AskRow {
-  return { id, projectId: PROJECT, name, kind: "task", opened: "2026-11-02T08:00:00.000Z", status: "idle", starting: false, round: null, card: null, ...patch };
+  return { id, projectId: PROJECT, name, kind: "task", opened: "2026-11-02T08:00:00.000Z", status: "idle", starting: false, round: null, ...patch };
 }
 
 describe("the order of the Jobs list with Ask more conversations", () => {
@@ -73,15 +73,7 @@ interface Mounted {
   emit: (event: string, payload: unknown) => void;
 }
 
-const showView = vi.fn();
-
-function mount(
-  asks: AskRow[],
-  entries: Record<string, Entry[]> = {},
-  jobs: JobRow[] = [],
-  round: QuestionRoundView | null = null,
-  cards: { id: string; state: string }[] = [],
-): Mounted {
+function mount(asks: AskRow[], entries: Record<string, Entry[]> = {}, jobs: JobRow[] = [], round: QuestionRoundView | null = null): Mounted {
   const handlers = new Map<string, (payload: never) => void>();
   const mounted: Mounted = {
     closed: [],
@@ -111,15 +103,13 @@ function mount(
         return null;
       case "question_round_get":
         return round;
-      case "general_cards":
-        return { projectId: PROJECT, revision: 1, cards };
       default:
         return null;
     }
   }) as never);
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <JobsProvider projectId={PROJECT}>
           <AsksProvider projectId={PROJECT}>
             <QuestionRoundLayer projectId={PROJECT}>
@@ -262,35 +252,6 @@ describe("the conversation of an Ask more conversation", () => {
     const back = await screen.findByRole("button", { name: "Back to questions" });
     await user.click(back);
     expect(vi.mocked(call)).toHaveBeenCalledWith("question_round_act", { projectId: PROJECT, roundId: 7, action: { kind: "minimize", minimized: false } });
-  });
-
-  it("shows `Back to questions` of a card of Chat only while that card is active, and shows the Chat view scrolled to it", async () => {
-    const user = userEvent.setup();
-    const element = document.createElement("article");
-    element.setAttribute("data-chat-card", "cardcard");
-    element.scrollIntoView = vi.fn();
-    document.body.append(element);
-    const mounted = mount([ask("askidle1", "Ask question", { kind: "question", card: "cardcard" })], {}, [], null, [{ id: "cardcard", state: "active" }]);
-    const back = await screen.findByRole("button", { name: "Back to questions" });
-    await user.click(back);
-    expect(showView).toHaveBeenCalledWith("general");
-    await waitFor(() => expect(element.scrollIntoView).toHaveBeenCalledTimes(1));
-    // The card is not asked about again: nothing is sent to the round or to the card.
-    expect(vi.mocked(call)).not.toHaveBeenCalledWith("question_round_act", expect.anything());
-    expect(vi.mocked(call)).not.toHaveBeenCalledWith("general_card_act", expect.anything());
-    // It goes away when the card stops being active, however that happens.
-    mounted.emit("chat-cards-changed", { projectId: PROJECT, revision: 2, cards: [{ id: "cardcard", state: "answered" }] });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Back to questions" })).toBeNull());
-    element.remove();
-  });
-
-  it("has no `Back to questions` for a card that is closed, replaced or gone", async () => {
-    mount([ask("askidle1", "Ask question", { kind: "question", card: "cardcard" })], {}, [], null, [
-      { id: "cardcard", state: "answered-with-message" },
-      { id: "newercrd", state: "active" },
-    ]);
-    await screen.findByRole("combobox", { name: "Message the agent" });
-    expect(screen.queryByRole("button", { name: "Back to questions" })).toBeNull();
   });
 
   it("has no `Back to questions` when the round is not the one that is open", async () => {

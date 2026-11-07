@@ -2,7 +2,7 @@ import { MessageCircleQuestion } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
 
 import type { ActionInput } from "@/bindings/ActionInput";
-import type { RoundData } from "@/components/questions/question-model";
+import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import type { QuestionView } from "@/bindings/QuestionView";
 import { GuardedButton } from "@/components/guarded-button";
 import { useOptionalAsks } from "@/components/ask/use-asks";
@@ -25,28 +25,6 @@ export interface KeyHandlers {
 }
 
 export const NO_HANDLERS: KeyHandlers = { primary: () => {}, digit: () => {} };
-
-function isTextEntry(target: EventTarget): boolean {
-  return target instanceof HTMLElement && (target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && (target as HTMLInputElement).type === "text"));
-}
-
-/**
- * The keys of a round or of a card: `Ctrl/Cmd+Enter` is the primary button and `1`–`9` an option
- * (never while a text field has the focus). Only keys of elements inside `event.currentTarget` count:
- * those of a dialog opened from it (a portal) bubble through React but are not ours.
- */
-export function onQuestionKeys(event: KeyboardEvent<HTMLElement>, handlers: MutableRefObject<KeyHandlers>) {
-  if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    handlers.current.primary();
-    return;
-  }
-  if (/^[1-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !isTextEntry(event.target)) {
-    event.preventDefault();
-    handlers.current.digit(Number(event.key) - 1);
-  }
-}
 
 interface OptionsProps {
   question: QuestionView;
@@ -157,22 +135,13 @@ function rowsFor(text: string): number {
 }
 
 interface PaneProps {
-  round: RoundData;
+  round: QuestionRoundView;
   index: number;
   act: (action: ActionInput) => void;
-  /** Opens the confirmation of `Skip all`; a pane without it has no `Skip all`. */
-  askSkipAll?: () => void;
-  /** Whether the pane takes the focus when it is shown; by default it always does. */
-  shouldFocus?: () => boolean;
-  /**
-   * `Ask more` on the question in view: by default the round of a job opens an Ask more
-   * conversation and is reduced to its bar; a function replaces that, `false` hides the control.
-   */
-  askMore?: false | ((index: number) => void);
+  /** Opens the confirmation of `Skip all`. */
+  askSkipAll: () => void;
   handlers: MutableRefObject<KeyHandlers>;
 }
-
-const ALWAYS = () => true;
 
 /**
  * One question: its text, context and options, the free answer, and the footer. Everything the
@@ -184,7 +153,7 @@ export function QuestionPane(props: PaneProps) {
   return question ? <QuestionBody {...props} question={question} /> : null;
 }
 
-function QuestionBody({ round, index, question, act, askSkipAll, shouldFocus = ALWAYS, askMore: askMoreAbout, handlers }: PaneProps & { question: QuestionView }) {
+function QuestionBody({ round, index, question, act, askSkipAll, handlers }: PaneProps & { question: QuestionView }) {
   const last = index === round.questions.length - 1;
   const [text, setText] = useState(question.draft.text);
   const textNow = useRef(text);
@@ -204,11 +173,6 @@ function QuestionBody({ round, index, question, act, askSkipAll, shouldFocus = A
    */
   function askMore() {
     flush();
-    if (typeof askMoreAbout === "function") {
-      askMoreAbout(index);
-      return;
-    }
-    if (typeof round.id !== "number") return;
     void asks?.askMore({ kind: "question", round: round.id, index }).then((id) => {
       if (id !== null) act({ kind: "minimize", minimized: true });
     });
@@ -225,11 +189,8 @@ function QuestionBody({ round, index, question, act, askSkipAll, shouldFocus = A
   const flushNow = useRef(flush);
   flushNow.current = flush;
 
-  // The focus goes to the text of the question each time a question is shown, unless the pane
-  // says it must not take it (a card of Chat never takes the focus by itself).
-  useEffect(() => {
-    if (shouldFocus()) title.current?.focus();
-  }, [shouldFocus]);
+  // The focus goes to the text of the question each time a question is shown.
+  useEffect(() => title.current?.focus(), []);
   // Leaving the question never loses what was typed.
   useEffect(() => () => flushNow.current(), []);
   // A question the backend changed under the textarea (another round of the same index) starts over.
@@ -284,16 +245,14 @@ function QuestionBody({ round, index, question, act, askSkipAll, shouldFocus = A
             <Markdown className="min-w-0 flex-1 text-base font-medium" holderHeadingLevel={2}>
               {question.question}
             </Markdown>
-            {askMoreAbout === false ? null : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label="Ask more about this question" onClick={askMore}>
-                    <MessageCircleQuestion aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Ask an agent about this question</TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label="Ask more about this question" onClick={askMore}>
+                  <MessageCircleQuestion aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Ask an agent about this question</TooltipContent>
+            </Tooltip>
           </div>
           {question.context ? <Markdown className="text-sm text-muted-foreground">{question.context}</Markdown> : null}
         </div>
@@ -325,11 +284,9 @@ function QuestionBody({ round, index, question, act, askSkipAll, shouldFocus = A
           Back
         </Button>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
-          {askSkipAll ? (
-            <Button variant="outline" onClick={askSkipAll}>
-              Skip all
-            </Button>
-          ) : null}
+          <Button variant="outline" onClick={askSkipAll}>
+            Skip all
+          </Button>
           <Button variant="outline" onClick={skip}>
             Skip
           </Button>

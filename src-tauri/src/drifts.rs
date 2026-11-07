@@ -713,7 +713,7 @@ mod tests {
 
     use super::*;
     use crate::agent_work::{AgentWork, Ghost};
-    use crate::rounds::service::{CardPublication, JobFacts, RoundsHost};
+    use crate::rounds::service::{JobFacts, RoundsHost};
     use crate::rounds::view::{OriginView, QuestionRoundChanged};
 
     const NOW: &str = "2026-11-02T09:00:00.000Z";
@@ -773,9 +773,11 @@ mod tests {
         fn round_opened(&self, _: &str) {}
         fn round_closed(&self, _: &str) {}
         fn focus_project(&self, _: &str) {}
-        fn publish_card(&self, _: &str, _: RoundRequest) -> CardPublication {
-            CardPublication::Unavailable
+        fn chat(&self, _: &str) -> Option<String> {
+            None
         }
+        fn chat_round_opened(&self, _: &str) {}
+        fn chat_round_closed(&self, _: &str) {}
         fn changed(&self, _: &QuestionRoundChanged) {}
     }
 

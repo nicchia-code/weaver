@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc as std_mpsc;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
@@ -32,10 +32,8 @@ use weaver_core::paths::project_hash_of_canonical;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
 use weaver_core::project::ids;
 use weaver_core::project::random::OsRandom;
-use weaver_core::question::{self, Action, Card, CardRecord, CardState, Origin, RoundRequest};
 
 use super::actor::{self, Cmd, Msg};
-use super::cards::{self, ChatCards};
 use super::wire::{
     AskClosed, AskEntries, AskKind, AskRow, AskSnapshot, AskStatus, GeneralEntries, GeneralEvents,
     GeneralSnapshot, GeneralState,
@@ -43,7 +41,6 @@ use super::wire::{
 use crate::jobs::authority::GeneralAuthority;
 use crate::jobs::conversation::{Conversation, Delivery, Entry, PermissionState};
 use crate::jobs::host::Host;
-use crate::rounds::service::{CardPublication, QuestionInView};
 use crate::subagents::poller::{Access, Poller};
 use crate::subagents::reader::{Done, Location};
 use crate::subagents::tree::Plan;
@@ -69,8 +66,6 @@ struct AskSlot {
     order: u64,
     /// The question round it was opened from.
     round: Option<u64>,
-    /// The card of questions of the Chat it was opened from.
-    card: Option<String>,
     /// The instruction the next prompt carries: prepared at opening, until a prompt took it.
     instruction: Option<String>,
     rebuild: Rebuild,
@@ -85,7 +80,6 @@ pub struct AskOpening {
     pub name: String,
     pub kind: AskKind,
     pub round: Option<u64>,
-    pub card: Option<String>,
     pub instruction: String,
     pub rebuild: Rebuild,
 }
@@ -94,6 +88,32 @@ pub struct AskOpening {
 enum Write {
     Record(String, GeneralRecord),
     Delete(String),
+    Flush(std_mpsc::Sender<()>),
+}
+
+/// What the Chat tells the rest of the app: the Events of the Machine `general-chat` that others
+/// receive. Called on a thread of their own, in the order they happened and never with the lock
+/// of the service held, so that an observer may ask the Chat anything.
+pub trait ChatObserver: Send + Sync {
+    /// `general-chat.WAITING`: the agent of the Chat of the project starts waiting for the answers
+    /// of its round.
+    fn chat_waiting(&self, _project_id: &str) {}
+
+    /// The round the agent of the Chat of the project waited for ends without answers: its turn
+    /// failed or ended, omp exited, or the developer stopped it, cleared the conversation or
+    /// closed the window. A round that is closed in the normal way is not reported here.
+    fn chat_round_ended(&self, _project_id: &str) {}
+
+    /// The round the agent of the Chat waited for was closed in the normal way (answered, or
+    /// skipped by the developer): the Chat goes on in the same turn.
+    fn chat_round_closed(&self, _project_id: &str) {}
+}
+
+/// What the thread of the observers is told.
+enum Notice {
+    Waiting(String),
+    RoundEnded(String),
+    RoundClosed(String),
     Flush(std_mpsc::Sender<()>),
 }
 
@@ -124,14 +144,6 @@ struct Slot {
     exit_details: Option<String>,
     /// The conversation was replaced: the UI fetches it again.
     reset: bool,
-    /// General: the cards of questions of the conversation, in publication order.
-    cards: Vec<Card>,
-    /// Grows with every change of the cards, drafts included.
-    cards_revision: u64,
-    /// The turns of the agent so far: a card belongs to the turn that published it.
-    turn: u64,
-    /// A turn of the agent is in progress.
-    in_turn: bool,
     last_state: Option<GeneralState>,
     /// Set for an Ask more conversation.
     ask: Option<AskSlot>,
@@ -159,10 +171,6 @@ impl Slot {
             next_message: 1,
             exit_details: None,
             reset: false,
-            cards: Vec::new(),
-            cards_revision: 0,
-            turn: 0,
-            in_turn: false,
             last_state: None,
             ask: None,
             last_row: None,
@@ -213,7 +221,6 @@ impl Slot {
             status,
             starting: self.machine.starting(),
             round: ask.round,
-            card: ask.card.clone(),
         })
     }
 
@@ -224,6 +231,7 @@ impl Slot {
             starting: self.machine.starting(),
             loading: self.machine.state() == State::Loading && !self.loaded,
             kept: self.record.is_some() && !self.loaded,
+            waiting: self.machine.state() == State::WaitingForAnswers,
         }
     }
 
@@ -241,6 +249,8 @@ pub struct General {
     store: GeneralStore,
     inner: Mutex<HashMap<String, Slot>>,
     writer: std_mpsc::Sender<Write>,
+    notices: std_mpsc::Sender<Notice>,
+    observers: Arc<RwLock<Vec<Arc<dyn ChatObserver>>>>,
     clock: Arc<dyn Clock>,
     me: Weak<General>,
 }
@@ -280,12 +290,37 @@ impl General {
                 }
             })
             .expect("the thread of the General records starts");
+        let observers: Arc<RwLock<Vec<Arc<dyn ChatObserver>>>> = Arc::default();
+        let (notices, notified) = std_mpsc::channel::<Notice>();
+        let listening = observers.clone();
+        std::thread::Builder::new()
+            .name("weaver-general-observers".into())
+            .spawn(move || {
+                for notice in notified {
+                    if let Notice::Flush(done) = notice {
+                        let _ = done.send(());
+                        continue;
+                    }
+                    let observers = listening.read().expect("observers poisoned").clone();
+                    for observer in observers {
+                        match &notice {
+                            Notice::Waiting(project) => observer.chat_waiting(project),
+                            Notice::RoundEnded(project) => observer.chat_round_ended(project),
+                            Notice::RoundClosed(project) => observer.chat_round_closed(project),
+                            Notice::Flush(_) => {}
+                        }
+                    }
+                }
+            })
+            .expect("the thread of the General observers starts");
         Arc::new_cyclic(|me| General {
             host,
             events,
             store,
             inner: Mutex::new(HashMap::new()),
             writer,
+            notices,
+            observers,
             clock,
             me: me.clone(),
         })
@@ -305,10 +340,27 @@ impl General {
         &self.host
     }
 
-    /// Waits until every record written so far is on the disk.
+    /// Who wants to know the Events of the Chat (`general-chat.WAITING`...).
+    pub fn observe(&self, observer: Arc<dyn ChatObserver>) {
+        self.observers
+            .write()
+            .expect("observers poisoned")
+            .push(observer);
+    }
+
+    fn notify(&self, notice: Notice) {
+        let _ = self.notices.send(notice);
+    }
+
+    /// Waits until every record written so far is on the disk and every observer was told what
+    /// happened before.
     pub fn flush(&self) {
         let (done, wait) = std_mpsc::channel();
         if self.writer.send(Write::Flush(done)).is_ok() {
+            let _ = wait.recv();
+        }
+        let (done, wait) = std_mpsc::channel();
+        if self.notices.send(Notice::Flush(done)).is_ok() {
             let _ = wait.recv();
         }
     }
@@ -436,7 +488,6 @@ impl General {
             // Another window may have read it meanwhile: the first reading stands.
             if !slot.ready {
                 slot.loaded = record.is_none();
-                slot.cards = restored_cards(project_id, record.as_ref());
                 slot.record = record;
                 slot.ready = true;
             }
@@ -512,18 +563,9 @@ impl General {
         // What goes to omp has the block of tagged assets, after the message (and so after the
         // instruction in the first message of an Ask more conversation); the conversation shows
         // what the developer wrote.
-        let mut sent = tags::with_block(text, &tagged);
-        // A message written while a card of questions is active closes it, under this lock: what
-        // was confirmed and skipped goes with the message, every other question as not answered.
-        let card = self
-            .close_active_card(key, slot, CardState::AnsweredWithMessage)
-            .map(|(card, block)| {
-                sent = question::with_answers_block(&sent, &block);
-                card
-            });
-        slot.texts.insert(message, sent);
+        slot.texts.insert(message, tags::with_block(text, &tagged));
         slot.conversation
-            .developer_message_closing(message, text, Delivery::Queued, card);
+            .developer_message(message, text, Delivery::Queued);
         self.apply(key, slot, machine::Event::SendMessage(message));
         Ok(())
     }
@@ -596,25 +638,7 @@ impl General {
 
     /// Applies an event to the Machine of the slot `key` and carries out what it asks.
     fn apply(&self, key: &str, slot: &mut Slot, event: machine::Event) {
-        // A turn ends with the end, the failure or the stop of the agent; whatever makes it work
-        // afterwards starts another.
-        if matches!(
-            event,
-            machine::Event::TurnEnded
-                | machine::Event::TurnFailed(_)
-                | machine::Event::Exited(_)
-                | machine::Event::StopAgent
-                | machine::Event::Clear
-                | machine::Event::WindowClosed
-        ) {
-            slot.in_turn = false;
-        }
         let effects = slot.machine.handle(event);
-        let working = slot.machine.turn_in_progress();
-        if working && !slot.in_turn {
-            slot.turn += 1;
-        }
-        slot.in_turn = working;
         self.carry_out(key, slot, effects);
         self.emit(key, slot);
     }
@@ -702,12 +726,13 @@ impl General {
                     slot.agents.interest(false, None);
                     slot.loaded = true;
                     slot.record = None;
-                    self.clear_cards(key, slot);
                     slot.texts.clear();
                     slot.exit_details = None;
                     slot.reset = true;
                     let _ = self.writer.send(Write::Delete(key.to_owned()));
                 }
+                Effect::Waiting => self.notify(Notice::Waiting(slot.project(key).to_owned())),
+                Effect::EndRound => self.notify(Notice::RoundEnded(slot.project(key).to_owned())),
                 Effect::TurnFailed(reason) => slot.conversation.turn_failed(&reason),
                 Effect::Stopped(reason) => {
                     slot.identity = None;
@@ -984,21 +1009,10 @@ impl General {
             });
         }
         if slot.ask.is_none() {
-            // A kept conversation that could not be reloaded goes with its cards, and the answers
-            // of a card that a held message already carried never reach the agent.
-            if fallback.is_some() {
-                self.clear_cards(key, slot);
-                for text in slot.texts.values_mut() {
-                    if let Some((written, _)) = question::split_answers_block(text) {
-                        *text = written.to_owned();
-                    }
-                }
-            }
             let record = GeneralRecord {
                 project: slot.root.to_string_lossy().into_owned(),
                 session_id: session.to_owned(),
                 updated,
-                cards: cards_record(&slot.cards),
             };
             slot.record = Some(record.clone());
             let _ = self.writer.send(Write::Record(key.to_owned(), record));
@@ -1040,7 +1054,6 @@ impl General {
                 opened,
                 order,
                 round: opening.round,
-                card: opening.card,
                 instruction: Some(opening.instruction),
                 rebuild: opening.rebuild,
                 session: None,
@@ -1242,231 +1255,48 @@ impl General {
             .and_then(|slot| slot.identity.clone())
     }
 
-    /// `agent.ASK_QUESTIONS` for the Chat: the card of questions the agent of the Chat whose
-    /// identity is `token` publishes during a turn. The card shows in the conversation at once; it
-    /// never enters the queue of the rounds, holds no one and changes no state of the Chat. A second
-    /// card in the same turn is refused whole.
-    pub fn publish_card(&self, token: &str, request: RoundRequest) -> CardPublication {
-        let mut inner = self.lock();
-        let Some((key, slot)) = inner.iter_mut().find(|(_, slot)| {
-            slot.ask.is_none()
-                && slot.identity.as_deref() == Some(token)
-                && slot.machine.accepts_agent_calls()
-        }) else {
-            return CardPublication::Unavailable;
-        };
-        if slot.cards.iter().any(|card| card.turn == slot.turn) {
-            return CardPublication::AlreadyPublished;
-        }
-        let id = ids::draw_identity(&mut OsRandom, &|candidate| {
-            slot.cards.iter().any(|card| card.id == candidate)
+    /// The project hash of the live Chat that `token` is the identity of, while a turn of its
+    /// agent is in progress (Working, or Waiting for answers); `None` for any other token, for an
+    /// Ask more conversation and for a Chat with no turn.
+    pub fn chat_of(&self, token: &str) -> Option<String> {
+        self.lock()
+            .iter()
+            .find(|(_, slot)| {
+                slot.ask.is_none()
+                    && slot.identity.as_deref() == Some(token)
+                    && slot.machine.accepts_agent_calls()
+            })
+            .map(|(key, _)| key.clone())
+    }
+
+    /// `question-round.OPENED` for a round of the Chat of the project: the Working agent goes to
+    /// Waiting for answers (and `general-chat.WAITING` follows). A Chat that is not Working
+    /// ignores it.
+    pub fn round_opened(&self, project_id: &str) {
+        self.apply_to_chat(project_id, machine::Event::RoundOpened);
+    }
+
+    /// `question-round.CLOSED` for a round of the Chat: the agent goes on in the same turn, and
+    /// the messages that waited reach it. A Chat that is not waiting ignores it.
+    pub fn round_closed(&self, project_id: &str) {
+        let waiting = self.lock().get(project_id).is_some_and(|slot| {
+            slot.ask.is_none() && slot.machine.state() == State::WaitingForAnswers
         });
-        // Only the latest card is active (two never exist: a message closes the one before).
-        for card in slot.cards.iter_mut().filter(|card| card.is_active()) {
-            card.close(CardState::AnsweredWithMessage);
+        self.apply_to_chat(project_id, machine::Event::RoundClosed);
+        if waiting {
+            self.notify(Notice::RoundClosed(project_id.to_owned()));
         }
-        slot.cards
-            .push(Card::publish(id.clone(), slot.turn, key, request));
-        self.persist_cards(key, slot);
-        self.emit_cards(key, slot, true);
-        CardPublication::Published(id)
     }
 
-    /// The cards of questions of the Chat of a project, in publication order.
-    pub fn cards(&self, project_id: &str) -> Result<ChatCards, String> {
-        let inner = self.lock();
-        let slot = inner
-            .get(project_id)
-            .filter(|slot| slot.ask.is_none())
-            .ok_or_else(not_open)?;
-        Ok(cards_of(project_id, slot))
-    }
-
-    /// The questions of the card `card` of the Chat of a project, only while it is the active card
-    /// and `index` is one of its questions: what an Ask more conversation about its question in
-    /// view reads. The developer's side of the card is never part of it.
-    pub fn active_card_request(
-        &self,
-        project_id: &str,
-        card: &str,
-        index: usize,
-    ) -> Option<RoundRequest> {
-        let inner = self.lock();
-        let slot = inner.get(project_id).filter(|slot| slot.ask.is_none())?;
-        let card = slot
-            .cards
-            .iter()
-            .find(|candidate| candidate.id == card && candidate.is_active())?;
-        (index < card.request().questions.len()).then(|| card.request().clone())
-    }
-
-    /// What the developer does in the active card of questions; the cards afterwards. Confirming
-    /// and skipping are written to the record, a draft is not, and tells no one.
-    pub fn card_act(
-        &self,
-        project_id: &str,
-        card: &str,
-        action: Action,
-    ) -> Result<ChatCards, String> {
+    fn apply_to_chat(&self, project_id: &str, event: machine::Event) {
         let mut inner = self.lock();
-        let slot = inner
+        if let Some(slot) = inner
             .get_mut(project_id)
-            .filter(|slot| slot.ask.is_none())
-            .ok_or_else(not_open)?;
-        let answers = matches!(action, Action::Confirm { .. } | Action::Skip { .. });
-        let draft = matches!(action, Action::Draft { .. });
-        slot.cards
-            .iter_mut()
-            .find(|c| c.id == card)
-            .ok_or_else(|| "This card of questions does not exist.".to_owned())?
-            .act(action)
-            .map_err(|error| error.to_string())?;
-        if answers {
-            self.persist_cards(project_id, slot);
-        }
-        self.emit_cards(project_id, slot, !draft);
-        Ok(cards_of(project_id, slot))
-    }
-
-    /// `developer.SEND_ANSWERS` for the active card of the Chat: only when every question is
-    /// answered or skipped. The card closes under the lock that takes the message, and its
-    /// answers follow the path of a message of the developer; no message of his is shown.
-    pub fn send_answers(&self, project_id: &str, card: &str) -> Result<(), String> {
-        let mut inner = self.lock();
-        let slot = inner
-            .get_mut(project_id)
-            .filter(|slot| slot.ready && slot.ask.is_none())
-            .ok_or_else(not_open)?;
-        let active = slot
-            .cards
-            .iter()
-            .rev()
-            .find(|c| c.is_active())
-            .filter(|c| c.id == card)
-            .ok_or_else(|| "This card of questions is no longer active.".to_owned())?;
-        active.answers_to_send().map_err(|error| error.to_string())?;
-        let (card, block) = self
-            .close_active_card(project_id, slot, CardState::Answered)
-            .ok_or_else(not_open)?;
-        let message = slot.next_message;
-        slot.next_message += 1;
-        slot.texts.insert(message, block);
-        slot.conversation
-            .developer_message_closing(message, "", Delivery::Queued, Some(card));
-        self.apply(project_id, slot, machine::Event::SendMessage(message));
-        Ok(())
-    }
-
-    /// What an Ask more conversation reads of a question of the active card of the Chat of the
-    /// project: its questions and options, never the developer's drafts, choices or answers.
-    /// `None` when the card is no longer active or has no such question.
-    pub fn question_of_card(
-        &self,
-        project_id: &str,
-        card: &str,
-        index: usize,
-    ) -> Option<QuestionInView> {
-        let inner = self.lock();
-        let slot = inner.get(project_id).filter(|slot| slot.ask.is_none())?;
-        let card = slot
-            .cards
-            .iter()
-            .rev()
-            .find(|c| c.is_active())
-            .filter(|c| c.id == card && index < c.request().questions.len())?;
-        Some(QuestionInView {
-            request: card.request().clone(),
-            origin: Origin::Chat {
-                project: project_id.to_owned(),
-            },
-            job: None,
-        })
-    }
-
-    /// Closes the active card of the Chat, when there is one: its identity and the answers block
-    /// that goes to the agent with what was confirmed and skipped (every other question as not
-    /// answered). The record is written and the UI told.
-    fn close_active_card(
-        &self,
-        key: &str,
-        slot: &mut Slot,
-        state: CardState,
-    ) -> Option<(String, String)> {
-        if slot.ask.is_some() {
-            return None;
-        }
-        let card = slot.cards.iter_mut().rev().find(|card| card.is_active())?;
-        let closed = (card.id.clone(), card.answers_block());
-        card.close(state);
-        self.persist_cards(key, slot);
-        self.emit_cards(key, slot, true);
-        Some(closed)
-    }
-
-    /// The conversation is gone (`New chat`, or a kept one that could not be reloaded): so are its
-    /// cards, in memory and, with the record the caller writes next, on disk.
-    fn clear_cards(&self, key: &str, slot: &mut Slot) {
-        if !slot.cards.is_empty() {
-            slot.cards.clear();
-            self.emit_cards(key, slot, true);
+            .filter(|slot| slot.ask.is_none() && slot.ready)
+        {
+            self.apply(project_id, slot, event);
         }
     }
-
-    /// Writes the cards to the record of the Chat; nothing of a card is logged.
-    fn persist_cards(&self, key: &str, slot: &mut Slot) {
-        let cards = cards_record(&slot.cards);
-        if let Some(record) = slot.record.as_mut().filter(|_| slot.ask.is_none()) {
-            record.cards = cards;
-            let _ = self
-                .writer
-                .send(Write::Record(key.to_owned(), record.clone()));
-        }
-    }
-
-    /// A change of the cards: the revision grows and, unless it is quiet, the UI is told.
-    fn emit_cards(&self, key: &str, slot: &mut Slot, tell: bool) {
-        slot.cards_revision += 1;
-        if tell {
-            self.events.cards(&cards_of(key, slot));
-        }
-    }
-}
-
-/// The cards of the Chat as the UI gets them.
-fn cards_of(project_id: &str, slot: &Slot) -> ChatCards {
-    ChatCards {
-        project_id: project_id.to_owned(),
-        revision: slot.cards_revision,
-        cards: slot.cards.iter().map(cards::view_of).collect(),
-    }
-}
-
-/// What the record keeps of the cards: nothing, when there are none.
-fn cards_record(cards: &[Card]) -> Option<Vec<CardRecord>> {
-    (!cards.is_empty()).then(|| cards.iter().map(Card::record).collect())
-}
-
-/// The cards a record keeps, back in memory: none when any of them cannot be read, and only the
-/// newest of the active ones stays active.
-fn restored_cards(project_id: &str, record: Option<&GeneralRecord>) -> Vec<Card> {
-    let Some(kept) = record.and_then(|record| record.cards.as_ref()) else {
-        return Vec::new();
-    };
-    let Some(mut cards) = kept
-        .iter()
-        .cloned()
-        .map(|card| Card::restore(project_id, card))
-        .collect::<Option<Vec<_>>>()
-    else {
-        return Vec::new();
-    };
-    let newest = cards.iter().rposition(Card::is_active);
-    for (at, card) in cards.iter_mut().enumerate() {
-        if card.is_active() && Some(at) != newest {
-            card.close(CardState::AnsweredWithMessage);
-        }
-    }
-    cards
 }
 
 /// The entries of a conversation, for the tests.
