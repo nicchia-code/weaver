@@ -17,8 +17,9 @@ pub type RoundId = u64;
 pub enum Origin {
     /// The agent of a job, through `weaver question new`.
     Agent { job: String },
-    /// The agent of the project's Chat (General), through `weaver question new`, when the
-    /// developer asked to be asked with a round. `project` is the project hash.
+    /// The agent of the project's Chat, through `weaver question new`: it publishes a card of
+    /// questions in the conversation, which never enters the queue (`card::Card` holds the round
+    /// of a card). `project` is the project hash.
     Chat { project: String },
     /// Weaver itself: the prepared question of a Drift. `id` is the Drift's permanent identity,
     /// `drift` how the developer names it (its short number) and `title` its title.
@@ -155,6 +156,10 @@ pub enum ActionError {
     NotPresented,
     #[error("the round does not exist")]
     NoSuchRound,
+    #[error("the card is not active")]
+    NotActive,
+    #[error("a card of questions has no such action")]
+    NotInCard,
 }
 
 /// What an action did to a round.

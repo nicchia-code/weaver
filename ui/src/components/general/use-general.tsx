@@ -25,6 +25,8 @@ export interface GeneralData {
   /** `null` until the backend answered. */
   state: GeneralState | null;
   entries: readonly Entry[];
+  /** The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is indexed. */
+  arrivals: readonly number[];
   /** A command the backend refused: the text to show, `null` once the developer sends again. */
   problem: string | null;
   send: (text: string) => void;
@@ -37,12 +39,14 @@ export interface GeneralData {
 export function useGeneral(projectId: string): GeneralData {
   const [state, setState] = useState<GeneralState | null>(null);
   const [entries, setEntries] = useState<readonly Entry[]>([]);
+  const [arrivals, setArrivals] = useState<readonly number[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
     setState(null);
     setEntries([]);
+    setArrivals([]);
     seq.current = 0;
     let alive = true;
     // A state event that arrives while the snapshot is on its way is newer than the snapshot.
@@ -54,6 +58,7 @@ export function useGeneral(projectId: string): GeneralData {
           if (!alive || snapshot.state.projectId !== projectId) return;
           seq.current = snapshot.seq;
           setEntries(snapshot.entries);
+          setArrivals(snapshot.arrivals);
           if (stateEvents === seen) setState(snapshot.state);
         })
         .catch(() => {});
@@ -75,6 +80,11 @@ export function useGeneral(projectId: string): GeneralData {
       setEntries((previous) => {
         const next = [...previous];
         for (const { index, entry } of event.changes) next[index] = entry;
+        return next;
+      });
+      setArrivals((previous) => {
+        const next = [...previous];
+        for (const { index, at } of event.changes) next[index] = at;
         return next;
       });
     });
@@ -104,32 +114,5 @@ export function useGeneral(projectId: string): GeneralData {
   );
   const clear = useCallback(() => run(call("general_clear", { projectId })), [projectId, run]);
 
-  return { state, entries, problem, send, stop, answer, clear };
-}
-
-/** Whether the Chat of a project waits for the answers of its round: the sidebar's `1` on the Chat entry. */
-export function useChatWaiting(projectId: string): boolean {
-  const [waiting, setWaiting] = useState(false);
-  useEffect(() => {
-    setWaiting(false);
-    let alive = true;
-    // A state event that arrives while the snapshot is on its way is newer than the snapshot.
-    let events = 0;
-    const stop = on("general-changed", (event) => {
-      if (!alive || event.projectId !== projectId) return;
-      events += 1;
-      setWaiting(event.waiting);
-    });
-    const seen = events;
-    call("general_snapshot", { projectId })
-      .then((snapshot: GeneralSnapshot) => {
-        if (alive && snapshot.state.projectId === projectId && events === seen) setWaiting(snapshot.state.waiting);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-      stop.then((unlisten) => unlisten()).catch(() => {});
-    };
-  }, [projectId]);
-  return waiting;
+  return { state, entries, arrivals, problem, send, stop, answer, clear };
 }

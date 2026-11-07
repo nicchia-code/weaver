@@ -507,10 +507,13 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
     assert.equal(parseJson(result.stdout)?.status, "unavailable");
   });
 
-  test("question new --help names the Chat: during a turn, and only when the developer asked for a round", async () => {
+  test("question new --help names the Chat: a card per turn, then end the turn without repeating the questions", async () => {
     const result = await exec(["question", "new", "--help"], { cwd: emptyFolder() });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /in Chat, use it only when the developer asked to be asked with a round/i);
+    assert.match(result.stdout, /in Chat, use it for every question with distinct options, in one card per turn/i);
+    assert.match(result.stdout, /end the turn now, do not repeat the questions in the reply and do not wait/i);
+    assert.match(result.stdout, /`answered`, `skipped`[^]*`not-answered`/);
+    assert.doesNotMatch(result.stdout, /only when the developer asked/i);
     assert.match(result.stdout, /neither in a working Weaver job nor in the project's Chat during a turn/);
     assert.match(result.stdout, /agent of the project's Chat during a turn can use it/);
   });

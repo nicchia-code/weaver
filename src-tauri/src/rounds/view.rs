@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-use weaver_core::question::{Action, Draft, Origin, Position, Round, Status};
+use weaver_core::question::{Action, Draft, Origin, Position, Round, RoundRequest, Slot, Status};
 
 /// Who asks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -185,28 +185,12 @@ impl From<ActionInput> for Action {
     }
 }
 
-/// The view of `round`, with the name of its job when an agent asks.
-pub fn view_of(
-    project_id: &str,
-    round: &Round,
-    job_name: Option<String>,
-    waiting: usize,
-) -> QuestionRoundView {
-    let origin = match &round.origin {
-        Origin::Agent { job } => OriginView::Agent {
-            job_name: job_name.unwrap_or_else(|| job.clone()),
-        },
-        Origin::Chat { .. } => OriginView::Chat,
-        Origin::Drift { drift, title, .. } => OriginView::Drift {
-            drift: drift.clone(),
-            title: title.clone(),
-        },
-    };
-    let questions = round
-        .request
+/// The questions of a round or of a card of Chat, each with what the developer did in it.
+pub fn question_views(request: &RoundRequest, slots: &[Slot]) -> Vec<QuestionView> {
+    request
         .questions
         .iter()
-        .zip(&round.slots)
+        .zip(slots)
         .map(|(question, slot)| QuestionView {
             id: question.id.clone(),
             question: question.question.clone(),
@@ -227,7 +211,27 @@ pub fn view_of(
             confirmed: slot.confirmed.as_ref().map(Into::into),
             visited: slot.visited,
         })
-        .collect();
+        .collect()
+}
+
+/// The view of `round`, with the name of its job when an agent asks.
+pub fn view_of(
+    project_id: &str,
+    round: &Round,
+    job_name: Option<String>,
+    waiting: usize,
+) -> QuestionRoundView {
+    let origin = match &round.origin {
+        Origin::Agent { job } => OriginView::Agent {
+            job_name: job_name.unwrap_or_else(|| job.clone()),
+        },
+        Origin::Chat { .. } => OriginView::Chat,
+        Origin::Drift { drift, title, .. } => OriginView::Drift {
+            drift: drift.clone(),
+            title: title.clone(),
+        },
+    };
+    let questions = question_views(&round.request, &round.slots);
     QuestionRoundView {
         id: round.id,
         project_id: project_id.to_owned(),

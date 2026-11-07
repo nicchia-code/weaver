@@ -25,6 +25,8 @@ use crate::file_tabs::wire::{
     FileSaveResult, FileTabChanged, ReadOnlyReason, TabChange,
 };
 use crate::file_view::{CopyInResult, EntryChange, TreeChanged};
+use crate::general::cards::{CardActionInput, ChatCardState, ChatCardView, ChatCards};
+use crate::general::proposals::{ChatProposal, ChatProposalStatus, ChatProposals};
 use crate::general::wire::{
     AskClosed, AskEntries, AskKind, AskRow, AskSnapshot, AskStatus, AsksSnapshot, GeneralEntries,
     GeneralSnapshot, GeneralState,
@@ -48,9 +50,7 @@ use crate::project_view::ViewSnapshot;
 use crate::proposal_view::{
     ProposalControl, ProposalFiles, ProposalTask, ProposalView, RequiredProposal,
 };
-use crate::requests::{
-    RequestStatus, RequestSummary, RequestView, RequestsEvent, RequestsSnapshot,
-};
+use crate::requests::{RequestStatus, RequestView, RequestsEvent};
 use crate::rounds::view::{ActionInput, QuestionRoundChanged, QuestionRoundView};
 use crate::startup::StartupFailure;
 use crate::subagents::wire::{
@@ -59,6 +59,8 @@ use crate::subagents::wire::{
 use crate::updates::{UpdateInfo, UpdateStatus};
 use crate::usage::{UsagePhase, UsageStatus};
 use crate::windows::commands::{RecentEntry, WelcomeState};
+use crate::windows::git_state::ProjectGit;
+use crate::windows::switcher::{OpenProjectEntry, ProjectSwitcher};
 use crate::windows::manager::{HideFailed, MenuOpenFailed, ShowRequest, ShowView};
 use crate::windows::unsaved::{
     FilesCloseTab, FilesFlush, FilesSaveFailed, SaveFailure, SavedFile, TabText,
@@ -76,6 +78,7 @@ use weaver_core::omp::probe::OmpModel;
 use weaver_core::omp::providers::ProviderRow;
 use weaver_core::omp::usage::{
     LimitStatus as UsageLimitStatus, NoLimits as UsageNoLimits, ProviderUsage, Usage, UsageLimit,
+    UsageSummary,
 };
 use weaver_core::project_files::folder_tree::TreeEntry;
 use weaver_core::project_files::SyncReport;
@@ -168,12 +171,16 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     Usage::export_all_to(dir)?;
     ProviderUsage::export_all_to(dir)?;
     UsageLimit::export_all_to(dir)?;
+    UsageSummary::export_all_to(dir)?;
     UsageLimitStatus::export_all_to(dir)?;
     UsageNoLimits::export_all_to(dir)?;
     TerminalProblem::export_all_to(dir)?;
     LogoutNote::export_all_to(dir)?;
     LogoutPhase::export_all_to(dir)?;
     RecentEntry::export_all_to(dir)?;
+    OpenProjectEntry::export_all_to(dir)?;
+    ProjectSwitcher::export_all_to(dir)?;
+    ProjectGit::export_all_to(dir)?;
     WelcomeState::export_all_to(dir)?;
     ShowRequest::export_all_to(dir)?;
     HideFailed::export_all_to(dir)?;
@@ -183,6 +190,13 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     ConversationSnapshot::export_all_to(dir)?;
     EntriesEvent::export_all_to(dir)?;
     GeneralSnapshot::export_all_to(dir)?;
+    ChatProposals::export_all_to(dir)?;
+    ChatProposal::export_all_to(dir)?;
+    ChatProposalStatus::export_all_to(dir)?;
+    ChatCards::export_all_to(dir)?;
+    ChatCardView::export_all_to(dir)?;
+    ChatCardState::export_all_to(dir)?;
+    CardActionInput::export_all_to(dir)?;
     GeneralState::export_all_to(dir)?;
     GeneralEntries::export_all_to(dir)?;
     AskKind::export_all_to(dir)?;
@@ -215,8 +229,6 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     SubAgentEntries::export_all_to(dir)?;
     Note::export_all_to(dir)?;
     RequestStatus::export_all_to(dir)?;
-    RequestSummary::export_all_to(dir)?;
-    RequestsSnapshot::export_all_to(dir)?;
     RequestView::export_all_to(dir)?;
     RequestsEvent::export_all_to(dir)?;
     FileEntry::export_all_to(dir)?;

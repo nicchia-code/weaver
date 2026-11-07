@@ -5,4 +5,9 @@ import type { GeneralState } from "./GeneralState";
 /**
  * The conversation as it is now, with the count of change batches it holds.
  */
-export type GeneralSnapshot = { state: GeneralState, seq: number, entries: Array<Entry>, };
+export type GeneralSnapshot = { state: GeneralState, seq: number, entries: Array<Entry>, 
+/**
+ * The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+ * indexed.
+ */
+arrivals: Array<number>, };

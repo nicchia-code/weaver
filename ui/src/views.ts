@@ -1,4 +1,4 @@
-import { Bot, FolderTree, Gauge, History, ListChecks, MessageSquare, NotebookPen, Package, Paperclip, Settings, SquareKanban, type LucideIcon } from "lucide-react";
+import { Bot, FolderTree, History, ListChecks, MessageSquare, NotebookPen, Package, Paperclip, Settings, SquareKanban, type LucideIcon } from "lucide-react";
 
 export type ViewId = "board" | "requirements" | "specs" | "history" | "jobs" | "files" | "assets" | "notes" | "general" | "settings";
 
@@ -7,39 +7,37 @@ export interface ViewEntry {
   /** The name in the sidebar and the heading of the view. */
   label: string;
   icon: LucideIcon;
-  /** Where the sidebar puts the entry: the top group, or the bottom group apart from it. */
-  group: "top" | "bottom";
+  /**
+   * Where the sidebar puts the entry: `main` (Board, Chat, Jobs), the `project` group headed
+   * `PROJECT`, or `settings`, which is a view like the others but has its button in the user row.
+   */
+  group: "main" | "project" | "settings";
 }
 
-/** The views of a project window, in the order of the sidebar (top group first, then bottom group). */
+/** The views of a project window, in the order of the sidebar (`Settings` last, in the user row). */
 export const VIEWS: readonly ViewEntry[] = [
-  { id: "board", label: "Board", icon: SquareKanban, group: "top" },
-  { id: "general", label: "Chat", icon: MessageSquare, group: "top" },
-  { id: "jobs", label: "Jobs", icon: Bot, group: "top" },
-  { id: "files", label: "Files", icon: FolderTree, group: "top" },
-  { id: "assets", label: "Assets", icon: Paperclip, group: "top" },
-  { id: "notes", label: "Notes", icon: NotebookPen, group: "top" },
-  { id: "requirements", label: "Requirements", icon: ListChecks, group: "top" },
-  { id: "specs", label: "Specs", icon: Package, group: "top" },
-  { id: "history", label: "History", icon: History, group: "top" },
-  { id: "settings", label: "Settings", icon: Settings, group: "bottom" },
+  { id: "board", label: "Board", icon: SquareKanban, group: "main" },
+  { id: "general", label: "Chat", icon: MessageSquare, group: "main" },
+  { id: "jobs", label: "Jobs", icon: Bot, group: "main" },
+  { id: "requirements", label: "Requirements", icon: ListChecks, group: "project" },
+  { id: "specs", label: "Specs", icon: Package, group: "project" },
+  { id: "files", label: "Files", icon: FolderTree, group: "project" },
+  { id: "assets", label: "Assets", icon: Paperclip, group: "project" },
+  { id: "notes", label: "Notes", icon: NotebookPen, group: "project" },
+  { id: "history", label: "History", icon: History, group: "project" },
+  { id: "settings", label: "Settings", icon: Settings, group: "settings" },
 ];
 
-/**
- * The entry `Usage` of the bottom group, above Settings. It is not a view: it opens a dialog over
- * the view shown, so it is never in `ViewId` or `VIEWS`, never the selected entry and never has
- * `aria-current`.
- */
-export const USAGE_ENTRY = { id: "usage", label: "Usage", icon: Gauge } as const;
-
-/** The numbers the sidebar shows next to Board and Jobs; the backend holds them. */
+/** The numbers the sidebar shows next to Board, Chat and Jobs; the backend holds them. */
 export interface ShellCounts {
   /** Real cards in Backlog (ghosts never count). */
   backlog: number;
   /** Jobs waiting for the developer. */
   jobsWaiting: number;
-  /** Chat waits for the answers of its round: the entry shows `1`. Jobs never count Chat. */
-  chatWaiting: boolean;
+  /** Jobs in Running: shown as a pill on Jobs when none waits. */
+  jobsRunning: number;
+  /** A card of questions of Chat is active: `1` in Peach on Chat. */
+  chatCard: boolean;
 }
 
-export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0, chatWaiting: false };
+export const NO_COUNTS: ShellCounts = { backlog: 0, jobsWaiting: 0, jobsRunning: 0, chatCard: false };

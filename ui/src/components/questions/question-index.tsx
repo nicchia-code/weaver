@@ -1,8 +1,7 @@
 import { Check, Circle, SkipForward } from "lucide-react";
 
-import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import type { QuestionView } from "@/bindings/QuestionView";
-import { statusText } from "@/components/questions/question-model";
+import { statusText, type RoundData } from "@/components/questions/question-model";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +12,7 @@ export function StatusIcon({ status, className }: { status: QuestionView["status
 }
 
 interface IndexProps {
-  round: QuestionRoundView;
+  round: RoundData;
   /** `true` below 600 px: a row of numbered dots with the same accessible status. */
   compact: boolean;
   go: (position: { kind: "question"; index: number } | { kind: "summary" }) => void;
@@ -44,7 +43,7 @@ export function QuestionIndex({ round, compact, go }: IndexProps) {
               className={cn(
                 "flex size-7 items-center justify-center rounded-full border text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 current ? "border-primary bg-primary text-primary-foreground" : "bg-background",
-                question.status === "missing" && !current && "border-amber-600 text-amber-600 dark:border-amber-400 dark:text-amber-400",
+                question.status === "missing" && !current && "border-peach text-peach-ink",
               )}
             >
               {index + 1}
@@ -88,7 +87,7 @@ export function QuestionIndex({ round, compact, go }: IndexProps) {
                 <span
                   className={cn(
                     "flex items-center gap-1 text-xs text-muted-foreground",
-                    question.status === "missing" && "text-amber-700 dark:text-amber-400",
+                    question.status === "missing" && "text-peach-ink",
                   )}
                 >
                   <StatusIcon status={question.status} className="size-3.5" />

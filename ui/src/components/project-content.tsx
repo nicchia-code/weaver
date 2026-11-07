@@ -5,8 +5,10 @@ import { AssetsProvider } from "@/components/assets/use-assets";
 import { BoardProvider, useBoard } from "@/components/board/board-state";
 import { BoardView } from "@/components/board/board-view";
 import { FilesView } from "@/components/files/files-view";
+import { CommandPalette } from "@/components/command-palette";
+import { ChatDraftProvider } from "@/components/general/chat-draft";
+import { useChatCards } from "@/components/general/use-chat-cards";
 import { GeneralView } from "@/components/general/general-view";
-import { useChatWaiting } from "@/components/general/use-general";
 import { HistoryView } from "@/components/history/history-view";
 import { JobsBoardActions } from "@/components/jobs/board-actions";
 import { JobsView } from "@/components/jobs/jobs-view";
@@ -31,8 +33,8 @@ import { ViewsProvider } from "@/components/views/views-state";
 
 function ProjectShell({ projectId }: { projectId: string }) {
   const { snapshot } = useBoard();
-  const { waiting } = useJobs();
-  const chatWaiting = useChatWaiting(projectId);
+  const { waiting, running } = useJobs();
+  const { active: chatCard } = useChatCards(projectId);
   const backlog = snapshot?.backlog.length ?? 0;
   return (
     <ProjectWindow
@@ -107,18 +109,21 @@ function ProjectShell({ projectId }: { projectId: string }) {
           <SkillsBanner />
         </>
       }
-      // The sidebar shows the real cards of Backlog (ghosts and the Draft cards of Chat never count),
-      // the jobs waiting for the developer (never Chat) and whether Chat waits for the answers of
-      // its round; the backend counts them.
-      counts={{ backlog, jobsWaiting: waiting, chatWaiting }}
+      // The sidebar shows the real cards of Backlog, drafts of requests included (ghosts never count,
+      // they are not in `backlog`), the jobs waiting for the developer (never Chat) and whether a
+      // card of questions of Chat is active; the backend counts them.
+      counts={{ backlog, jobsWaiting: waiting, jobsRunning: running, chatCard: chatCard !== null }}
       // What Requirements and Specs share, and the cards' `View requirements`; `Run`, `Run all` and
       // `Scan System` start jobs.
       around={(children) => (
         <ViewsProvider projectId={projectId}>
-          <JobsBoardActions>
-            <AskViewSwitch />
-            <RequestsBoardActions>{children}</RequestsBoardActions>
-          </JobsBoardActions>
+          <ChatDraftProvider>
+            <JobsBoardActions>
+              <AskViewSwitch />
+              <CommandPalette />
+              <RequestsBoardActions>{children}</RequestsBoardActions>
+            </JobsBoardActions>
+          </ChatDraftProvider>
         </ViewsProvider>
       )}
     />

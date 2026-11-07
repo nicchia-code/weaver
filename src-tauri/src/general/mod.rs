@@ -1,9 +1,10 @@
 //! General chat (task "Chat General") and Ask more conversations: the free conversations with omp.
 //!
-//! General is not a job: it holds no Task, announces no card, asks no question round, notifies
-//! nothing and shows nothing on the Board. It has no instruction, skill or written request; the
-//! developer writes what he wants, and on his explicit request the agent starts a job of Weaver
-//! with `weaver job new`, which is a normal job with a conversation of its own.
+//! General is not a job: it holds no Task, announces no card, holds the turn of its agent for no
+//! question, notifies nothing and shows nothing on the Board. It has no instruction, skill or
+//! written request; the developer writes what he wants, and on his explicit request the agent
+//! starts a job of Weaver with `weaver job new`, which is a normal job with a conversation of its
+//! own. The agent asks its questions as cards inside the conversation ([`cards`]).
 //!
 //! An Ask more conversation (`requirements/tech#ask-conversation`) is the same kind of
 //! conversation about one thing the developer is reading. It runs on the service and the actor of
@@ -31,12 +32,16 @@
 //!   prompt); the window closing cancels the turn and ends omp.
 
 pub mod actor;
+pub mod cards;
 pub mod commands;
+pub mod proposals;
 pub mod service;
 pub mod wire;
 
 #[cfg(test)]
-mod round_tests;
+mod card_tests;
+#[cfg(test)]
+mod chat_tests;
 #[cfg(test)]
 mod tests;
 
@@ -45,9 +50,12 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use weaver_core::settings::SettingKey;
+
 use crate::events::EventName;
 use crate::jobs::Jobs;
 use crate::log_info;
+use crate::state::AppState;
 use crate::windows::jobs::{BoxFuture, CloseReason, WindowJobs, WindowOpened};
 
 pub use service::General;
@@ -65,6 +73,10 @@ impl GeneralEvents for TauriEvents {
 
     fn entries(&self, entries: &GeneralEntries) {
         let _ = self.app.emit(EventName::GeneralEntries.as_str(), entries);
+    }
+
+    fn cards(&self, cards: &cards::ChatCards) {
+        let _ = self.app.emit(EventName::ChatCardsChanged.as_str(), cards);
     }
 
     fn ask_changed(&self, row: &AskRow) {
@@ -88,8 +100,43 @@ pub fn install(app: &AppHandle, jobs: &Arc<Jobs>) -> Arc<General> {
     );
     app.manage(general.clone());
     jobs.set_general(general.clone());
+    watch_analysis_model(app, &general);
     log_info!("General is ready");
     general
+}
+
+/// `developer.CHANGE_SETTINGS`: a change of the analysis model, from the Chat or from the
+/// Settings, ends the omp of every Chat that has no turn in progress (it keeps its conversation).
+fn watch_analysis_model(app: &AppHandle, general: &Arc<General>) {
+    use tokio::sync::broadcast::error::RecvError;
+    let state = app.state::<AppState>();
+    // Subscribe before reading, so that no change after the install is lost.
+    let mut changes = state.settings.subscribe();
+    let mut known = state.settings.current().models.analysis;
+    let handle = app.clone();
+    let general = general.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match changes.recv().await {
+                Ok(change) => {
+                    if change.changed.contains(&SettingKey::ModelsAnalysis) {
+                        known = change.settings.models.analysis;
+                        general.analysis_model_changed();
+                    }
+                }
+                // Fell behind: look at the model as it is now, and end omp only when it differs
+                // from the last one seen (a lag caused by another setting changes nothing).
+                Err(RecvError::Lagged(_)) => {
+                    let now = handle.state::<AppState>().settings.current().models.analysis;
+                    if now != known {
+                        known = now;
+                        general.analysis_model_changed();
+                    }
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// The windows' hook of the jobs, with General's: the same calls, and General follows the window.

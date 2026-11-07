@@ -25,6 +25,7 @@ struct Recorder {
     rows: Mutex<Vec<AskRow>>,
     ask_entries: Mutex<Vec<AskEntries>>,
     closed: Mutex<Vec<AskClosed>>,
+    cards: Mutex<Vec<super::cards::ChatCards>>,
 }
 
 impl GeneralEvents for Recorder {
@@ -34,6 +35,10 @@ impl GeneralEvents for Recorder {
 
     fn entries(&self, entries: &GeneralEntries) {
         self.entries.lock().unwrap().push(entries.clone());
+    }
+
+    fn cards(&self, cards: &super::cards::ChatCards) {
+        self.cards.lock().unwrap().push(cards.clone());
     }
 
     fn ask_changed(&self, row: &AskRow) {
@@ -367,6 +372,124 @@ async fn the_conversation_is_reloaded_after_the_window_closed_without_repeating_
         ],
         "nothing is repeated"
     );
+}
+
+#[tokio::test]
+async fn a_change_of_the_analysis_model_ends_an_idle_omp_keeps_the_conversation_and_the_next_message_starts_it_again(
+) {
+    let f = fixture().await;
+    f.host
+        .script(json!({ "log": f.host.received_log(), "prompts": [[agent("First answer")]] }));
+    f.send("First question");
+    until("the first turn", LIMIT, || {
+        !f.general.working(f.id())
+            && f.entries().contains(&Entry::Agent {
+                text: "First answer".into(),
+                complete: true,
+            })
+    })
+    .await;
+
+    f.general.analysis_model_changed();
+    f.received("session/close", |m| m["method"] == "session/close")
+        .await;
+    assert!(
+        f.general.identity(f.id()).is_none(),
+        "omp ended: its identity is no longer accepted"
+    );
+    assert!(f.record().is_some(), "the kept session stays");
+    assert_eq!(f.entries().len(), 2, "the conversation stays");
+    // With omp ended a second change has nothing to end.
+    f.general.analysis_model_changed();
+    assert_eq!(
+        f.methods().iter().filter(|m| *m == "session/close").count(),
+        1
+    );
+
+    f.host
+        .script(json!({ "log": f.host.received_log(), "prompts": [[agent("Second answer")]] }));
+    f.send("Second question");
+    until("the second turn", LIMIT, || {
+        f.entries().contains(&Entry::Agent {
+            text: "Second answer".into(),
+            complete: true,
+        })
+    })
+    .await;
+    assert!(
+        f.methods().contains(&"session/load".to_owned()),
+        "the next message reloads the kept conversation"
+    );
+    assert_eq!(f.entries().len(), 4, "the replay is not shown twice");
+}
+
+#[tokio::test]
+async fn the_instants_the_entries_arrived_come_with_the_snapshot_and_with_the_changes() {
+    let f = fixture().await;
+    f.host.script(json!({ "prompts": [[agent("Answer")]] }));
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    f.send("Question");
+    until("the turn", LIMIT, || {
+        !f.general.working(f.id()) && f.entries().len() == 2
+    })
+    .await;
+    let snapshot = f.general.snapshot(f.id()).unwrap();
+    assert_eq!(snapshot.arrivals.len(), snapshot.entries.len());
+    assert!(snapshot.arrivals[0] >= before && snapshot.arrivals[0] <= snapshot.arrivals[1]);
+    let changes: Vec<_> = f
+        .events
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|batch| batch.changes.clone())
+        .collect();
+    assert!(changes.iter().all(|change| change.at >= before));
+}
+
+#[tokio::test]
+async fn after_a_restart_the_jobs_the_chat_started_come_back_as_their_started_lines_after_the_history(
+) {
+    let f = fixture().await;
+    f.host.script(json!({ "prompts": [[agent("Answer")]] }));
+    f.send("Question");
+    until("the turn", LIMIT, || {
+        !f.general.working(f.id()) && f.entries().len() == 2
+    })
+    .await;
+    f.general.window_closed(f.id()).await;
+    f.record().unwrap();
+
+    // The registry of the new run knows the job the Chat started, from its record.
+    *f.host.chat_jobs.lock().unwrap() = vec![("jjjjjjjj".into(), "Design the order".into(), 1_700_000_000_000)];
+    f.host.script(json!({
+        "log": f.host.received_log(),
+        "replay": [
+            { "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": "Question" } },
+            { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "Answer" } },
+        ],
+    }));
+    let general = General::new(f.host.clone(), Arc::new(Recorder::default()));
+    general.open(f.id(), &f.project.root).await;
+    until("the history to come back", LIMIT, || {
+        let state = general.snapshot(f.id()).unwrap().state;
+        !state.loading && !general.entries(f.id()).is_empty()
+    })
+    .await;
+    let snapshot = general.snapshot(f.id()).unwrap();
+    assert!(matches!(snapshot.entries[0], Entry::Developer { .. }));
+    assert_eq!(
+        snapshot.entries[2],
+        Entry::JobStarted {
+            job: "jjjjjjjj".into(),
+            name: "Design the order".into()
+        }
+    );
+    assert_eq!(snapshot.entries.len(), 3);
+    assert_eq!(snapshot.arrivals[2], 1_700_000_000_000);
 }
 
 #[tokio::test]
@@ -1489,6 +1612,7 @@ async fn clear_right_after_the_window_opened_leaves_no_omp_alive_however_far_it_
                     project: f.project.root.to_string_lossy().into_owned(),
                     session_id: "fake-session".into(),
                     updated: "2026-11-02T07:00:01.000Z".into(),
+                    cards: None,
                 },
             )
             .unwrap();
@@ -1756,6 +1880,7 @@ mod ask_more {
             name: "Ask T3".to_owned(),
             kind: AskKind::Task,
             round: None,
+            card: None,
             instruction: INSTRUCTION.to_owned(),
             rebuild,
         })
@@ -2331,6 +2456,7 @@ mod ask_job_new {
             name: "Ask T3".into(),
             kind: AskKind::Task,
             round: None,
+            card: None,
             instruction: "Weaver: Ask more\n".into(),
             rebuild,
         });
@@ -2391,32 +2517,4 @@ mod ask_job_new {
         let closed = run(&f, &authority, json!({ "kind": "scan" }), Some(&id), false);
         assert_eq!(closed.unwrap_err().code, code::FORBIDDEN, "closed");
     }
-}
-
-#[tokio::test]
-async fn the_state_says_waiting_while_a_round_of_the_chat_is_open_and_stays_working() {
-    let f = fixture().await;
-    f.host.script(
-        json!({ "log": f.host.received_log(), "prompts": [[agent("Asking"), { "hold": true }]] }),
-    );
-    f.send("Ask me");
-    // omp is open once the agent answers: only then can it open a round.
-    until("the agent to answer", LIMIT, || {
-        f.entries().contains(&Entry::Agent {
-            text: "Asking".into(),
-            complete: false,
-        })
-    })
-    .await;
-    assert!(!f.general.snapshot(f.id()).unwrap().state.waiting);
-
-    f.general.round_opened(f.id());
-    let state = f.general.snapshot(f.id()).unwrap().state;
-    assert!(state.waiting, "the Machine is in Waiting for answers");
-    assert!(state.working, "a turn is in progress, so Stop shows");
-
-    f.general.round_closed(f.id());
-    let state = f.general.snapshot(f.id()).unwrap().state;
-    assert!(!state.waiting);
-    assert!(state.working);
 }

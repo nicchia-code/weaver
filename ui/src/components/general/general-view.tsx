@@ -3,20 +3,22 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 
 import type { Entry } from "@/bindings/Entry";
 import type { Step } from "@/bindings/Step";
+import { useOptionalAsks } from "@/components/ask/use-asks";
 import { AgentPill } from "@/components/agent-pill";
 import { TaggedTextarea } from "@/components/assets/tagged-textarea";
 import { ConfirmDialog } from "@/components/dialogs";
 import { ChatEntry, SenderRow, WorkSummary } from "@/components/general/chat-conversation";
 import { chatItems } from "@/components/general/chat-model";
 import { ChatProposalCard } from "@/components/general/chat-proposal-card";
+import { ChatQuestionCard } from "@/components/general/chat-question-card";
 import { ModelControl } from "@/components/general/model-control";
+import { useChatCards } from "@/components/general/use-chat-cards";
 import { useChatProposals } from "@/components/general/use-chat-proposals";
 import { useChatDraftRequest, withDraft } from "@/components/general/chat-draft";
 import { generalSubAgentsApi, useGeneral } from "@/components/general/use-general";
 import { GuardedButton } from "@/components/guarded-button";
 import { SubAgentConversationView } from "@/components/jobs/jobs-view";
 import { useProject } from "@/components/project-context";
-import { useOptionalQuestionRound } from "@/components/questions/use-question-round";
 import { useSubAgentList, useSubAgentsView } from "@/components/sub-agents/api";
 import { SubAgentNavProvider, type SubAgentNav } from "@/components/sub-agents/sub-agent-ui";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,7 @@ import { call } from "@/lib/backend";
 
 const EMPTY = "Think with Weaver about this project. Ask it for a Proposal or a job when you want one.";
 const LOADING = "Loading conversation…";
-/** Why the model control is disabled: a turn, a load and a round all mean Weaver is working. */
+/** Why the model control is disabled: a turn and a load both mean Weaver is working. */
 const MODEL_REASON = "Change the model when Weaver is not working";
 
 /** The index of the last message of the developer that omp has not received yet, or -1. */
@@ -43,7 +45,6 @@ function lastQueued(entries: readonly Entry[]): number {
 export function GeneralView() {
   const { projectId } = useProject();
   const { status } = useOmp();
-  const round = useOptionalQuestionRound();
   const { state, entries, arrivals, problem, send, stop, answer, clear } = useGeneral(projectId);
   const [text, setText] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -67,11 +68,29 @@ export function GeneralView() {
   const { proposals, refresh } = useChatProposals(projectId, jobs);
   const items = useMemo(() => chatItems(entries, arrivals), [entries, arrivals]);
 
+  // The cards of questions: a closed card shows right before the message of the developer that
+  // closed it, the active one (and any card no message names) after everything of the conversation.
+  const { cards, active, act } = useChatCards(projectId);
+  const asks = useOptionalAsks();
+  const cardOf = (id: string) => cards.find((card) => card.id === id);
+  const named = useMemo(() => new Set(entries.flatMap((entry) => (entry.kind === "developer" && entry.card ? [entry.card] : []))), [entries]);
+  const trailing = cards.filter((card) => !named.has(card.id));
+  const showCard = (card: (typeof cards)[number], starting = false) => (
+    <ChatQuestionCard
+      key={`card-${card.id}`}
+      card={card}
+      closed={card.state !== "active"}
+      act={(action) => act(card.id, action)}
+      askMore={card.state === "active" && asks ? (index) => void asks.askMore({ kind: "card", card: card.id, index }) : false}
+      starting={starting}
+    />
+  );
+
   const working = state?.working ?? false;
   const waiting = state?.starting ? lastQueued(entries) : -1;
   const empty = entries.length === 0 && !state?.kept;
   const missing = status?.state === "missing";
-  const busy = working || (state?.loading ?? false) || (state?.waiting ?? false);
+  const busy = working || (state?.loading ?? false);
 
   // A text a view asks Chat for (`useChatDraft`): it goes in the box after what is there, which takes
   // the focus with the cursor at its end. Nothing is sent.
@@ -145,11 +164,15 @@ export function GeneralView() {
               );
             }
             const entry = entries[item.index]!;
+            const closed = entry.kind === "developer" && entry.card ? cardOf(entry.card) : undefined;
+            // A message made only of a card's answers has no box: `Starting Weaver…` is the card's.
+            const cardOnly = closed !== undefined && entry.kind === "developer" && entry.text === "";
             return (
               <Fragment key={`entry-${item.index}`}>
                 {item.starts && <SenderRow at={item.sender} />}
+                {closed && showCard(closed, cardOnly && item.index === waiting)}
                 <ChatEntry entry={entry} answer={answer} />
-                {item.index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
+                {!cardOnly && item.index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
                 {entry.kind === "job-started" &&
                   proposals
                     .filter((proposal) => proposal.job === entry.job)
@@ -157,17 +180,7 @@ export function GeneralView() {
               </Fragment>
             );
           })}
-          {state?.waiting && (
-            <div className="flex flex-wrap items-center gap-2.5 rounded-xl px-3.5 py-3 shadow-[inset_0_0_0_1px_#E2DDF0] dark:shadow-[inset_0_0_0_1px_var(--color-line)]">
-              <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-lavender-tint text-xs font-semibold text-lavender-ink">
-                ?
-              </span>
-              <span className="flex-1 text-[13px]">Weaver is waiting for your answers.</span>
-              <Button variant="secondary" size="sm" onClick={() => round?.act({ kind: "minimize", minimized: false })}>
-                Answer
-              </Button>
-            </div>
-          )}
+          {trailing.map((card) => showCard(card))}
         </div>
         {!following && (
           <Button className="sticky bottom-2 ml-auto mr-4 mt-3 flex" size="sm" variant="secondary" onClick={follow}>
@@ -189,7 +202,8 @@ export function GeneralView() {
           {problem}
         </p>
       )}
-      <div className="flex justify-center bg-gradient-to-b from-transparent to-surface to-[28%] px-6 pb-6 pt-5">
+      <div className="flex flex-col items-center gap-2 bg-gradient-to-b from-transparent to-surface to-[28%] px-6 pb-6 pt-5">
+        {active && <p className="w-full max-w-[760px] px-1 text-xs text-muted-foreground">Your message also sends the answers chosen so far.</p>}
         <div className="flex w-full max-w-[760px] flex-col gap-2 rounded-2xl bg-surface py-3 pl-4 pr-3 shadow-[0_0_0_1px_#E0DDD5,0_6px_20px_rgba(24,24,27,0.06)] dark:shadow-[0_0_0_1px_var(--color-line),0_6px_20px_rgba(0,0,0,0.3)]">
           <TaggedTextarea
             ref={area}

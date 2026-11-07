@@ -18,6 +18,7 @@ use weaver_core::assets::tags;
 use weaver_core::jobs::ask;
 use weaver_core::jobs::machine::{MessageId, RequestId, RESUME_PROMPT};
 use weaver_core::jobs::subagents::{self, SubAgent, SubAgentState};
+use weaver_core::question;
 
 /// What happened to a message of the developer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -129,6 +130,12 @@ pub enum Entry {
         message: MessageId,
         text: String,
         delivery: Delivery,
+        /// General: the card of questions this message closed (`developer.SEND_ANSWERS`, or a
+        /// message written while the card was active): the card shows right before it. A message
+        /// made only of the answers has an empty `text` and shows no message of the developer.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        card: Option<String>,
     },
     /// An agent message in Markdown; `complete` once the next entry started or the turn ended.
     Agent {
@@ -171,7 +178,7 @@ pub enum Entry {
     TurnFailed {
         reason: String,
     },
-    /// General: omp stopped (`omp stopped: <reason>.`); the next message starts it again.
+    /// General: omp stopped (`The agent stopped: <reason>.`); the next message starts it again.
     OmpStopped {
         reason: String,
         details: Option<String>,
@@ -186,11 +193,25 @@ pub struct Changed {
     #[ts(type = "number")]
     pub index: usize,
     pub entry: Entry,
+    /// The instant the entry arrived, in milliseconds since the Unix epoch.
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+/// The instant now, in milliseconds since the Unix epoch.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 #[derive(Debug, Default)]
 pub struct Conversation {
     entries: Vec<Entry>,
+    /// The instant each entry arrived, as `entries` is indexed.
+    arrived: Vec<i64>,
     seq: u64,
     dirty: BTreeSet<usize>,
     tools: HashMap<String, usize>,
@@ -345,14 +366,25 @@ impl Conversation {
         &self.entries
     }
 
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    pub fn arrivals(&self) -> &[i64] {
+        &self.arrived
+    }
+
     /// The number of batches taken so far.
     pub fn seq(&self) -> u64 {
         self.seq
     }
 
     fn push(&mut self, entry: Entry) -> usize {
+        self.push_at(entry, now_ms())
+    }
+
+    fn push_at(&mut self, entry: Entry, at: i64) -> usize {
         self.close_open();
         self.entries.push(entry);
+        self.arrived.push(at);
         let index = self.entries.len() - 1;
         self.dirty.insert(index);
         index
@@ -382,10 +414,22 @@ impl Conversation {
     }
 
     pub fn developer_message(&mut self, message: MessageId, text: &str, delivery: Delivery) {
+        self.developer_message_closing(message, text, delivery, None);
+    }
+
+    /// A message of the developer that closed the card of questions `card` of the Chat.
+    pub fn developer_message_closing(
+        &mut self,
+        message: MessageId,
+        text: &str,
+        delivery: Delivery,
+        card: Option<String>,
+    ) {
         let index = self.push(Entry::Developer {
             message,
             text: text.to_owned(),
             delivery,
+            card,
         });
         self.messages.insert(message, index);
     }
@@ -414,9 +458,10 @@ impl Conversation {
     }
 
     /// General: adds an entry a conversation already held (the messages of the developer and the
-    /// lines of Weaver that came before the kept session was reloaded).
-    pub fn append(&mut self, entry: &Entry) {
-        let index = self.push(entry.clone());
+    /// lines of Weaver that came before the kept session was reloaded), with the instant it
+    /// arrived.
+    pub fn append(&mut self, entry: &Entry, at: i64) {
+        let index = self.push_at(entry.clone(), at);
         if let Entry::Developer { message, .. } = entry {
             self.messages.insert(*message, index);
         }
@@ -428,6 +473,18 @@ impl Conversation {
             job: job.to_owned(),
             name: name.to_owned(),
         });
+    }
+
+    /// General: a job the Chat started in an earlier run of Weaver, known from its record, with
+    /// the instant it was created.
+    pub fn job_started_at(&mut self, job: &str, name: &str, at: i64) {
+        self.push_at(
+            Entry::JobStarted {
+                job: job.to_owned(),
+                name: name.to_owned(),
+            },
+            at,
+        );
     }
 
     /// General: the start of a job was refused.
@@ -608,13 +665,19 @@ impl Conversation {
         {
             self.instruction(text);
         } else {
-            // What Weaver appended for the tagged assets is never shown, live or replayed.
+            // What Weaver appended for the tagged assets is never shown, live or replayed; nor is
+            // the answers block of a card of questions, which also tells which card the message
+            // closed.
+            let (text, card) = match question::split_answers_block(text) {
+                Some((written, card)) if self.general => (written, Some(card.to_owned())),
+                _ => (text, None),
+            };
             let text = if self.ask {
                 ask::shown_message(text)
             } else {
                 tags::without_block(text)
             };
-            self.developer_message(0, text, Delivery::Delivered);
+            self.developer_message_closing(0, text, Delivery::Delivered, card);
         }
     }
 
@@ -900,6 +963,7 @@ impl Conversation {
                 self.entries.get(index).map(|entry| Changed {
                     index,
                     entry: entry.clone(),
+                    at: self.arrived.get(index).copied().unwrap_or_default(),
                 })
             })
             .collect()
@@ -1097,7 +1161,8 @@ mod tests {
             Entry::Developer {
                 message: 7,
                 text: "Use the old parser".into(),
-                delivery: Delivery::Delivered
+                delivery: Delivery::Delivered,
+                card: None
             }
         );
         assert_eq!(
@@ -1107,7 +1172,8 @@ mod tests {
                 text: "Stop".into(),
                 delivery: Delivery::NotDelivered {
                     reason: "the job ended".into()
-                }
+                },
+                card: None
             }
         );
     }
@@ -1263,6 +1329,45 @@ mod tests {
     }
 
     #[test]
+    fn the_replayed_history_of_chat_never_shows_the_answers_block_and_names_the_card_it_closed() {
+        let block = "Answers to the card of questions abcd1234 (added by Weaver, not written by the developer):\n{\"status\":\"answered\",\"answers\":{\"a\":{\"status\":\"skipped\"}}}";
+        let mut chat = Conversation::general();
+        // A message with a block, and the assets block between the text and the answers.
+        chat.apply_update(&chunk(
+            "user_message_chunk",
+            &question::with_answers_block(&tags::with_block("Go on @logo.png", &["logo.png".to_owned()]), block),
+        ));
+        // A message made only of the block shows no text, and still names its card.
+        chat.apply_update(&chunk("user_message_chunk", &block.replace("abcd1234", "wxyz9876")));
+        // An ordinary message names no card.
+        chat.apply_update(&chunk("user_message_chunk", "Thanks"));
+        let found: Vec<(&str, Option<&str>)> = chat
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Developer { text, card, .. } => Some((text.as_str(), card.as_deref())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Go on @logo.png", Some("abcd1234")),
+                ("", Some("wxyz9876")),
+                ("Thanks", None)
+            ]
+        );
+        // A job's conversation never reads a block: what it holds stays as it was written.
+        let mut job = Conversation::new();
+        job.apply_update(&chunk("user_message_chunk", "Use the weaver-scan skill."));
+        job.apply_update(&chunk("user_message_chunk", block));
+        assert!(matches!(
+            &job.entries()[1],
+            Entry::Developer { text, card: None, .. } if text == block
+        ));
+    }
+
+    #[test]
     fn changes_come_in_batches_in_index_order_and_the_sequence_counts_them() {
         let mut c = Conversation::new();
         assert!(c.take_changes().is_empty());
@@ -1292,7 +1397,7 @@ mod tests {
         let mut c = Conversation::new();
         c.apply_update(&chunk("agent_message_chunk", "All done"));
         c.finish(EndLine::Failed {
-            reason: "omp exited with code 3".into(),
+            reason: "the agent exited with code 3".into(),
             details: Some("boom".into()),
         });
         assert_eq!(
@@ -1303,7 +1408,7 @@ mod tests {
             }
         );
         assert!(
-            matches!(&c.entries()[1], Entry::End(EndLine::Failed { reason, .. }) if reason == "omp exited with code 3")
+            matches!(&c.entries()[1], Entry::End(EndLine::Failed { reason, .. }) if reason == "the agent exited with code 3")
         );
     }
 
@@ -1315,6 +1420,7 @@ mod tests {
             delivery: Delivery::NotDelivered {
                 reason: "busy".into(),
             },
+            card: None,
         })
         .unwrap();
         assert_eq!(

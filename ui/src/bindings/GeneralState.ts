@@ -9,7 +9,7 @@ export type GeneralState = {
  */
 projectId: string, 
 /**
- * A turn is in progress (the Machine is in Working or Waiting for answers): `Stop` shows.
+ * A turn is in progress (the Machine is in Working): `Stop` shows.
  */
 working: boolean, 
 /**
@@ -27,9 +27,4 @@ loading: boolean,
  * A kept session has not come back yet, so `Clear` stays usable although the conversation
  * shows nothing yet.
  */
-kept: boolean, 
-/**
- * The Chat waits for the answers of its round (the Machine is in Waiting for answers): the
- * sidebar's Chat entry shows `1`, and a message sent meanwhile shows `Queued`.
- */
-waiting: boolean, };
+kept: boolean, };
