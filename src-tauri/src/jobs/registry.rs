@@ -352,6 +352,7 @@ impl Jobs {
             job_id: job_id.to_owned(),
             seq: live.conversation.seq(),
             entries: live.conversation.entries().to_vec(),
+            arrivals: live.conversation.arrivals().to_vec(),
             notes: live.record.notes.clone(),
         })
     }

@@ -93,7 +93,7 @@ function mount(asks: AskRow[], entries: Record<string, Entry[]> = {}, jobs: JobR
         return { projectId: PROJECT, asks };
       case "ask_snapshot": {
         const row = asks.find((candidate) => candidate.id === a.askId)!;
-        return { row, seq: 0, entries: entries[row.id] ?? [] };
+        return { row, seq: 0, entries: entries[row.id] ?? [], arrivals: [] };
       }
       case "ask_close":
         mounted.closed.push(a.askId!);
@@ -261,6 +261,53 @@ describe("the conversation of an Ask more conversation", () => {
   });
 });
 
+describe("the header of an Ask more conversation", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ["idle", "idle"],
+    ["running", "running"],
+    ["waiting", "waiting"],
+  ] as const)("is in the header band, with the name and the %s badge, and no started line or buttons", async (status, badge) => {
+    mount([ask("askrun01", "Ask T3", { status })]);
+    const heading = await screen.findByRole("heading", { level: 2, name: "Ask T3" });
+    const band = screen.getByRole("heading", { level: 1, name: "Jobs" }).closest("header")!;
+    expect(band).toContainElement(heading);
+    expect(heading).toHaveClass("text-[17px]", "font-semibold");
+    expect(heading.parentElement).toHaveTextContent(badge);
+    expect(within(heading.parentElement!).queryByRole("button")).toBeNull();
+    expect(band).not.toHaveTextContent(/Started/);
+    expect(within(screen.getByRole("region", { name: "Conversation" })).queryByRole("heading")).toBeNull();
+  });
+
+  it("shows `Back to questions` at the top of the conversation, in its column", async () => {
+    const round = {
+      id: 7,
+      projectId: PROJECT,
+      origin: { kind: "agent", jobName: "Scan" },
+      questions: [],
+      position: { kind: "question", index: 0 },
+      minimized: true,
+      waiting: 0,
+    } as unknown as QuestionRoundView;
+    mount([ask("askidle1", "Ask question", { kind: "question", round: 7 })], {}, [], round);
+    const back = await screen.findByRole("button", { name: "Back to questions" });
+    const box = screen.getByRole("combobox", { name: "Message the agent" });
+    expect(back.parentElement).toHaveClass("max-w-[860px]");
+    expect(back.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the first message of the developer as in Chat, in a column of at most 860 px", async () => {
+    mount([ask("askidle1", "Ask T3")], {
+      askidle1: [{ kind: "developer", message: 1, text: "First", delivery: { status: "delivered" } }],
+    });
+    const bubble = await screen.findByText("First");
+    expect(bubble).toHaveClass("max-w-[560px]", "bg-paper");
+    expect(bubble.closest(".max-w-\\[860px\\]")).toHaveClass("mx-auto");
+    expect(screen.getByRole("combobox", { name: "Message the agent" }).closest(".rounded-2xl")).toHaveClass("max-w-[860px]");
+  });
+});
+
 describe("opening a conversation", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -335,7 +382,7 @@ describe("the focus of a conversation just opened", () => {
   it("goes to its message box", async () => {
     vi.mocked(on).mockResolvedValue(() => {});
     vi.mocked(call).mockImplementation((async (name: string) => {
-      if (name === "ask_snapshot") return { row: ask("askidle1", "Ask T3"), seq: 0, entries: [] };
+      if (name === "ask_snapshot") return { row: ask("askidle1", "Ask T3"), seq: 0, entries: [], arrivals: [] };
       return null;
     }) as never);
     render(

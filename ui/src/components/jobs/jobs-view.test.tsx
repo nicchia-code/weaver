@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "@/bindings/AgentNode";
 import type { ConversationSnapshot } from "@/bindings/ConversationSnapshot";
@@ -9,6 +9,7 @@ import type { JobRow } from "@/bindings/JobRow";
 import type { Step } from "@/bindings/Step";
 import type { SubAgentConversation } from "@/bindings/SubAgentConversation";
 import { expectOneGeometry, pressWhileComposing } from "@/components/assets/tag-box-checks";
+import { clockText } from "@/components/general/chat-model";
 import { JobsView } from "@/components/jobs/jobs-view";
 import { startedLine, startedText } from "@/components/jobs/format";
 import { JobsProvider } from "@/components/jobs/use-jobs";
@@ -40,6 +41,8 @@ function job(id: string, state: JobRow["state"], patch: Partial<JobRow> = {}): J
 interface Around {
   showView?: (view: ViewId) => void;
   requests?: boolean;
+  /** The job a view asked the window to open. */
+  openedJob?: string;
 }
 
 function EditorProbe() {
@@ -47,16 +50,19 @@ function EditorProbe() {
   return <output aria-label="Editor">{editing ? `${selected} from ${origin.kind === "jobs" ? `jobs/${origin.jobId}` : "board"}` : "closed"}</output>;
 }
 
+/** What a test hands the backend as the conversation of a job; the instants the entries arrived are optional. */
+type Snapshot = Omit<ConversationSnapshot, "arrivals"> & { arrivals?: number[] };
+
 function mount(
   jobs: JobRow[],
-  conversation: ConversationSnapshot,
+  conversation: Snapshot,
   handlers: Record<string, (args: never) => unknown> = {},
   around: Around = {},
 ) {
   vi.mocked(on).mockResolvedValue(() => {});
   vi.mocked(call).mockImplementation(async (name: string, args?: unknown) => {
     if (name === "jobs_snapshot") return { projectId: PROJECT, jobs, ompReady: true };
-    if (name === "job_conversation") return conversation;
+    if (name === "job_conversation") return { arrivals: [], ...conversation };
     return (handlers[name]?.(args as never) ?? null) as null;
   });
   const view = (
@@ -66,7 +72,7 @@ function mount(
   );
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: around.showView ?? vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: around.showView ?? vi.fn(), openJob: vi.fn(), openedJob: around.openedJob ?? null, openedJobRequest: around.openedJob ? 1 : 0 }}>
         {around.requests ? (
           <RequestsProvider projectId={PROJECT}>
             {view}
@@ -88,15 +94,19 @@ describe("JobsView", () => {
     expect(await screen.findByText("No jobs yet")).toBeInTheDocument();
   });
 
-  it("starts with the view header across both panels, with the list and the conversation under it", async () => {
+  it("starts with one header band across both panels: the title and `Hide jobs list` over the list, the header of the selection over the conversation", async () => {
     mount([job("aaaaaaaa", "running")], { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] });
     const list = await screen.findByRole("navigation", { name: "Jobs" });
     const header = screen.getByRole("heading", { level: 1, name: "Jobs" }).closest("header")!;
     expect(header).toHaveClass("h-[76px]", "border-b");
-    expect(header.querySelector("button")).toBeNull();
+    expect(within(header).getByRole("button", { name: "Hide jobs list" })).toBeInTheDocument();
+    expect(within(header).getByRole("heading", { level: 2, name: "Run aaaaaaaa" })).toBeInTheDocument();
     expect(header.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(header.parentElement).toContainElement(screen.getByRole("region", { name: "Conversation" }));
     expect(header.contains(list)).toBe(false);
+    // The list's rule goes on through the band, which has no other header inside the conversation.
+    expect(screen.getByRole("heading", { level: 1, name: "Jobs" }).parentElement).toHaveClass("border-r", "border-line-soft");
+    expect(within(screen.getByRole("region", { name: "Conversation" })).queryByRole("banner")).toBeNull();
   });
 
   it("puts 12 px of space above the first row inside the scrolling list, and none below the last", async () => {
@@ -141,11 +151,11 @@ describe("JobsView", () => {
     mount([job("aaaaaaaa", "running")], { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] });
     const user = userEvent.setup();
     const conversation = await screen.findByRole("region", { name: "Conversation" });
-    const header = within(conversation).getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
+    const header = screen.getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
     const stop = within(header).getByRole("button", { name: "Stop job" });
     const box = within(conversation).getByRole("combobox", { name: "Message the agent" });
     expect(header.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(conversation).getAllByRole("button", { name: /^Stop/ })).toEqual([stop]);
+    expect(within(conversation).queryByRole("button", { name: /^Stop/ })).toBeNull();
     expect(within(conversation).queryByRole("button", { name: "Stop the agent" })).toBeNull();
     await user.click(stop);
     const dialog = await screen.findByRole("alertdialog");
@@ -178,8 +188,8 @@ describe("JobsView", () => {
       const showView = vi.fn();
       mount([design()], empty, {}, { showView, requests: true });
       const user = userEvent.setup();
-      const conversation = await screen.findByRole("region", { name: "Conversation" });
-      const header = within(conversation).getByRole("heading", { level: 2, name: "Design" }).closest("header")!;
+      await screen.findByRole("region", { name: "Conversation" });
+      const header = screen.getByRole("heading", { level: 2, name: "Design" }).closest("header")!;
       const view = within(header).getByRole("button", { name: "View request" });
       const stop = within(header).getByRole("button", { name: "Stop job" });
       expect(view.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -216,8 +226,8 @@ describe("JobsView", () => {
   it("heads the conversation with the name, the state pill with the working time and when the job started", async () => {
     const started = new Date(Date.now() - 136_000).toISOString();
     mount([job("aaaaaaaa", "running", { started })], { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] });
-    const conversation = await screen.findByRole("region", { name: "Conversation" });
-    const header = within(conversation).getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
+    await screen.findByRole("region", { name: "Conversation" });
+    const header = screen.getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
     expect(header).toHaveTextContent(/Running · 2m \d\ds/);
     expect(header).toHaveTextContent(startedLine("2026-11-02T07:00:00.000Z"));
     expect(header).not.toHaveTextContent(/%|files? changed|checked|batch/);
@@ -230,8 +240,8 @@ describe("JobsView", () => {
       entries: [],
       notes: [],
     });
-    const conversation = await screen.findByRole("region", { name: "Conversation" });
-    const header = within(conversation).getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
+    await screen.findByRole("region", { name: "Conversation" });
+    const header = screen.getByRole("heading", { level: 2, name: "Run aaaaaaaa" }).closest("header")!;
     expect(header).toHaveTextContent("Done");
     expect(header).not.toHaveTextContent("·");
   });
@@ -293,17 +303,19 @@ describe("JobsView", () => {
     expect(details).toHaveClass("bg-lane", "rounded-xl");
     expect(details).toHaveTextContent("Use the weaver-scan skill on the whole System.");
     const bubble = screen.getByText("Mind the tests");
-    expect(bubble).toHaveClass("ml-auto", "bg-paper", "rounded-2xl", "rounded-br-[4px]");
+    expect(bubble).toHaveClass("bg-paper", "rounded-2xl", "rounded-br-[4px]", "max-w-[560px]");
+    expect(bubble.parentElement).toHaveClass("justify-end");
   });
 
-  it("puts the steering box in a ring with a 14 px radius, with a primary icon button to send", async () => {
+  it("puts the steering box in a ring with a 16 px radius, with a primary icon button to send", async () => {
     mount([job("aaaaaaaa", "running")], { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] });
     const box = await screen.findByRole("combobox", { name: "Message the agent" });
-    const frame = box.closest(".rounded-\\[14px\\]")!;
-    expect(frame).toHaveClass("bg-surface");
+    const frame = box.closest(".rounded-2xl")!;
+    expect(frame).toHaveClass("bg-surface", "max-w-[860px]");
     const send = within(frame as HTMLElement).getByRole("button", { name: "Send" });
     expect(send).toHaveClass("size-[34px]");
     expect(send).toHaveAttribute("aria-disabled", "true");
+    expect(within(frame as HTMLElement).queryByRole("combobox", { name: "Model" })).toBeNull();
   });
 
   it("gives the textarea and the mirror of the reply box the same metrics", async () => {
@@ -413,9 +425,8 @@ describe("JobsView", () => {
       expect(within(list).getByText("No jobs here")).toHaveClass("text-muted-foreground");
       expect(within(list).queryByText("No jobs yet")).toBeNull();
       expect(within(list).queryByRole("button", { name: /^Run aaaaaaaa/ })).toBeNull();
-      const conversation = screen.getByRole("region", { name: "Conversation" });
-      expect(within(conversation).getByRole("heading", { level: 2, name: "Run aaaaaaaa" })).toBeInTheDocument();
-      expect(within(conversation).getByRole("button", { name: "Stop job" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2, name: "Run aaaaaaaa" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop job" })).toBeInTheDocument();
     });
   });
 
@@ -520,12 +531,32 @@ describe("JobsView", () => {
         { jobId: "aaaaaaaa", seq: 0, entries: [taskRow], notes: [] },
         handlers((path) => reply(path, { entries: [], unavailable: "the transcript file was not found" })),
       );
-      const line = await within(await screen.findByRole("region", { name: "Conversation" })).findByRole("button", { name: /^Lead\s*working$/ });
+      const conversation = await screen.findByRole("region", { name: "Conversation" });
+      await user.click(await within(conversation).findByRole("button", { name: "Working · 1 step · Task" }));
+      const line = await within(conversation).findByRole("button", { name: /^Lead\s*working$/ });
       await user.click(line);
       expect(await screen.findByText("Conversation not available: the transcript file was not found.")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("Sub-agents take no messages.")).toBeDisabled();
       const list = screen.getByRole("list", { name: "Sub-agents" });
       expect(within(list).getByRole("button", { name: /^Lead/ })).toHaveAttribute("aria-current", "true");
+    });
+
+    it("shows the messages of a sub-agent under a sender row with a 24 px `Bot` tile and its name, never `Weaver`", async () => {
+      const user = userEvent.setup();
+      mount([job("aaaaaaaa", "running")], { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] }, handlers((path) => reply(path)));
+      const list = await screen.findByRole("list", { name: "Sub-agents" });
+      await user.click(within(list).getByRole("button", { name: /^Lead/ }));
+      const message = await screen.findByText("On it.");
+      const conversation = screen.getByRole("region", { name: "Conversation" });
+      const sender = within(conversation).getByText("Lead").parentElement!;
+      expect(sender.firstElementChild).toHaveClass("size-6");
+      expect(sender.firstElementChild!.querySelector("svg")).toHaveClass("lucide-bot");
+      expect(within(conversation).queryByText("Weaver")).toBeNull();
+      expect(sender.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The path with its state is in the header band, not in the conversation.
+      const band = screen.getByRole("heading", { level: 1, name: "Jobs" }).closest("header")!;
+      expect(within(band).getByRole("heading", { level: 2, name: "Run aaaaaaaa › Lead" }).parentElement).toHaveTextContent("working");
+      expect(within(conversation).queryByRole("heading")).toBeNull();
     });
   });
 });
@@ -548,5 +579,242 @@ describe("the @ tags in the reply box of a job", () => {
     await waitFor(() =>
       expect(call).toHaveBeenCalledWith("job_send_message", { projectId: PROJECT, jobId: "aaaaaaaa", text: "Say @nothing and @logo.png" }),
     );
+  });
+});
+
+describe("the list of the Jobs view", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const snapshot = { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] };
+  const stored = (width: number, hidden: boolean) => ({ jobs_list_state: () => ({ width, hidden }) });
+  /** The pane of the list: the box whose width the separator sets. */
+  const pane = () => screen.getByRole("navigation", { name: "Jobs" }).parentElement!;
+  const saved = (width: number, hidden: boolean) => ["jobs_list_set", { projectId: PROJECT, width, hidden }] as const;
+
+  it("is 280 px wide and shown when the backend remembers nothing, with a separator that tells its range", async () => {
+    mount([job("aaaaaaaa", "running")], snapshot);
+    const separator = await screen.findByRole("separator", { name: "Resize jobs list" });
+    expect(separator).toHaveAttribute("aria-orientation", "vertical");
+    expect(separator).toHaveAttribute("aria-valuemin", "240");
+    expect(separator).toHaveAttribute("aria-valuemax", "420");
+    expect(separator).toHaveAttribute("aria-valuenow", "280");
+    expect(separator).toHaveAttribute("tabindex", "0");
+    expect(separator).toHaveClass("w-2", "cursor-col-resize");
+    expect(pane()).toHaveStyle({ width: "280px" });
+    expect(call).toHaveBeenCalledWith("jobs_list_state", { projectId: PROJECT });
+  });
+
+  it("moves 16 px with the arrows, goes to 240 and 420 with `Home` and `End`, and back to 280 with `Enter`, saving each step", async () => {
+    mount([job("aaaaaaaa", "running")], snapshot);
+    const user = userEvent.setup();
+    const separator = await screen.findByRole("separator", { name: "Resize jobs list" });
+    separator.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(separator).toHaveAttribute("aria-valuenow", "296");
+    expect(pane()).toHaveStyle({ width: "296px" });
+    expect(call).toHaveBeenLastCalledWith(...saved(296, false));
+    await user.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(separator).toHaveAttribute("aria-valuenow", "264");
+    expect(call).toHaveBeenLastCalledWith(...saved(264, false));
+    await user.keyboard("{Home}");
+    expect(separator).toHaveAttribute("aria-valuenow", "240");
+    expect(call).toHaveBeenLastCalledWith(...saved(240, false));
+    await user.keyboard("{ArrowLeft}");
+    expect(separator).toHaveAttribute("aria-valuenow", "240");
+    await user.keyboard("{End}");
+    expect(separator).toHaveAttribute("aria-valuenow", "420");
+    expect(call).toHaveBeenLastCalledWith(...saved(420, false));
+    await user.keyboard("{Enter}");
+    expect(separator).toHaveAttribute("aria-valuenow", "280");
+    expect(call).toHaveBeenLastCalledWith(...saved(280, false));
+  });
+
+  it("goes back to 280 px with a double click", async () => {
+    mount([job("aaaaaaaa", "running")], snapshot, stored(380, false));
+    const user = userEvent.setup();
+    const separator = await screen.findByRole("separator", { name: "Resize jobs list" });
+    expect(pane()).toHaveStyle({ width: "380px" });
+    await user.dblClick(separator);
+    expect(pane()).toHaveStyle({ width: "280px" });
+    expect(call).toHaveBeenLastCalledWith(...saved(280, false));
+  });
+
+  it("follows a drag within 240–420 px and saves only when the drag ends", async () => {
+    mount([job("aaaaaaaa", "running")], snapshot);
+    const separator = await screen.findByRole("separator", { name: "Resize jobs list" });
+    fireEvent.pointerDown(separator, { button: 0, clientX: 280, pointerId: 1 });
+    fireEvent.pointerMove(separator, { clientX: 330, pointerId: 1 });
+    expect(pane()).toHaveStyle({ width: "330px" });
+    fireEvent.pointerMove(separator, { clientX: 900, pointerId: 1 });
+    expect(pane()).toHaveStyle({ width: "420px" });
+    fireEvent.pointerMove(separator, { clientX: 100, pointerId: 1 });
+    expect(pane()).toHaveStyle({ width: "240px" });
+    fireEvent.pointerMove(separator, { clientX: 350, pointerId: 1 });
+    expect(call).not.toHaveBeenCalledWith("jobs_list_set", expect.anything());
+    fireEvent.pointerUp(separator, { clientX: 350, pointerId: 1 });
+    expect(pane()).toHaveStyle({ width: "350px" });
+    expect(call).toHaveBeenCalledWith(...saved(350, false));
+    fireEvent.pointerMove(separator, { clientX: 500, pointerId: 1 });
+    expect(pane()).toHaveStyle({ width: "350px" });
+  });
+
+  it("hides the list and its rule, leaves `Jobs` with `Show jobs list` and brings the list back as it was", async () => {
+    mount([job("aaaaaaaa", "running"), job("bbbbbbbb", "done")], snapshot, stored(360, false));
+    const user = userEvent.setup();
+    await screen.findByRole("navigation", { name: "Jobs" });
+    await user.click(screen.getByRole("radio", { name: "Ended 1" }));
+    await user.click(screen.getByRole("button", { name: "Hide jobs list" }));
+    expect(call).toHaveBeenLastCalledWith(...saved(360, true));
+    expect(screen.queryByRole("navigation", { name: "Jobs" })).toBeNull();
+    expect(screen.queryByRole("separator")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide jobs list" })).toBeNull();
+    const band = screen.getByRole("heading", { level: 1, name: "Jobs" }).closest("header")!;
+    expect(within(band).getByRole("button", { name: "Show jobs list" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Jobs" }).parentElement).not.toHaveClass("border-r");
+    // The right pane takes the whole width and still shows the selection.
+    expect(screen.getByRole("region", { name: "Conversation" })).toHaveClass("flex-1");
+    expect(screen.getByRole("heading", { level: 2, name: "Run aaaaaaaa" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show jobs list" }));
+    expect(call).toHaveBeenLastCalledWith(...saved(360, false));
+    expect(pane()).toHaveStyle({ width: "360px" });
+    expect(screen.getByRole("radio", { name: "Ended 1" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: "Show jobs list" })).toBeNull();
+  });
+
+  it("opens hidden when the backend remembers it hidden, and a job opened from elsewhere leaves it hidden", async () => {
+    mount([job("aaaaaaaa", "running"), job("bbbbbbbb", "running")], snapshot, stored(300, true), { openedJob: "bbbbbbbb" });
+    expect(await screen.findByRole("button", { name: "Show jobs list" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Jobs" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 2, name: "Run bbbbbbbb" })).toBeInTheDocument();
+    expect(call).not.toHaveBeenCalledWith("jobs_list_set", expect.anything());
+  });
+
+  it.each([
+    ["a width above the range", { width: 500, hidden: true }],
+    ["a width below the range", { width: 100, hidden: true }],
+    ["a width that is not an integer", { width: 300.5, hidden: true }],
+    ["a width of the wrong type", { width: "300", hidden: true }],
+    ["a hidden state of the wrong type", { width: 300, hidden: "yes" }],
+  ])("counts as 280 px and shown for %s", async (_, value) => {
+    mount([job("aaaaaaaa", "running")], snapshot, { jobs_list_state: () => value });
+    await screen.findByRole("navigation", { name: "Jobs" });
+    expect(pane()).toHaveStyle({ width: "280px" });
+    expect(screen.getByRole("separator", { name: "Resize jobs list" })).toHaveAttribute("aria-valuenow", "280");
+  });
+
+  describe("in a narrow window", () => {
+    afterEach(() => vi.restoreAllMocks());
+    const windowOf = (width: number) =>
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width, height: 600, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 600, toJSON: () => ({}) });
+
+    it("narrows the list to leave the conversation 480 px, never under 240 px, without changing the width that was chosen or saving anything", async () => {
+      windowOf(760);
+      mount([job("aaaaaaaa", "running")], snapshot, stored(400, false));
+      await screen.findByRole("navigation", { name: "Jobs" });
+      expect(pane()).toHaveStyle({ width: "280px" });
+      expect(screen.getByRole("separator", { name: "Resize jobs list" })).toHaveAttribute("aria-valuenow", "400");
+      expect(call).not.toHaveBeenCalledWith("jobs_list_set", expect.anything());
+    });
+
+    it("stops at 240 px however narrow the window is", async () => {
+      windowOf(500);
+      mount([job("aaaaaaaa", "running")], snapshot, stored(400, false));
+      await screen.findByRole("navigation", { name: "Jobs" });
+      expect(pane()).toHaveStyle({ width: "240px" });
+    });
+
+    it("keeps the chosen width in a window wide enough", async () => {
+      windowOf(1400);
+      mount([job("aaaaaaaa", "running")], snapshot, stored(400, false));
+      await screen.findByRole("navigation", { name: "Jobs" });
+      expect(pane()).toHaveStyle({ width: "400px" });
+    });
+  });
+});
+
+describe("the conversation of a job", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const AT = new Date(2026, 10, 2, 9, 41).getTime();
+  const tool = (id: string, title: string, status: "working" | "done" = "done"): Entry => ({ kind: "tool", id, title, icon: "read", command: null, status, subAgents: [] });
+  const entriesOf = (entries: Entry[], arrivals: number[] = []) => ({ jobId: "aaaaaaaa", seq: 0, notes: [], entries, arrivals });
+
+  it("centres the entries in a column of at most 860 px, with the message box in the same column", async () => {
+    mount([job("aaaaaaaa", "running")], entriesOf([{ kind: "agent", text: "Reading the Model", complete: true }], [AT]));
+    const column = (await screen.findByText("Reading the Model")).closest(".max-w-\\[860px\\]")!;
+    expect(column).toHaveClass("mx-auto", "w-full");
+    const frame = screen.getByRole("combobox", { name: "Message the agent" }).closest(".rounded-2xl")!;
+    expect(frame).toHaveClass("max-w-[860px]");
+    expect(frame.parentElement).toHaveClass("justify-center", "bg-gradient-to-b");
+  });
+
+  it("shows the messages of the agent under a sender row with the logo, `Weaver` and the time, and the Chat text style", async () => {
+    mount([job("aaaaaaaa", "running")], entriesOf([{ kind: "agent", text: "Reading the Model", complete: true }], [AT]));
+    const message = await screen.findByText("Reading the Model");
+    expect(message.closest(".text-\\[14\\.5px\\]")).toHaveClass("leading-[1.65]");
+    const sender = screen.getByText("Weaver").parentElement!;
+    expect(sender).toHaveTextContent(clockText(AT));
+    expect(sender.querySelector("svg, img")).not.toBeNull();
+    expect(sender.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("folds every run of `Thinking` and tool rows into a closed summary that reads `Working · <n> steps · <latest step>` while the turn works", async () => {
+    const user = userEvent.setup();
+    mount(
+      [job("aaaaaaaa", "running")],
+      entriesOf([
+        { kind: "developer", message: 1, text: "Go", delivery: { status: "delivered" } },
+        { kind: "thinking", text: "Let me look" },
+        tool("t1", "Read the Model"),
+        tool("t2", "Search the code", "working"),
+      ]),
+    );
+    const summary = await screen.findByRole("button", { name: "Working · 3 steps · Search the code" });
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(summary.querySelector("span.truncate")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Read the Model" })).toBeNull();
+    await user.click(summary);
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Read the Model" })).toBeInTheDocument();
+  });
+
+  it("names `Thinking` as the latest step when the run ends with a thinking block", async () => {
+    mount([job("aaaaaaaa", "running")], entriesOf([tool("t1", "Read the Model"), { kind: "thinking", text: "Hmm" }]));
+    expect(await screen.findByRole("button", { name: "Working · 2 steps · Thinking" })).toBeInTheDocument();
+  });
+
+  it("reads `Worked for <duration> · <n> steps` once the run is not the last thing of a working turn", async () => {
+    mount([job("aaaaaaaa", "done")], entriesOf([tool("t1", "Read the Model"), tool("t2", "Search the code")], [AT, AT + 4000]));
+    expect(await screen.findByRole("button", { name: "Worked for 4s · 2 steps" })).toBeInTheDocument();
+    expect(screen.queryByText(/Working/)).toBeNull();
+  });
+
+  it("keeps the notes, the permission cards and the end line out of the summary, and the instruction first and closed", async () => {
+    mount(
+      [job("aaaaaaaa", "failed")],
+      entriesOf([
+        { kind: "instruction", text: "Use the weaver-scan skill on the whole System." },
+        tool("t1", "Read the Model"),
+        { kind: "note", text: "Halfway", at: "2026-11-02T07:30:00.000Z" },
+        { kind: "permission", request: 4, tool: null, state: { status: "asking" }, options: [{ id: "allow", name: "Allow once", rejects: false }] },
+        { kind: "end", outcome: "failed", reason: "the agent refused", details: null },
+      ]),
+    );
+    const summary = await screen.findByRole("button", { name: /^Worked/ });
+    const details = screen.getByText("Instructions from Weaver").closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(details.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.parentElement).not.toContainElement(screen.getByText("Halfway"));
+    expect(summary.parentElement).not.toContainElement(screen.getByRole("group", { name: "Weaver asks permission" }));
+    expect(summary.parentElement).not.toContainElement(screen.getByText(/Failed: the agent refused/));
+  });
+
+  it("puts the line of a job that ended in the column, over the fade and with no rule", async () => {
+    mount([job("aaaaaaaa", "done")], entriesOf([]));
+    const line = (await screen.findByText("This job has ended. Continue in Chat.")).closest(".max-w-\\[860px\\]")!;
+    expect(line).toHaveClass("justify-center");
+    expect(line.parentElement).toHaveClass("justify-center", "bg-gradient-to-b");
+    expect(line.className).not.toMatch(/border/);
+    expect(line.parentElement!.className).not.toMatch(/border/);
   });
 });

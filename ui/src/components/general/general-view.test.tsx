@@ -311,12 +311,13 @@ describe("GeneralView", () => {
   });
 
   describe("sub-agents", () => {
-    /** The line of the sub-agent sits in the work summary of its turn, closed at first: open it. */
-    async function leadButton() {
-      const summary = await screen.findByRole("button", { name: /Worked for|Working/ });
+    /** The button of a sub-agent line, under the task row of the one summary of the conversation shown. */
+    async function lineOf(name: RegExp) {
+      const summary = await screen.findByRole("button", { name: /Worked|Working/ });
       if (summary.getAttribute("aria-expanded") === "false") await userEvent.setup().click(summary);
-      return screen.findByRole("button", { name: /^Lead/ });
+      return screen.findByRole("button", { name });
     }
+    const leadButton = () => lineOf(/^Lead/);
     const nodes: AgentNode[] = [
       {
         call: "t1",
@@ -393,7 +394,7 @@ describe("GeneralView", () => {
       mount(chat, state(), vi.fn(), sub());
       const user = userEvent.setup();
       await user.click(await leadButton());
-      await user.click(await screen.findByRole("button", { name: /^Child/ }));
+      await user.click(await lineOf(/^Child/));
       const header = await screen.findByRole("heading", { name: "Chat › Lead › Child" });
       await waitFor(() => expect(header.parentElement).toHaveTextContent("succeeded"));
       expect(call).toHaveBeenCalledWith("general_sub_agent_conversation", {

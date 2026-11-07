@@ -1094,6 +1094,7 @@ impl General {
             row: slot.row(id).ok_or_else(not_open)?,
             seq: slot.conversation.seq(),
             entries: slot.conversation.entries().to_vec(),
+            arrivals: slot.conversation.arrivals().to_vec(),
         })
     }
 

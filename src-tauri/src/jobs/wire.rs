@@ -56,6 +56,10 @@ pub struct ConversationSnapshot {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
     /// The notes of the job, with their instants, for the Jobs list tooltip.
     pub notes: Vec<Note>,
 }

@@ -178,6 +178,8 @@ pub fn run() {
             windows::git_state::project_git,
             windows::commands::remove_recent,
             windows::commands::open_in_editor,
+            windows::commands::jobs_list_state,
+            windows::commands::jobs_list_set,
             jobs::commands::jobs_snapshot,
             jobs::commands::job_conversation,
             jobs::commands::job_send_message,

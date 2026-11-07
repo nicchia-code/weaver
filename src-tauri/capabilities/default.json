@@ -55,6 +55,8 @@
     "allow-project-git",
     "allow-remove-recent",
     "allow-open-in-editor",
+    "allow-jobs-list-state",
+    "allow-jobs-list-set",
     "allow-jobs-snapshot",
     "allow-job-conversation",
     "allow-job-send-message",

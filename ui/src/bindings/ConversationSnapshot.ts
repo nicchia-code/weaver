@@ -7,6 +7,11 @@ import type { Note } from "./Note";
  */
 export type ConversationSnapshot = { jobId: string, seq: number, entries: Array<Entry>, 
 /**
+ * The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+ * indexed.
+ */
+arrivals: Array<number>, 
+/**
  * The notes of the job, with their instants, for the Jobs list tooltip.
  */
 notes: Array<Note>, };
