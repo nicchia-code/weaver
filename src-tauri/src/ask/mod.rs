@@ -8,7 +8,7 @@
 //!
 //! | Module | Responsibility |
 //! |--------|----------------|
-//! | [`build`] | Reads the chosen thing (files, or the round in memory) and builds the name and the instruction |
+//! | [`build`] | Reads the chosen thing (files, or the round or the card of the Chat in memory) and builds the name and the instruction |
 //! | [`commands`] | The Tauri commands: open, the conversation and the decisions of the developer in it |
 //!
 //! Opening sends nothing and starts no omp: the instruction waits in the conversation until the
@@ -49,6 +49,7 @@ pub fn open(
             project_id,
             root,
             rounds,
+            cards: general.as_ref(),
             language: language.as_deref(),
         },
         target,
@@ -56,15 +57,22 @@ pub fn open(
     // The instruction built again, when the session of the conversation is lost and replaced: from
     // the files at that moment, and the settings of that moment.
     let rebuild: Rebuild = {
-        let (host, rounds) = (general.host().clone(), rounds.clone());
+        // Weak: the conversation lives in the General that this closure is kept by.
+        let (host, rounds, cards) = (
+            general.host().clone(),
+            rounds.clone(),
+            Arc::downgrade(general),
+        );
         let (project, root, target) = (project_id.to_owned(), root.to_path_buf(), target.clone());
         Arc::new(move || {
+            let cards = cards.upgrade()?;
             let language = language_of(host.as_ref());
             build::build(
                 &Sources {
                     project_id: &project,
                     root: &root,
                     rounds: &rounds,
+                    cards: cards.as_ref(),
                     language: language.as_deref(),
                 },
                 &target,
@@ -78,6 +86,7 @@ pub fn open(
         name: built.name,
         kind: built.kind,
         round: built.round,
+        card: built.card,
         instruction: built.instruction,
         rebuild,
     }))

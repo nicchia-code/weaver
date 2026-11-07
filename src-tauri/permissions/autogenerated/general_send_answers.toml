@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-general-send-answers"
+description = "Enables the general_send_answers command without any pre-configured scope."
+commands.allow = ["general_send_answers"]
+
+[[permission]]
+identifier = "deny-general-send-answers"
+description = "Denies the general_send_answers command without any pre-configured scope."
+commands.deny = ["general_send_answers"]

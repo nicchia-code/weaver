@@ -1,5 +1,6 @@
-//! `weaver question new`: submits a round of questions to the app and waits, with no time limit,
-//! until a result exists (`requirements/cli#question-round`).
+//! `weaver question new`: submits the questions to the app (`requirements/cli#question-round`). In
+//! a job it waits, with no time limit, until a round has a result; in Chat it reads one reply, as
+//! soon as the app has published the card of questions or refused it.
 //!
 //! It does not use the request kind `command`: that kind runs inside the project's queue under
 //! the project lock, and a round waits for the developer for as long as he needs. The request is
@@ -7,10 +8,11 @@
 //! without it, by the identity of the Chat (`WEAVER_GENERAL`); the request carries the ones the
 //! caller has.
 //!
-//! Outcomes, never conflated: `answered` (exit 0), `unavailable` (exit 0, returned at once when no
-//! round can be submitted), `interrupted` and `cancelled` (exit 1), `invalid-input` (exit 2).
-//! Closing the connection is how the agent stops waiting, so a stop (SIGINT, SIGTERM, a closed
-//! standard output) only has to end the process.
+//! Outcomes, never conflated: `answered` (job) and `published` (Chat), exit 0; `unavailable`
+//! (exit 0, returned at once when nothing can be submitted); `interrupted`, `cancelled` and
+//! `card-already-published` (exit 1); `invalid-input` (exit 2). Closing the connection is how the
+//! agent of a job stops waiting, so a stop (SIGINT, SIGTERM, a closed standard output) only has
+//! to end the process.
 
 use std::sync::mpsc;
 use std::thread;
@@ -105,7 +107,7 @@ fn outcome(reply: Result<Response, SendError>) -> Result<CommandReply, Failure> 
         Ok(response) => match response.error {
             Some(error) if error.code == round_code::UNAVAILABLE => Ok(unavailable()),
             Some(error) => Err(Failure::new(&error.code, error.message)),
-            None => answered(response.payload),
+            None => result(response.payload),
         },
         Err(SendError::BadReply(ProtocolError::VersionMismatch { .. })) => Ok(unavailable()),
         Err(SendError::BadRequest(_)) => Err(Failure::invalid(
@@ -121,10 +123,17 @@ fn outcome(reply: Result<Response, SendError>) -> Result<CommandReply, Failure> 
     }
 }
 
-fn answered(payload: Value) -> Result<CommandReply, Failure> {
-    if payload.get("status").and_then(Value::as_str) != Some("answered")
-        || !payload.get("answers").is_some_and(Value::is_object)
-    {
+/// The result of the questions: `answered` for a round, `published` for a card of Chat.
+fn result(payload: Value) -> Result<CommandReply, Failure> {
+    let readable = match payload.get("status").and_then(Value::as_str) {
+        Some("answered") => payload.get("answers").is_some_and(Value::is_object),
+        Some("published") => {
+            payload.get("card").is_some_and(Value::is_string)
+                && payload.get("message").is_some_and(Value::is_string)
+        }
+        _ => false,
+    };
+    if !readable {
         return Err(Failure::new(
             code::FAILED,
             "Weaver sent an answer that cannot be read",
@@ -187,6 +196,34 @@ mod tests {
         })))
         .unwrap();
         assert_eq!(version.json["status"], json!("unavailable"));
+    }
+
+    #[test]
+    fn a_published_card_exits_0_and_a_second_card_in_the_turn_exits_1() {
+        let published = json!({"status": "published", "card": "abcd1234", "message": "End your turn."});
+        let ok = outcome(Ok(response(None, published.clone()))).unwrap();
+        assert_eq!((ok.exit, ok.json), (0, published));
+
+        let again = outcome(Ok(response(
+            Some(("card-already-published", "Put every question in one card.")),
+            Value::Null,
+        )))
+        .unwrap_err();
+        assert_eq!(
+            (again.code.as_str(), again.exit_code()),
+            ("card-already-published", 1)
+        );
+    }
+
+    #[test]
+    fn a_published_reply_without_its_card_or_message_is_a_failure() {
+        for payload in [
+            json!({"status": "published"}),
+            json!({"status": "published", "card": "abcd1234"}),
+            json!({"status": "published", "card": 3, "message": "m"}),
+        ] {
+            assert_eq!(outcome(Ok(response(None, payload))).unwrap_err().code, "failed");
+        }
     }
 
     #[test]

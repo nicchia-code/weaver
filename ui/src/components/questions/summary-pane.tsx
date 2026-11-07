@@ -2,27 +2,33 @@ import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from "react
 import { Pencil, TriangleAlert } from "lucide-react";
 
 import type { ActionInput } from "@/bindings/ActionInput";
-import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import { GuardedButton } from "@/components/guarded-button";
 import { Markdown } from "@/components/markdown";
 import { StatusIcon } from "@/components/questions/question-index";
-import { describeAnswer, missingCount, plural, statusText } from "@/components/questions/question-model";
+import { describeAnswer, missingCount, plural, statusText, type RoundData } from "@/components/questions/question-model";
 import type { KeyHandlers } from "@/components/questions/question-pane";
 import { Button } from "@/components/ui/button";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 
 interface SummaryProps {
-  round: QuestionRoundView;
+  round: RoundData;
   act: (action: ActionInput) => void;
-  askSkipAll: () => void;
+  /** Opens the confirmation of `Skip all`; a summary without it has no `Skip all`. */
+  askSkipAll?: () => void;
+  /** Whether the summary takes the focus when it is shown; by default it always does. */
+  shouldFocus?: () => boolean;
   handlers: MutableRefObject<KeyHandlers>;
 }
 
+const ALWAYS = () => true;
+
 /** Every answer of the round, with `Edit`, and the send. */
-export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) {
+export function SummaryPane({ round, act, askSkipAll, shouldFocus = ALWAYS, handlers }: SummaryProps) {
   const missing = missingCount(round);
   const title = useRef<HTMLHeadingElement>(null);
-  useEffect(() => title.current?.focus(), []);
+  useEffect(() => {
+    if (shouldFocus()) title.current?.focus();
+  }, [shouldFocus]);
 
   function send() {
     if (missing === 0) act({ kind: "send" });
@@ -42,7 +48,7 @@ export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) 
           {round.questions.map((question, index) => {
             const answer = question.confirmed ? describeAnswer(question, question.confirmed) : null;
             return (
-              <li key={question.id} className="flex items-start gap-3 rounded-md border p-3">
+              <li key={question.id} className="flex items-start gap-3 rounded-lg p-3 shadow-ring">
                 <span className="mt-0.5 text-sm text-muted-foreground">{index + 1}.</span>
                 <div className="min-w-0 flex-1">
                   <Markdown className="line-clamp-3 text-sm font-medium">{question.question}</Markdown>
@@ -57,7 +63,7 @@ export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) 
                       Skipped
                     </p>
                   ) : (
-                    <p className="mt-1 flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 flex items-center gap-1 text-sm font-medium text-peach-ink">
                       <TriangleAlert aria-hidden className="size-4 shrink-0" />
                       {statusText("missing")}
                     </p>
@@ -77,9 +83,11 @@ export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) 
           Back
         </Button>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
-          <Button variant="outline" onClick={askSkipAll}>
-            Skip all
-          </Button>
+          {askSkipAll ? (
+            <Button variant="outline" onClick={askSkipAll}>
+              Skip all
+            </Button>
+          ) : null}
           <GuardedButton reasons={[missing > 0 && `Answer or skip ${plural(missing, "more question")} to send.`]} onClick={send}>
             Send to agent
           </GuardedButton>

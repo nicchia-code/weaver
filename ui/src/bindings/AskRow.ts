@@ -29,4 +29,8 @@ starting: boolean,
 /**
  * The question round the conversation was opened from, for `Back to questions`.
  */
-round: number | null, };
+round: number | null, 
+/**
+ * The card of questions of the Chat the conversation was opened from, for `Back to questions`.
+ */
+card: string | null, };

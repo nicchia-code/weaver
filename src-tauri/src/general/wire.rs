@@ -4,6 +4,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+use super::cards::ChatCards;
 use crate::jobs::conversation::{Changed, Entry};
 
 /// The state of the General of a project, as the view needs it.
@@ -12,7 +13,7 @@ use crate::jobs::conversation::{Changed, Entry};
 pub struct GeneralState {
     /// The project hash.
     pub project_id: String,
-    /// A turn is in progress (the Machine is in Working or Waiting for answers): `Stop` shows.
+    /// A turn is in progress (the Machine is in Working): `Stop` shows.
     pub working: bool,
     /// omp is starting or reloading its session (or is waited for): the message that waits says
     /// `Starting omp…`.
@@ -24,9 +25,6 @@ pub struct GeneralState {
     /// A kept session has not come back yet, so `Clear` stays usable although the conversation
     /// shows nothing yet.
     pub kept: bool,
-    /// The Chat waits for the answers of its round (the Machine is in Waiting for answers): the
-    /// sidebar's Chat entry shows `1`, and a message sent meanwhile shows `Queued`.
-    pub waiting: bool,
 }
 
 /// The conversation as it is now, with the count of change batches it holds.
@@ -37,6 +35,10 @@ pub struct GeneralSnapshot {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
 }
 
 /// A batch of changes of the conversation. `reset` says it was rebuilt (a session reloaded, or
@@ -92,6 +94,8 @@ pub struct AskRow {
     /// The question round the conversation was opened from, for `Back to questions`.
     #[ts(type = "number | null")]
     pub round: Option<u64>,
+    /// The card of questions of the Chat the conversation was opened from, for `Back to questions`.
+    pub card: Option<String>,
 }
 
 /// The Ask more conversations of a project, newest first.
@@ -137,6 +141,8 @@ pub struct AskClosed {
 pub trait GeneralEvents: Send + Sync + 'static {
     fn state(&self, state: &GeneralState);
     fn entries(&self, entries: &GeneralEntries);
+    /// The cards of questions of the Chat of a project changed.
+    fn cards(&self, cards: &ChatCards);
     /// An Ask more conversation opened or changed its row.
     fn ask_changed(&self, row: &AskRow);
     fn ask_entries(&self, entries: &AskEntries);

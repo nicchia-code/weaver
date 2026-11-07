@@ -6,7 +6,7 @@ import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { QuestionIndex } from "@/components/questions/question-index";
 import { headerOf, positionOf, waitingOf } from "@/components/questions/question-model";
-import { NO_HANDLERS, QuestionPane, type KeyHandlers } from "@/components/questions/question-pane";
+import { NO_HANDLERS, onQuestionKeys, QuestionPane, type KeyHandlers } from "@/components/questions/question-pane";
 import { SummaryPane } from "@/components/questions/summary-pane";
 import { QuestionRoundProvider, useQuestionRound } from "@/components/questions/use-question-round";
 import {
@@ -25,10 +25,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 /** Below this window width the index becomes a row of numbered dots. */
 const COMPACT_BELOW = 600;
 
-function isTextEntry(target: EventTarget): boolean {
-  return target instanceof HTMLElement && (target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && (target as HTMLInputElement).type === "text"));
-}
-
 /** The bar that stays when the overlay is reduced: the agent still waits. */
 function MinimizedBar({ round, act }: { round: QuestionRoundView; act: (action: ActionInput) => void }) {
   const where = round.position.kind === "summary" ? "summary" : `question ${round.position.index + 1} of ${round.questions.length}`;
@@ -37,7 +33,7 @@ function MinimizedBar({ round, act }: { round: QuestionRoundView; act: (action: 
     <div
       role="region"
       aria-label="Questions waiting"
-      className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-2 border-t border-amber-600 bg-background px-4 py-2 text-sm text-amber-700 dark:border-amber-400 dark:text-amber-400"
+      className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-2 border-t border-peach bg-background px-4 py-2 text-sm text-peach-ink"
     >
       <span className="font-medium">
         {who} is waiting for your answers ({where})
@@ -61,19 +57,7 @@ export function QuestionOverlay() {
 
   const waiting = waitingOf(round);
 
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // Keys of the confirmation dialog (a portal) bubble through React but are not ours.
-    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      handlers.current.primary();
-      return;
-    }
-    if (/^[1-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !isTextEntry(event.target)) {
-      event.preventDefault();
-      handlers.current.digit(Number(event.key) - 1);
-    }
-  }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => onQuestionKeys(event, handlers);
 
   const position = round.position;
   return (

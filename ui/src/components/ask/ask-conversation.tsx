@@ -7,6 +7,8 @@ import { TaggedTextarea } from "@/components/assets/tagged-textarea";
 import { MESSAGE_PLACEHOLDER, PLACEHOLDERS } from "@/components/ask/ask-model";
 import { useAskConversation } from "@/components/ask/use-ask-conversation";
 import { EntryView, FollowScroller } from "@/components/jobs/jobs-view";
+import { useChatCards } from "@/components/general/use-chat-cards";
+import { useProject } from "@/components/project-context";
 import { useOptionalQuestionRound } from "@/components/questions/use-question-round";
 import { Button } from "@/components/ui/button";
 import { useOmp } from "@/hooks/use-omp";
@@ -19,6 +21,45 @@ function lastQueued(entries: readonly Entry[]): number {
     if (entry?.kind === "developer" && entry.delivery.status === "queued") return index;
   }
   return -1;
+}
+
+/** The element of a card of questions of the Chat: the Chat view marks its card with the card's identity. */
+function cardElement(card: string): Element | null {
+  return document.querySelector(`[data-chat-card="${CSS.escape(card)}"]`);
+}
+
+/**
+ * Shows the Chat view with `card` in view, where the developer left it: the card keeps its question
+ * in view, its choices and its text, so only the scroll moves. The view may still be hidden for a
+ * frame, and the card is looked for until it is found.
+ */
+function revealCard(card: string, showView: (view: "general") => void): void {
+  showView("general");
+  let frames = 0;
+  const find = () => {
+    const element = cardElement(card);
+    if (element) element.scrollIntoView({ block: "start" });
+    else if ((frames += 1) < 30) requestAnimationFrame(find);
+  };
+  requestAnimationFrame(find);
+}
+
+/**
+ * `Back to questions` of a conversation opened from the question in view of a card of Chat: shown
+ * only while that card is still the active one, wherever the Chat view is.
+ */
+function BackToCard({ projectId, card }: { projectId: string; card: string }) {
+  const { cards } = useChatCards(projectId);
+  const { showView } = useProject();
+  if (!cards.some((view) => view.id === card && view.state === "active")) return null;
+  return (
+    <div className="border-b px-4 py-3">
+      <Button variant="outline" size="sm" onClick={() => revealCard(card, showView)}>
+        <ArrowLeft aria-hidden />
+        Back to questions
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -58,6 +99,7 @@ export function AskConversation({ ask, focus }: { ask: AskRow; focus: number }) 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {ask.card !== null && <BackToCard projectId={ask.projectId} card={ask.card} />}
       {backToQuestions && (
         <div className="border-b px-4 py-3">
           <Button variant="outline" size="sm" onClick={() => round?.act({ kind: "minimize", minimized: false })}>
@@ -73,20 +115,20 @@ export function AskConversation({ ask, focus }: { ask: AskRow; focus: number }) 
               entry={entry}
               answer={(request, option) => void reply(call("ask_answer_permission", { askId: ask.id, request, option }))}
             />
-            {index === waiting && <p className="text-right text-xs text-muted-foreground">Starting omp…</p>}
+            {index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
           </Fragment>
         ))}
       </FollowScroller>
       {status?.state === "missing" && (
-        <div role="status" className="flex items-center gap-2 border-t p-3 text-sm text-red-600 dark:text-red-400">
-          omp is not installed.
+        <div role="status" className="flex items-center gap-2 border-t p-3 text-sm text-rose-ink">
+          The agent is not installed.
           <Button variant="outline" size="sm" onClick={() => void call("omp_install").catch(() => {})}>
-            Install omp
+            Install the agent
           </Button>
         </div>
       )}
       {problem && (
-        <p role="alert" className="border-t px-3 pt-2 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="border-t px-3 pt-2 text-xs text-rose-ink">
           {problem}
         </p>
       )}

@@ -30,6 +30,17 @@ pub struct JobFacts {
     pub accepting: bool,
 }
 
+/// What came of a card of questions the agent of the Chat published.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardPublication {
+    /// The card shows in the conversation now; this is its identity.
+    Published(String),
+    /// The turn already has a card: nothing was published.
+    AlreadyPublished,
+    /// The identity is not the live Chat of an open project, or its agent has no turn in progress.
+    Unavailable,
+}
+
 /// What the rounds need from the rest of the app.
 pub trait RoundsHost: Send + Sync + 'static {
     fn job(&self, job: &str) -> Option<JobFacts>;
@@ -37,13 +48,10 @@ pub trait RoundsHost: Send + Sync + 'static {
     fn round_opened(&self, job: &str);
     /// `question-round.CLOSED`, received by the job.
     fn round_closed(&self, job: &str);
-    /// The project of the live Chat whose identity (`WEAVER_GENERAL`) is `token`: only while its
-    /// project is open and a turn of the Chat is in progress.
-    fn chat(&self, token: &str) -> Option<String>;
-    /// `question-round.OPENED`, received by the Chat of the project (only a round of the Chat).
-    fn chat_round_opened(&self, project_id: &str);
-    /// `question-round.CLOSED`, received by the Chat of the project (only a round of the Chat).
-    fn chat_round_closed(&self, project_id: &str);
+    /// `agent.ASK_QUESTIONS` for the Chat: the agent whose identity (`WEAVER_GENERAL`) is `token`
+    /// publishes a card of questions in the conversation of its project. Only the live Chat of an
+    /// open project during a turn can; the card never enters the queue and holds no one.
+    fn publish_card(&self, token: &str, request: RoundRequest) -> CardPublication;
     /// The window of the project comes to the front.
     fn focus_project(&self, project_id: &str);
     /// The round on screen in a project changed.
@@ -270,8 +278,9 @@ impl Rounds {
         .1
     }
 
-    /// `agent.ASK_QUESTIONS`: answers a request of kind `question.new` when the round has a
-    /// result. It blocks, with no time limit, and runs on the blocking pool of the socket.
+    /// `agent.ASK_QUESTIONS`: answers a request of kind `question.new`. A job's round has its
+    /// answer when the developer sent it: the call blocks, with no time limit, and runs on the
+    /// blocking pool of the socket. A card of the Chat is answered at once, `published` or refused.
     pub fn handle(self: &Arc<Self>, request: Request, peer: Peer) -> Response {
         let round = match question::parse(&request.payload) {
             Ok(round) => round,
@@ -286,8 +295,17 @@ impl Rounds {
                 return unavailable();
             };
             (facts.project_id, Origin::Agent { job })
-        } else if let Some(project) = request.general.as_deref().and_then(|t| self.host.chat(t)) {
-            (project.clone(), Origin::Chat { project })
+        } else if let Some(token) = request.general.as_deref() {
+            // A card of the Chat enters no queue, registers no waiter and no close handler: the
+            // connection that closes afterwards changes nothing.
+            return match self.host.publish_card(token, round) {
+                CardPublication::Published(card) => Response::ok(question::published_json(&card)),
+                CardPublication::AlreadyPublished => Response::failure(
+                    code::CARD_ALREADY_PUBLISHED,
+                    question::CARD_ALREADY_PUBLISHED_MESSAGE,
+                ),
+                CardPublication::Unavailable => unavailable(),
+            };
         } else {
             return unavailable();
         };
@@ -321,16 +339,14 @@ impl Rounds {
         let changed = force || !effects.is_empty();
         for effect in effects {
             match effect {
-                Effect::Closed { origin, .. } => match &origin {
-                    Origin::Agent { job } => self.host.round_closed(job),
-                    Origin::Chat { project } => self.host.chat_round_closed(project),
-                    Origin::Drift { .. } => {}
-                },
+                Effect::Closed { origin, .. } => {
+                    if let Origin::Agent { job } = &origin {
+                        self.host.round_closed(job);
+                    }
+                }
                 Effect::Opened { origin, .. } => {
-                    match &origin {
-                        Origin::Agent { job } => self.host.round_opened(job),
-                        Origin::Chat { project } => self.host.chat_round_opened(project),
-                        Origin::Drift { .. } => {}
+                    if let Origin::Agent { job } = &origin {
+                        self.host.round_opened(job);
                     }
                     self.host.focus_project(project_id);
                 }

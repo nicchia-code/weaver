@@ -10,6 +10,9 @@ import type { AppError } from "@/bindings/AppError";
 import type { AppInfo } from "@/bindings/AppInfo";
 import type { AtomicCommitsStatus } from "@/bindings/AtomicCommitsStatus";
 import type { BoardSnapshot } from "@/bindings/BoardSnapshot";
+import type { ChatProposals } from "@/bindings/ChatProposals";
+import type { CardActionInput } from "@/bindings/CardActionInput";
+import type { ChatCards } from "@/bindings/ChatCards";
 import type { CommandName } from "@/bindings/CommandName";
 import type { EventName } from "@/bindings/EventName";
 import type { HistorySnapshot } from "@/bindings/HistorySnapshot";
@@ -45,13 +48,14 @@ import type { RequestsEvent } from "@/bindings/RequestsEvent";
 import type { ActionInput } from "@/bindings/ActionInput";
 import type { QuestionRoundChanged } from "@/bindings/QuestionRoundChanged";
 import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
-import type { RequestsSnapshot } from "@/bindings/RequestsSnapshot";
 import type { Step } from "@/bindings/Step";
 import type { SubAgentConversation } from "@/bindings/SubAgentConversation";
 import type { SubAgentEntries } from "@/bindings/SubAgentEntries";
 import type { SubAgentsEvent } from "@/bindings/SubAgentsEvent";
 import type { UsageStatus } from "@/bindings/UsageStatus";
 import type { WelcomeState } from "@/bindings/WelcomeState";
+import type { ProjectGit } from "@/bindings/ProjectGit";
+import type { ProjectSwitcher } from "@/bindings/ProjectSwitcher";
 import type { SystemCertificatesStatus } from "@/bindings/SystemCertificatesStatus";
 import type { AskClosed } from "@/bindings/AskClosed";
 import type { AskEntries } from "@/bindings/AskEntries";
@@ -106,6 +110,10 @@ export interface EventPayloads {
   "recent-changed": RecentEntry[];
   /** An opening from the File menu failed: sent to the window it was chosen from only (the welcome window when none had the focus). */
   "menu-open-failed": MenuOpenFailed;
+  /** The open projects, the recent ones or the jobs that work in a project changed: the whole list, sent to every project window. */
+  "project-switcher-changed": ProjectSwitcher;
+  /** The branch or the user name of this window's project changed: sent to that window only, with a revision. */
+  "project-git-changed": ProjectGit;
   /** Something to read at the top of the Board: a refused decision, a Proposal sent back to Draft. */
   notice: Notice;
   /** The Jobs list of a project changed: the whole list. */
@@ -120,6 +128,8 @@ export interface EventPayloads {
   "general-changed": GeneralState;
   /** The conversation of a General changed: the entries that changed, in batches counted by `seq`. */
   "general-entries": GeneralEntries;
+  /** The cards of questions of a project's Chat changed: the whole list, at a revision. */
+  "chat-cards-changed": ChatCards;
   /** An Ask more conversation opened or changed: its row. */
   "ask-changed": AskRow;
   /** The conversation of an Ask more conversation changed: the entries that changed. */
@@ -254,12 +264,20 @@ export interface Commands {
   omp_log_out: { args: { provider: string }; result: null };
   /** `omp usage --json` for the connected providers (only while omp is Ready); answers the status when the reading ends. */
   omp_usage: { args: Record<string, never>; result: UsageStatus };
+  /** The usage limits as the windows last heard of them, without reading anything (the summary in the sidebar of a window that just loaded). */
+  usage_status: { args: Record<string, never>; result: UsageStatus };
   /** The name, version and recent projects of the welcome window. */
   welcome_state: { args: Record<string, never>; result: WelcomeState };
   /** `developer.OPEN_PROJECT` for a folder: opens its window or brings it forward. */
   open_project: { args: { path: string }; result: null };
   /** The system folder picker, then the same as `open_project`; `false` when none was chosen. */
   open_folder: { args: Record<string, never>; result: boolean };
+  /** `Open Folder…` of the project switcher and the palette: the picker of the File menu, modal to this window; answers at once, and a failed opening comes back as `menu-open-failed`. */
+  open_folder_from_window: { args: Record<string, never>; result: null };
+  /** The open projects (with their working jobs) and the recent ones without a window, for the menu of the project switcher. */
+  project_switcher: { args: Record<string, never>; result: ProjectSwitcher };
+  /** The branch and the user name of this window's project, as they are now. */
+  project_git: { args: Record<string, never>; result: ProjectGit };
   /** Removes a recent project; answers the welcome state without it. */
   remove_recent: { args: { path: string }; result: WelcomeState };
   /** `Open in editor`: `file` (absolute, or relative to the project) at `line`; a failure carries the reason. */
@@ -298,6 +316,14 @@ export interface Commands {
   general_answer_permission: { args: { projectId: string; request: number; option: string }; result: null };
   /** `Clear General?`, once confirmed: the conversation and its record are deleted. */
   general_clear: { args: { projectId: string }; result: null };
+  /** The Proposals that the listed jobs of the Chat handed over, in creation order. */
+  general_proposals: { args: { projectId: string; jobs: string[] }; result: ChatProposals };
+  /** The cards of questions of the Chat, in publication order; after that `chat-cards-changed` brings the changes. */
+  general_cards: { args: { projectId: string }; result: ChatCards };
+  /** What the developer does in the active card of questions; the cards afterwards. */
+  general_card_act: { args: { projectId: string; card: string; action: CardActionInput }; result: ChatCards };
+  /** `developer.SEND_ANSWERS`: the answers of the active card go to the agent; refused while a question has neither an answer nor a skip. */
+  general_send_answers: { args: { projectId: string; card: string }; result: null };
   /** The list of the sub-agents of the General of an open project. */
   general_sub_agents: { args: { projectId: string }; result: SubAgentsEvent };
   /** The read-only conversation of the sub-agent at `path` of the General of an open project. */
@@ -324,8 +350,6 @@ export interface Commands {
   ask_sub_agent_conversation: { args: { askId: string; path: Step[] }; result: SubAgentConversation };
   /** What the Jobs view shows of the sub-agents of an Ask more conversation. */
   ask_sub_agents_view: { args: { askId: string; listShown: boolean; path: Step[] | null }; result: null };
-  /** The open design requests of a project (writing or sent), newest first. */
-  requests_list: { args: { projectId: string }; result: RequestsSnapshot };
   /** The text and standing of one request. */
   request_read: { args: { projectId: string; requestId: string }; result: RequestView };
   /** `developer.NEW_REQUEST`: an empty request named after the local time `YYYY-MM-DDTHH:MM:SS`; its id. */
@@ -336,6 +360,8 @@ export interface Commands {
   request_send: { args: { projectId: string; requestId: string }; result: null };
   /** `developer.DISCARD_REQUEST`: the file and the images are deleted. */
   request_discard: { args: { projectId: string; requestId: string }; result: null };
+  /** `developer.LEAVE_REQUEST` (`closing` false) or `window.CLOSED` (`closing` true): discards the request when it is in writing and its file is empty; nothing otherwise. */
+  request_leave: { args: { projectId: string; requestId: string; closing: boolean }; result: null };
   /** Saves a pasted image (base64 `data`); the path to link, relative to the request file. */
   request_image_add: { args: { projectId: string; requestId: string; data: string }; result: string };
   /** Links a dropped image file; the path to link, relative to the request file. */

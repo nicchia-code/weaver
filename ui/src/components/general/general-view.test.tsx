@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "@/bindings/AgentNode";
 import type { ChatProposal } from "@/bindings/ChatProposal";
+import type { ChatCardView } from "@/bindings/ChatCardView";
 import type { Entry } from "@/bindings/Entry";
 import type { GeneralState } from "@/bindings/GeneralState";
 import type { OmpStatus } from "@/bindings/OmpStatus";
@@ -20,6 +21,12 @@ vi.mock("@/lib/backend", () => ({
   call: vi.fn(),
   on: vi.fn(),
   isAppError: (value: unknown) => typeof value === "object" && value !== null && "code" in value && "message" in value,
+}));
+
+const asks = vi.hoisted(() => ({ askMore: vi.fn(async (_target: unknown) => "aaaaaaaa" as string | null), provided: false }));
+vi.mock("@/components/ask/use-asks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ask/use-asks")>()),
+  useOptionalAsks: () => (asks.provided ? { asks: [], opened: null, askMore: asks.askMore, close: () => {} } : null),
 }));
 
 const ompStatus = vi.hoisted(() => ({ current: null as OmpStatus | null }));
@@ -54,7 +61,7 @@ const ASSETS = vi.hoisted(() => [
 vi.mock("@/components/assets/use-assets", () => ({ useAssets: () => ({ assets: ASSETS, loaded: true, apply: () => {} }) }));
 
 function state(patch: Partial<GeneralState> = {}): GeneralState {
-  return { projectId: PROJECT, working: false, starting: false, loading: false, kept: false, waiting: false, ...patch };
+  return { projectId: PROJECT, working: false, starting: false, loading: false, kept: false, ...patch };
 }
 
 const handlers = new Map<string, (payload: never) => void>();
@@ -96,6 +103,7 @@ describe("GeneralView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     ompStatus.current = null;
+    asks.provided = false;
   });
 
   it("starts with the view header: the title Chat, the agent pill and New chat on the right", async () => {
@@ -207,8 +215,8 @@ describe("GeneralView", () => {
     await waitFor(() => expect(call).toHaveBeenCalledWith("general_clear", { projectId: PROJECT }));
   });
 
-  it("shows Clock and Queued under a message sent while the Chat waits for the answers of its round", async () => {
-    mount([developer("While you ask", "queued")], state({ working: true, waiting: true }));
+  it("shows Clock and Queued under a message the agent has not received yet during a turn", async () => {
+    mount([developer("While you ask", "queued")], state({ working: true }));
     const message = (await screen.findByText("While you ask")).closest("div") as HTMLElement;
     expect(within(message).getByText("Queued")).toBeInTheDocument();
     expect(message.querySelector("svg")).toHaveClass("lucide-clock");
@@ -710,12 +718,6 @@ describe("the conversation of Chat", () => {
     mount([]);
     expect(await screen.findByText("Weaver · not installed")).toBeInTheDocument();
   });
-
-  it("ends the conversation with a line that brings the round back while the Chat waits for its answers", async () => {
-    mount([developer("Ask me")], state({ working: true, waiting: true }));
-    expect(await screen.findByText("Weaver is waiting for your answers.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Answer" })).toBeInTheDocument();
-  });
 });
 
 describe("the model control of the message box", () => {
@@ -742,8 +744,8 @@ describe("the model control of the message box", () => {
     expect(await screen.findByText("Analysis")).toBeInTheDocument();
   });
 
-  it("is disabled during a turn, while loading and while the Chat waits for its round, with its reason", async () => {
-    for (const patch of [{ working: true }, { loading: true, kept: true }, { working: true, waiting: true }]) {
+  it("is disabled during a turn and while loading, with its reason", async () => {
+    for (const patch of [{ working: true }, { loading: true, kept: true }]) {
       const { unmount } = render_(patch);
       const control = await screen.findByRole("button", { name: /Default model/ });
       expect(control).toHaveAttribute("aria-disabled", "true");
@@ -921,5 +923,127 @@ describe("the Proposal card under the Started line", () => {
     await user.click(rework[rework.length - 1]!);
     expect(openJob).toHaveBeenCalledWith("wwwwwwww");
     expect(showView).not.toHaveBeenCalled();
+  });
+});
+
+describe("the cards of questions in the conversation", () => {
+  const view = (id: string, patch: Partial<ChatCardView> = {}): ChatCardView => ({
+    id,
+    state: "active",
+    position: { kind: "question", index: 0 },
+    questions: [
+      {
+        id: "a",
+        question: "Which storage?",
+        context: null,
+        options: [
+          { label: "Disk", description: "A file on disk.", details: null },
+          { label: "Memory", description: "Gone at exit.", details: null },
+        ],
+        recommended: 0,
+        multi: false,
+        status: "missing",
+        draft: { selected: [0], text: "" },
+        confirmed: null,
+        visited: true,
+      },
+    ],
+    ...patch,
+  });
+  const cards = (list: ChatCardView[]) => ({ general_cards: () => ({ projectId: PROJECT, revision: 1, cards: list }) });
+  const agent = (text: string): Entry => ({ kind: "agent", text, complete: true });
+  const closedWith = (card: string, text: string, delivery: "queued" | "delivered" = "delivered"): Entry => ({
+    kind: "developer",
+    message: 2,
+    text,
+    delivery: { status: delivery },
+    card,
+  });
+
+  it("shows the active card under everything of the turn, with the line above the box and the model control enabled", async () => {
+    mount([developer("Hi"), agent("I need to know."), { kind: "thinking", text: "hm" }], state(), vi.fn(), cards([view("cccccccc")]));
+    const card = await screen.findByRole("article", { name: "Questions from Weaver" });
+    const text = screen.getByText("I need to know.");
+    expect(text.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const work = screen.getByRole("button", { name: /Worked for .* · 1 step/ });
+    expect(work.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "Skip all" })).toBeNull();
+    expect(screen.getByText("Your message also sends the answers chosen so far.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Default model/ })).not.toHaveAttribute("aria-disabled", "true");
+    expect(document.activeElement).not.toBe(card);
+    expect(card.contains(document.activeElement)).toBe(false);
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+  });
+
+  it("has no line above the box and no controls once the card is closed, and shows it right before the message that closed it", async () => {
+    const closed = view("cccccccc", {
+      state: "answered-with-message",
+      questions: [{ ...view("x").questions[0]!, status: "answered", confirmed: { selected: [1], text: "" } }],
+    });
+    mount([agent("Which?"), closedWith("cccccccc", "Memory is fine"), agent("Thanks")], state(), vi.fn(), cards([closed]));
+    const card = await screen.findByRole("article", { name: "Questions from Weaver" });
+    const message = screen.getByText("Memory is fine");
+    expect(card.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Which?").compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(card).getByText("Answered")).toBeInTheDocument();
+    expect(within(card).queryByRole("button")).toBeNull();
+    expect(screen.queryByText("Your message also sends the answers chosen so far.")).toBeNull();
+  });
+
+  it("adds no message of the developer for a card sent from its Summary, and says Starting Weaver… under the card while it waits", async () => {
+    const sent = view("cccccccc", { state: "answered" });
+    mount([agent("Which?"), closedWith("cccccccc", "", "queued")], state({ starting: true }), vi.fn(), cards([sent]));
+    const card = await screen.findByRole("article", { name: "Questions from Weaver" });
+    expect(screen.getByText("Starting Weaver…").compareDocumentPosition(card) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(screen.queryByText("Queued")).toBeNull();
+    expect(document.querySelector(".rounded-br-\\[4px\\]")).toBeNull();
+  });
+
+  it("sends the draft, the confirmation and the Summary through the commands of the card, never through the overlay's", async () => {
+    const user = userEvent.setup();
+    mount([agent("Which?")], state(), vi.fn(), {
+      ...cards([view("cccccccc")]),
+      general_card_act: () => ({ projectId: PROJECT, revision: 2, cards: [view("cccccccc", { position: { kind: "summary" }, questions: [{ ...view("x").questions[0]!, status: "answered", confirmed: { selected: [0], text: "" } }] })] }),
+    });
+    const card = await screen.findByRole("article", { name: "Questions from Weaver" });
+    await user.click(within(card).getByRole("button", { name: "Review" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("general_card_act", { projectId: PROJECT, card: "cccccccc", action: { kind: "confirm", index: 0 } }));
+    await user.click(await screen.findByRole("button", { name: "Send to agent" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("general_send_answers", { projectId: PROJECT, card: "cccccccc" }));
+    expect(call).not.toHaveBeenCalledWith("question_round_act", expect.anything());
+  });
+
+  it("follows `chat-cards-changed`: a card that appears, and its closing", async () => {
+    mount([agent("Which?")]);
+    await screen.findByText("Which?");
+    expect(screen.queryByRole("article", { name: "Questions from Weaver" })).toBeNull();
+    act(() => handlers.get("chat-cards-changed")?.({ projectId: PROJECT, revision: 3, cards: [view("cccccccc")] } as never));
+    expect(await screen.findByRole("article", { name: "Questions from Weaver" })).toBeInTheDocument();
+    expect(screen.getByText("Your message also sends the answers chosen so far.")).toBeInTheDocument();
+    // An older revision is dropped.
+    act(() => handlers.get("chat-cards-changed")?.({ projectId: PROJECT, revision: 2, cards: [] } as never));
+    expect(screen.getByRole("article", { name: "Questions from Weaver" })).toBeInTheDocument();
+    act(() => handlers.get("chat-cards-changed")?.({ projectId: PROJECT, revision: 4, cards: [view("cccccccc", { state: "answered-with-message" })] } as never));
+    await waitFor(() => expect(screen.queryByText("Your message also sends the answers chosen so far.")).toBeNull());
+  });
+
+  it("opens Ask more on the question in view of the active card, leaving the card as it was, and has none on a closed card", async () => {
+    asks.provided = true;
+    const closed = view("dddddddd", { state: "answered-with-message" });
+    mount([agent("Before"), closedWith("dddddddd", "ok"), agent("Which?")], state(), vi.fn(), cards([closed, view("cccccccc")]));
+    const [first, second] = await screen.findAllByRole("article", { name: "Questions from Weaver" });
+    expect(within(first!).queryByRole("button", { name: "Ask more about this question" })).toBeNull();
+    await userEvent.setup().click(within(second!).getByRole("button", { name: "Ask more about this question" }));
+    expect(asks.askMore).toHaveBeenCalledWith({ kind: "card", card: "cccccccc", index: 0 });
+    expect(call).not.toHaveBeenCalledWith("general_card_act", expect.anything());
+    expect(within(second!).getByText("Which storage?")).toBeInTheDocument();
+  });
+
+  it("keeps a message of the box going to Chat while a card is active", async () => {
+    mount([agent("Which?")], state(), vi.fn(), cards([view("cccccccc")]));
+    const user = userEvent.setup();
+    await screen.findByRole("article", { name: "Questions from Weaver" });
+    await user.type(screen.getByRole("combobox", { name: "Message Weaver" }), "Use disk{Enter}");
+    await waitFor(() => expect(call).toHaveBeenCalledWith("general_send_message", { projectId: PROJECT, text: "Use disk" }));
   });
 });

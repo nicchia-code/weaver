@@ -26,8 +26,9 @@ use weaver_core::project::proposal::data::{self as proposal_data, Status};
 use weaver_core::project::shortnum::{self, ShortNumbers};
 use weaver_core::project::tasks::{self, Column};
 use weaver_core::project::view;
-use weaver_core::question::Origin;
+use weaver_core::question::{Origin, RoundRequest};
 
+use crate::general::service::General;
 use crate::general::wire::AskKind;
 use crate::rounds::Rounds;
 
@@ -57,6 +58,12 @@ pub enum AskTarget {
         #[ts(type = "number")]
         index: usize,
     },
+    /// The question in view of the active card of questions of the Chat, by the card's identity.
+    Card {
+        card: String,
+        #[ts(type = "number")]
+        index: usize,
+    },
 }
 
 /// What opens a conversation.
@@ -67,7 +74,32 @@ pub struct Built {
     pub kind: AskKind,
     /// The question round it was opened from.
     pub round: Option<u64>,
+    /// The card of questions of the Chat it was opened from.
+    pub card: Option<String>,
     pub instruction: String,
+}
+
+/// The card of questions of the Chat, as an Ask more conversation reads it.
+pub trait ActiveCards {
+    /// The questions of the card `card` of the project's Chat, while it is the active card and
+    /// `index` is one of its questions.
+    fn active_card_request(
+        &self,
+        project_id: &str,
+        card: &str,
+        index: usize,
+    ) -> Option<RoundRequest>;
+}
+
+impl ActiveCards for General {
+    fn active_card_request(
+        &self,
+        project_id: &str,
+        card: &str,
+        index: usize,
+    ) -> Option<RoundRequest> {
+        General::active_card_request(self, project_id, card, index)
+    }
 }
 
 /// Where the thing is read from.
@@ -75,6 +107,8 @@ pub struct Sources<'a> {
     pub project_id: &'a str,
     pub root: &'a Path,
     pub rounds: &'a Rounds,
+    /// The cards of questions of the project's Chat.
+    pub cards: &'a dyn ActiveCards,
     /// The language of the developer, as the Settings hold it.
     pub language: Option<&'a str>,
 }
@@ -114,6 +148,7 @@ pub fn build(sources: &Sources, target: &AskTarget) -> Option<Built> {
     let language = sources.language;
     match target {
         AskTarget::Question { round, index } => question(sources, *round, *index),
+        AskTarget::Card { card, index } => card_question(sources, card, *index),
         AskTarget::Requirements { overlay } => Some(requirements(sources, overlay.as_deref())),
         other => {
             let image = ProjectImage::load(sources.root);
@@ -144,12 +179,15 @@ pub fn build(sources: &Sources, target: &AskTarget) -> Option<Built> {
                     AskKind::History,
                     Chosen::History(history_entry(&card, entry)?),
                 ),
-                AskTarget::Question { .. } | AskTarget::Requirements { .. } => return None,
+                AskTarget::Question { .. }
+                | AskTarget::Card { .. }
+                | AskTarget::Requirements { .. } => return None,
             };
             Some(Built {
                 name,
                 kind,
                 round: None,
+                card: None,
                 instruction: ask::instruction(&chosen, language),
             })
         }
@@ -320,6 +358,28 @@ fn question(sources: &Sources, round: u64, index: usize) -> Option<Built> {
         name: "Ask question".to_owned(),
         kind: AskKind::Question,
         round: Some(round),
+        card: None,
+        instruction: ask::instruction(&chosen, sources.language),
+    })
+}
+
+/// The question in view of the active card of questions of the Chat: `None` once the card is no
+/// longer the active one (sent, closed by a message, replaced or cleared). Only the questions are
+/// read, never what the developer chose or wrote.
+fn card_question(sources: &Sources, card: &str, index: usize) -> Option<Built> {
+    let request = sources
+        .cards
+        .active_card_request(sources.project_id, card, index)?;
+    let chosen = Chosen::Question(QuestionPart {
+        request: &request,
+        index,
+        origin: QuestionOrigin::Chat,
+    });
+    Some(Built {
+        name: "Ask question".to_owned(),
+        kind: AskKind::Question,
+        round: None,
+        card: Some(card.to_owned()),
         instruction: ask::instruction(&chosen, sources.language),
     })
 }
@@ -345,6 +405,7 @@ fn requirements(sources: &Sources, overlay: Option<&str>) -> Built {
         name: "Ask Requirements".to_owned(),
         kind: AskKind::Requirements,
         round: None,
+        card: None,
         instruction: ask::instruction(&chosen, sources.language),
     }
 }

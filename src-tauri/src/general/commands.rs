@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use super::cards::{CardActionInput, ChatCards};
 use super::service::General;
 use super::wire::GeneralSnapshot;
 use crate::error::{AppError, ErrorCode};
@@ -30,6 +31,40 @@ pub async fn general_send_message(
     text: String,
 ) -> Result<(), AppError> {
     general.send_message(&project_id, &text).map_err(refused)
+}
+
+/// The cards of questions of the project's Chat, in publication order: fetched when the view
+/// loads and after each `chat-cards-changed`.
+#[tauri::command]
+pub async fn general_cards(
+    general: State<'_, Arc<General>>,
+    project_id: String,
+) -> Result<ChatCards, AppError> {
+    general.cards(&project_id).map_err(refused)
+}
+
+/// What the developer does in the active card of questions; the cards afterwards.
+#[tauri::command]
+pub async fn general_card_act(
+    general: State<'_, Arc<General>>,
+    project_id: String,
+    card: String,
+    action: CardActionInput,
+) -> Result<ChatCards, AppError> {
+    general
+        .card_act(&project_id, &card, action.into())
+        .map_err(refused)
+}
+
+/// `developer.SEND_ANSWERS`: the answers of the active card go to the agent as a message of the
+/// developer, only when every question is answered or skipped.
+#[tauri::command]
+pub async fn general_send_answers(
+    general: State<'_, Arc<General>>,
+    project_id: String,
+    card: String,
+) -> Result<(), AppError> {
+    general.send_answers(&project_id, &card).map_err(refused)
 }
 
 /// `developer.STOP_AGENT`.

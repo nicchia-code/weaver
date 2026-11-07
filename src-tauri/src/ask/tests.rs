@@ -7,15 +7,13 @@ use std::sync::Arc;
 use weaver_core::paths::canonical_root;
 use weaver_core::question::RoundRequest;
 
-use super::build::{build, AskTarget, Sources};
+use super::build::{build, ActiveCards, AskTarget, Sources};
 use crate::general::wire::AskKind;
-use crate::rounds::service::{JobFacts, RoundsHost};
+use crate::rounds::service::{CardPublication, JobFacts, RoundsHost};
 use crate::rounds::view::QuestionRoundChanged;
 use crate::rounds::Rounds;
 
 const PROJECT: &str = "0123456789abcdef";
-/// The identity of the live Chat of `PROJECT` while a turn is in progress.
-const CHAT: &str = "cccccccc";
 
 struct NoHost;
 
@@ -25,11 +23,9 @@ impl RoundsHost for NoHost {
     }
     fn round_opened(&self, _job: &str) {}
     fn round_closed(&self, _job: &str) {}
-    fn chat(&self, token: &str) -> Option<String> {
-        (token == CHAT).then(|| PROJECT.to_owned())
+    fn publish_card(&self, _token: &str, _request: RoundRequest) -> CardPublication {
+        CardPublication::Unavailable
     }
-    fn chat_round_opened(&self, _project_id: &str) {}
-    fn chat_round_closed(&self, _project_id: &str) {}
     fn focus_project(&self, _project_id: &str) {}
     fn changed(&self, _change: &QuestionRoundChanged) {}
 }
@@ -49,10 +45,31 @@ const HISTORY: &str = "---\ncreated: 2026-11-02T14:59:02.830Z\nupdated: 2026-11-
 const AREA: &str = "---\ndescription: d\n---\n# UI\n";
 const MAIN: &str = "---\ndescription: d\n---\n# Main\n\n## General\n- the general text\n";
 
+/// The cards of the Chat: one card of `PROJECT`, active or not.
+#[derive(Default)]
+struct Cards {
+    active: std::sync::Mutex<Option<(String, RoundRequest)>>,
+}
+
+impl ActiveCards for Cards {
+    fn active_card_request(
+        &self,
+        project_id: &str,
+        card: &str,
+        index: usize,
+    ) -> Option<RoundRequest> {
+        let active = self.active.lock().unwrap();
+        let (id, request) = active.as_ref()?;
+        (project_id == PROJECT && id == card && index < request.questions.len())
+            .then(|| request.clone())
+    }
+}
+
 struct Fixture {
     _dir: tempfile::TempDir,
     root: std::path::PathBuf,
     rounds: Arc<Rounds>,
+    cards: Cards,
 }
 
 fn fixture() -> Fixture {
@@ -75,6 +92,7 @@ fn fixture() -> Fixture {
         _dir: dir,
         root,
         rounds: Rounds::new(Arc::new(NoHost)),
+        cards: Cards::default(),
     }
 }
 
@@ -84,6 +102,7 @@ fn built(f: &Fixture, target: AskTarget, language: Option<&str>) -> Option<super
             project_id: PROJECT,
             root: &f.root,
             rounds: &f.rounds,
+            cards: &f.cards,
             language,
         },
         &target,
@@ -402,38 +421,80 @@ fn the_question_in_view_is_read_from_the_presented_round_with_the_identity_of_it
     }
 }
 
+fn two_questions() -> RoundRequest {
+    serde_json::from_value(serde_json::json!({
+        "questions": [
+            { "id": "a", "question": "Which one?", "context": "Because.", "options": [
+                { "label": "x", "description": "first", "details": "More on x." },
+                { "label": "y", "description": "second" } ], "recommended": 1, "multi": false },
+            { "id": "b", "question": "And then?", "options": [
+                { "label": "p", "description": "third" }, { "label": "q", "description": "fourth" } ], "recommended": 0, "multi": true },
+        ]
+    }))
+    .unwrap()
+}
+
 #[test]
-fn the_question_of_a_round_of_the_chat_names_the_chat() {
+fn the_question_in_view_of_the_active_card_of_the_chat_is_read_without_commands() {
     let f = fixture();
-    let mut request = weaver_core::protocol::Request::new(
-        "secret",
-        weaver_core::question::KIND,
-        serde_json::json!({ "questions": [{
-            "id": "a", "question": "Which one?", "recommended": 0, "multi": false,
-            "options": [{ "label": "x", "description": "first" }, { "label": "y", "description": "second" }],
-        }]}),
+    *f.cards.active.lock().unwrap() = Some(("cardcard".into(), two_questions()));
+    let found = built(
+        &f,
+        AskTarget::Card {
+            card: "cardcard".into(),
+            index: 1,
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            found.name.as_str(),
+            found.kind,
+            found.round,
+            found.card.as_deref()
+        ),
+        ("Ask question", AskKind::Question, None, Some("cardcard"))
     );
-    request.general = Some(CHAT.into());
-    let rounds = f.rounds.clone();
-    let waiting = std::thread::spawn(move || {
-        rounds.handle(request, weaver_core::ipc::Peer::default())
-    });
-    let round = loop {
-        if let Some(view) = f.rounds.view(PROJECT) {
-            break view.id;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    };
-    let found = built(&f, AskTarget::Question { round, index: 0 }, None).unwrap();
-    assert!(
-        found.instruction.contains("Asked by the Chat\n"),
-        "{}",
-        found.instruction
-    );
-    assert!(!found.instruction.contains("Asked by the job"));
+    for line in [
+        "Question 2 of 2:\n",
+        "Question:\nAnd then?\n",
+        "The developer can choose several options.\n",
+        "1. Which one?\n   - x: first\n   - y: second\n",
+        "2. (the question in view, described above)\n",
+        "Asked by: Chat\n",
+        "The card is still active: the developer has not answered it. Do not answer it for the developer.\n",
+    ] {
+        assert!(
+            found.instruction.contains(line),
+            "missing {line:?} in {}",
+            found.instruction
+        );
+    }
+    assert!(!found.instruction.contains("round"));
     assert!(!found.instruction.contains("weaver drift show"));
-    f.rounds.window_closed(PROJECT);
-    waiting.join().unwrap();
+    assert!(!found.instruction.contains("Commands that read it"));
+}
+
+#[test]
+fn a_card_that_is_not_active_or_not_the_one_asked_or_has_no_such_question_opens_nothing() {
+    let f = fixture();
+    let ask = |card: &str, index: usize| {
+        built(
+            &f,
+            AskTarget::Card {
+                card: card.into(),
+                index,
+            },
+            None,
+        )
+    };
+    // No active card: sent, closed by a message, replaced or cleared by `New chat`.
+    assert!(ask("cardcard", 0).is_none());
+    *f.cards.active.lock().unwrap() = Some(("cardcard".into(), two_questions()));
+    assert!(ask("cardcard", 0).is_some());
+    assert!(ask("othercrd", 0).is_none());
+    assert!(ask("cardcard", 2).is_none());
 }
 
 #[test]

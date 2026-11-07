@@ -3,4 +3,4 @@
 /**
  * What the developer asks about, as the UI names it.
  */
-export type AskTarget = { "kind": "proposal", id: string, } | { "kind": "task", id: string, } | { "kind": "drift", id: string, } | { "kind": "history", entry: string, } | { "kind": "requirements", overlay: string | null, } | { "kind": "question", round: number, index: number, };
+export type AskTarget = { "kind": "proposal", id: string, } | { "kind": "task", id: string, } | { "kind": "drift", id: string, } | { "kind": "history", entry: string, } | { "kind": "requirements", overlay: string | null, } | { "kind": "question", round: number, index: number, } | { "kind": "card", card: string, index: number, };

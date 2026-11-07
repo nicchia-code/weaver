@@ -1,10 +1,11 @@
 //! Question rounds (Machine `question-round`): the app side.
 //!
-//! A group of decisions the agent of a job, or of the project's Chat when the developer asked to be
-//! asked that way, asks the developer at once, or the prepared question of
+//! A group of decisions the agent of a job asks the developer at once, or the prepared question of
 //! a Drift that Weaver asks itself. The decisions are in `weaver_core::question`; here live the
 //! queues of the open projects, the agents waiting for their results, and what a round does to the
-//! jobs and the window.
+//! jobs and the window. The agent of the project's Chat asks no round: its card of questions is
+//! published in its conversation and kept there ([`crate::general::cards`]), never queued, never
+//! shown in the overlay and never held by anyone.
 //!
 //! | Module      | Responsibility |
 //! |-------------|----------------|
