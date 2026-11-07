@@ -29,7 +29,7 @@ vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: { state: "missing",
 
 const PROJECT = "0123456789abcdef";
 const SUMMARY = "Usage: Usage needs the agent";
-const NONE: ShellCounts = { backlog: 0, jobsWaiting: 0, jobsRunning: 0, chatCard: false };
+const NONE: ShellCounts = { backlog: 0, jobsWaiting: 0, jobsRunning: 0, chatWaiting: false };
 const ORDER = ["Board", "Chat", "Jobs", "Requirements", "Specs", "Files", "Assets", "Notes", "History", "Settings"];
 const NAMES = ["Board", "Chat", "Jobs", "Requirements", "Specs", "Files", "Assets", "Notes", "History"];
 
@@ -166,17 +166,18 @@ describe("sidebar", () => {
     }
   });
 
-  it("shows `1` in Peach on Chat, with the tooltip `Chat has questions for you`, while a card of questions is active, and nothing otherwise", async () => {
+  it("shows `1` in Peach on Chat, with the tooltip `Chat is waiting for your answers`, while Chat waits for its round, and nothing otherwise", async () => {
     const { rerender } = renderSidebar();
     expect(entry("Chat")).not.toHaveTextContent(/\d/);
 
-    rerender(sidebarOf({ ...NONE, chatCard: true }));
+    rerender(sidebarOf({ ...NONE, chatWaiting: true }));
     const chat = screen.getByRole("button", { name: /^Chat/ });
-    expect(chat).toHaveAccessibleName("Chat, 1 card of questions waiting for your answers");
+    expect(chat).toHaveAccessibleName("Chat, 1 round waiting for your answers");
     expect(within(chat).getByText("1")).toHaveClass("text-peach-ink", "ml-auto");
     for (const other of ["Board", "Jobs"]) expect(entry(other)).not.toHaveTextContent(/\d/);
     await userEvent.setup().hover(chat);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Chat has questions for you");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Chat is waiting for your answers");
+    expect(screen.queryByText("Chat has questions for you")).toBeNull();
   });
 
   it("shows a Sky pill with a dot and `<n> running` on Jobs when none waits and some are running", () => {

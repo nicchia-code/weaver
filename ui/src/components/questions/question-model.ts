@@ -1,39 +1,28 @@
 // What the question round overlay works out from a round, with no React in it.
 import type { DraftView } from "@/bindings/DraftView";
 import type { OriginView } from "@/bindings/OriginView";
-import type { PositionView } from "@/bindings/PositionView";
 import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import type { QuestionView } from "@/bindings/QuestionView";
-
-/**
- * What the panes and the index of a round need: the round of a job or of a Drift and a card of
- * questions of Chat are both read through it. `id` only keys the panes.
- */
-export interface RoundData {
-  id: number | string;
-  questions: readonly QuestionView[];
-  position: PositionView;
-}
 
 /** `1 round`, `2 rounds`. */
 export function plural(count: number, one: string, many: string = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-/** The header of the overlay: who asks. A card of Chat never uses the overlay, so Chat has no header of its own. */
+/** The header of the overlay: who asks. */
 export function headerOf(origin: OriginView): string {
   switch (origin.kind) {
-    case "drift":
-      return `Question about ${origin.drift} · ${origin.title}`;
     case "agent":
       return `Questions from the agent · ${origin.jobName}`;
-    default:
-      return "Questions from the agent";
+    case "chat":
+      return "Questions from the agent · Chat";
+    case "drift":
+      return `Question about ${origin.drift} · ${origin.title}`;
   }
 }
 
 /** `Question 2 of 3`, or `Summary` once the developer reviews them. */
-export function positionOf(round: Pick<RoundData, "position" | "questions">): string {
+export function positionOf(round: QuestionRoundView): string {
   return round.position.kind === "summary" ? "Summary" : `Question ${round.position.index + 1} of ${round.questions.length}`;
 }
 
@@ -56,7 +45,7 @@ export function canConfirm(selected: readonly number[], text: string): boolean {
 }
 
 /** Questions with neither a confirmed answer nor a skip. */
-export function missingCount(round: Pick<RoundData, "questions">): number {
+export function missingCount(round: QuestionRoundView): number {
   return round.questions.filter((question) => question.status === "missing").length;
 }
 

@@ -116,3 +116,30 @@ export function useGeneral(projectId: string): GeneralData {
 
   return { state, entries, arrivals, problem, send, stop, answer, clear };
 }
+
+/** Whether the Chat of a project waits for the answers of its round: the sidebar's `1` on the Chat entry. */
+export function useChatWaiting(projectId: string): boolean {
+  const [waiting, setWaiting] = useState(false);
+  useEffect(() => {
+    setWaiting(false);
+    let alive = true;
+    // A state event that arrives while the snapshot is on its way is newer than the snapshot.
+    let events = 0;
+    const stop = on("general-changed", (event) => {
+      if (!alive || event.projectId !== projectId) return;
+      events += 1;
+      setWaiting(event.waiting);
+    });
+    const seen = events;
+    call("general_snapshot", { projectId })
+      .then((snapshot: GeneralSnapshot) => {
+        if (alive && snapshot.state.projectId === projectId && events === seen) setWaiting(snapshot.state.waiting);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      stop.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [projectId]);
+  return waiting;
+}

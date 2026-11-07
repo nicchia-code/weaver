@@ -1,7 +1,8 @@
 import { Check, Circle, SkipForward } from "lucide-react";
 
+import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import type { QuestionView } from "@/bindings/QuestionView";
-import { statusText, type RoundData } from "@/components/questions/question-model";
+import { statusText } from "@/components/questions/question-model";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +13,7 @@ export function StatusIcon({ status, className }: { status: QuestionView["status
 }
 
 interface IndexProps {
-  round: RoundData;
+  round: QuestionRoundView;
   /** `true` below 600 px: a row of numbered dots with the same accessible status. */
   compact: boolean;
   go: (position: { kind: "question"; index: number } | { kind: "summary" }) => void;

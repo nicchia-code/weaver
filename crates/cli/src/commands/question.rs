@@ -1,6 +1,6 @@
-//! `weaver question new`: a round of questions for the developer, or a card of questions in Chat.
-//! The registry holds the whole input and its checks; running it is [`crate::round`], which in a
-//! job waits with no time limit and so never goes through the handlers of the registry.
+//! `weaver question new`: a round of questions for the developer. The registry holds the whole
+//! input and its checks; running it is [`crate::round`], which waits with no time limit and so
+//! never goes through the handlers of the registry.
 
 use serde_json::{Map, Value};
 
@@ -8,21 +8,19 @@ use super::{app_only, in_app, question_fields};
 use crate::spec::*;
 
 pub fn commands() -> Vec<Command> {
-    vec![Command::new("question", "new", "Asks the developer a group of questions: a round in a job, a card of questions in Chat.", app_only)
+    vec![Command::new("question", "new", "Asks the developer a round of questions and waits for the answers.", app_only)
         .notes(&[
-            "Prints only JSON on standard output, always. The input is validated whole before Weaver is contacted. In a job the command then waits with no time limit until a result exists: run it with no time limit and wait until it ends. In Chat it returns as soon as Weaver has published the card of questions or refused it.",
-            "Write every text so that it stands alone: the developer sees only the questions, not the conversation. Texts are Markdown except labels. Use no first person and no \"Other\" option: a free answer is always offered.",
-            "In Chat, use it for every question with distinct options, in one card per turn: a second card in the same turn is refused whole. After `published`, end the turn now, do not repeat the questions in the reply and do not wait. The answers come in a later message of the developer, in a block that starts with `Answers to the card of questions <card>`: each question is `answered`, `skipped` (use the recommendation and list it as a decision to verify) or `not-answered` (still open: use no recommendation and do not decide it). Open questions without options stay in the reply.",
-            "Results: `{\"status\":\"answered\",\"answers\":{<id>:{\"status\":\"answered\",\"selected\":[...],\"text\":...}|{\"status\":\"skipped\"}}}` (exit 0, in a job); `{\"status\":\"published\",\"card\":<card>,\"message\":...}` (exit 0, in Chat); `{\"status\":\"unavailable\",\"reason\":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the questions are submitted: stop and tell the developer; `{\"error\":{\"code\":\"invalid-input\"|\"interrupted\"|\"cancelled\"|\"card-already-published\",\"message\":...}}`, exit 2 for `invalid-input` and 1 for the others.",
+            "Prints only JSON on standard output, always. The input is validated whole before Weaver is contacted; then the command waits with no time limit until a result exists: run it with no time limit and wait until it ends.",
+            "Write every text so that it stands alone: the developer sees only the round, not the conversation. Texts are Markdown except labels. Use no first person and no \"Other\" option: a free answer is always offered.",
+            "In Chat, use it only when the developer asked to be asked with a round; otherwise ask in your replies.",
+            "Results: `{\"status\":\"answered\",\"answers\":{<id>:{\"status\":\"answered\",\"selected\":[...],\"text\":...}|{\"status\":\"skipped\"}}}` (exit 0); `{\"status\":\"unavailable\",\"reason\":...}` (exit 0) when the caller is neither in a working Weaver job nor in the project's Chat during a turn, or no Weaver answers before the round is submitted: stop and tell the developer; `{\"error\":{\"code\":\"invalid-input\"|\"interrupted\"|\"cancelled\",\"message\":...}}`, exit 2 for `invalid-input` and 1 for the others.",
         ])
         .access(Access::JobOrUnavailable)
         .json_only()
         .input(vec![req("questions", list_min(object(question_fields()), 1), "The questions, at least one.")])
         .output(vec![
-            req("status", one_of(&["answered", "published", "unavailable"]), "The result."),
+            req("status", one_of(&["answered", "unavailable"]), "The result."),
             opt("answers", Ty::Any, "One answer per question id: `{status: \"answered\", selected, text?}` or `{status: \"skipped\"}`."),
-            opt("card", line(), "In Chat: the identity of the card that was published."),
-            opt("message", line(), "In Chat: what to do next, which is to end the turn without repeating the questions."),
             opt("reason", line(), "Why no question could be shown."),
         ])
         .place(in_app)

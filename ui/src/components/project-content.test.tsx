@@ -69,27 +69,23 @@ describe("ProjectContent", () => {
     expect(await screen.findByRole("button", { name: "Board, 2 cards in Backlog" })).toBeInTheDocument();
   });
 
-  it("shows `1` on Chat in the sidebar while a card of questions of Chat is active, and not once it is closed", async () => {
+  it("shows `1` on Chat in the sidebar while Chat waits for the answers of its round, and not once the round is closed", async () => {
     const standard = vi.mocked(call).getMockImplementation() as unknown as (name: string, args: unknown) => Promise<unknown>;
-    let cards: { projectId: string; revision: number; cards: { id: string; state: string; questions: never[]; position: { kind: string } }[] } = {
-      projectId: PROJECT,
-      revision: 1,
-      cards: [{ id: "cccccccc", state: "active", questions: [], position: { kind: "summary" } }],
-    };
+    const general = (waiting: boolean) => ({ projectId: PROJECT, working: true, starting: false, loading: false, kept: false, waiting });
     const handlers = new Map<string, (payload: unknown) => void>();
     vi.mocked(on).mockImplementation(((name: string, handler: (payload: unknown) => void) => {
       handlers.set(name, handler);
       return Promise.resolve(() => {});
     }) as unknown as typeof on);
-    vi.mocked(call).mockImplementation(((name: string, args: unknown) => (name === "general_cards" ? Promise.resolve(cards) : standard(name, args))) as unknown as typeof call);
+    vi.mocked(call).mockImplementation(((name: string, args: unknown) =>
+      name === "general_snapshot" ? Promise.resolve({ state: general(true), seq: 0, entries: [], arrivals: [] }) : standard(name, args)) as unknown as typeof call);
     render(
       <TooltipProvider>
         <ProjectContent projectId={PROJECT} />
       </TooltipProvider>,
     );
-    expect(await screen.findByRole("button", { name: "Chat, 1 card of questions waiting for your answers" })).toBeInTheDocument();
-    cards = { ...cards, revision: 2, cards: [{ ...cards.cards[0]!, state: "answered" }] };
-    act(() => handlers.get("chat-cards-changed")?.(cards));
+    expect(await screen.findByRole("button", { name: "Chat, 1 round waiting for your answers" })).toBeInTheDocument();
+    act(() => handlers.get("general-changed")?.(general(false)));
     await waitFor(() => expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument());
   });
 

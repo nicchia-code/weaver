@@ -6,7 +6,7 @@ import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { QuestionIndex } from "@/components/questions/question-index";
 import { headerOf, positionOf, waitingOf } from "@/components/questions/question-model";
-import { NO_HANDLERS, onQuestionKeys, QuestionPane, type KeyHandlers } from "@/components/questions/question-pane";
+import { NO_HANDLERS, QuestionPane, type KeyHandlers } from "@/components/questions/question-pane";
 import { SummaryPane } from "@/components/questions/summary-pane";
 import { QuestionRoundProvider, useQuestionRound } from "@/components/questions/use-question-round";
 import {
@@ -24,6 +24,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 /** Below this window width the index becomes a row of numbered dots. */
 const COMPACT_BELOW = 600;
+
+function isTextEntry(target: EventTarget): boolean {
+  return target instanceof HTMLElement && (target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && (target as HTMLInputElement).type === "text"));
+}
 
 /** The bar that stays when the overlay is reduced: the agent still waits. */
 function MinimizedBar({ round, act }: { round: QuestionRoundView; act: (action: ActionInput) => void }) {
@@ -57,7 +61,19 @@ export function QuestionOverlay() {
 
   const waiting = waitingOf(round);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => onQuestionKeys(event, handlers);
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys of the confirmation dialog (a portal) bubble through React but are not ours.
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      handlers.current.primary();
+      return;
+    }
+    if (/^[1-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey && !isTextEntry(event.target)) {
+      event.preventDefault();
+      handlers.current.digit(Number(event.key) - 1);
+    }
+  }
 
   const position = round.position;
   return (

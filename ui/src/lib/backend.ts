@@ -11,8 +11,6 @@ import type { AppInfo } from "@/bindings/AppInfo";
 import type { AtomicCommitsStatus } from "@/bindings/AtomicCommitsStatus";
 import type { BoardSnapshot } from "@/bindings/BoardSnapshot";
 import type { ChatProposals } from "@/bindings/ChatProposals";
-import type { CardActionInput } from "@/bindings/CardActionInput";
-import type { ChatCards } from "@/bindings/ChatCards";
 import type { CommandName } from "@/bindings/CommandName";
 import type { EventName } from "@/bindings/EventName";
 import type { HistorySnapshot } from "@/bindings/HistorySnapshot";
@@ -128,8 +126,6 @@ export interface EventPayloads {
   "general-changed": GeneralState;
   /** The conversation of a General changed: the entries that changed, in batches counted by `seq`. */
   "general-entries": GeneralEntries;
-  /** The cards of questions of a project's Chat changed: the whole list, at a revision. */
-  "chat-cards-changed": ChatCards;
   /** An Ask more conversation opened or changed: its row. */
   "ask-changed": AskRow;
   /** The conversation of an Ask more conversation changed: the entries that changed. */
@@ -318,12 +314,6 @@ export interface Commands {
   general_clear: { args: { projectId: string }; result: null };
   /** The Proposals that the listed jobs of the Chat handed over, in creation order. */
   general_proposals: { args: { projectId: string; jobs: string[] }; result: ChatProposals };
-  /** The cards of questions of the Chat, in publication order; after that `chat-cards-changed` brings the changes. */
-  general_cards: { args: { projectId: string }; result: ChatCards };
-  /** What the developer does in the active card of questions; the cards afterwards. */
-  general_card_act: { args: { projectId: string; card: string; action: CardActionInput }; result: ChatCards };
-  /** `developer.SEND_ANSWERS`: the answers of the active card go to the agent; refused while a question has neither an answer nor a skip. */
-  general_send_answers: { args: { projectId: string; card: string }; result: null };
   /** The list of the sub-agents of the General of an open project. */
   general_sub_agents: { args: { projectId: string }; result: SubAgentsEvent };
   /** The read-only conversation of the sub-agent at `path` of the General of an open project. */

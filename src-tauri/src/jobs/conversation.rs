@@ -18,7 +18,6 @@ use weaver_core::assets::tags;
 use weaver_core::jobs::ask;
 use weaver_core::jobs::machine::{MessageId, RequestId, RESUME_PROMPT};
 use weaver_core::jobs::subagents::{self, SubAgent, SubAgentState};
-use weaver_core::question;
 
 /// What happened to a message of the developer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -130,12 +129,6 @@ pub enum Entry {
         message: MessageId,
         text: String,
         delivery: Delivery,
-        /// General: the card of questions this message closed (`developer.SEND_ANSWERS`, or a
-        /// message written while the card was active): the card shows right before it. A message
-        /// made only of the answers has an empty `text` and shows no message of the developer.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        card: Option<String>,
     },
     /// An agent message in Markdown; `complete` once the next entry started or the turn ended.
     Agent {
@@ -414,22 +407,10 @@ impl Conversation {
     }
 
     pub fn developer_message(&mut self, message: MessageId, text: &str, delivery: Delivery) {
-        self.developer_message_closing(message, text, delivery, None);
-    }
-
-    /// A message of the developer that closed the card of questions `card` of the Chat.
-    pub fn developer_message_closing(
-        &mut self,
-        message: MessageId,
-        text: &str,
-        delivery: Delivery,
-        card: Option<String>,
-    ) {
         let index = self.push(Entry::Developer {
             message,
             text: text.to_owned(),
             delivery,
-            card,
         });
         self.messages.insert(message, index);
     }
@@ -665,19 +646,13 @@ impl Conversation {
         {
             self.instruction(text);
         } else {
-            // What Weaver appended for the tagged assets is never shown, live or replayed; nor is
-            // the answers block of a card of questions, which also tells which card the message
-            // closed.
-            let (text, card) = match question::split_answers_block(text) {
-                Some((written, card)) if self.general => (written, Some(card.to_owned())),
-                _ => (text, None),
-            };
+            // What Weaver appended for the tagged assets is never shown, live or replayed.
             let text = if self.ask {
                 ask::shown_message(text)
             } else {
                 tags::without_block(text)
             };
-            self.developer_message_closing(0, text, Delivery::Delivered, card);
+            self.developer_message(0, text, Delivery::Delivered);
         }
     }
 
@@ -1161,8 +1136,7 @@ mod tests {
             Entry::Developer {
                 message: 7,
                 text: "Use the old parser".into(),
-                delivery: Delivery::Delivered,
-                card: None
+                delivery: Delivery::Delivered
             }
         );
         assert_eq!(
@@ -1172,8 +1146,7 @@ mod tests {
                 text: "Stop".into(),
                 delivery: Delivery::NotDelivered {
                     reason: "the job ended".into()
-                },
-                card: None
+                }
             }
         );
     }
@@ -1329,45 +1302,6 @@ mod tests {
     }
 
     #[test]
-    fn the_replayed_history_of_chat_never_shows_the_answers_block_and_names_the_card_it_closed() {
-        let block = "Answers to the card of questions abcd1234 (added by Weaver, not written by the developer):\n{\"status\":\"answered\",\"answers\":{\"a\":{\"status\":\"skipped\"}}}";
-        let mut chat = Conversation::general();
-        // A message with a block, and the assets block between the text and the answers.
-        chat.apply_update(&chunk(
-            "user_message_chunk",
-            &question::with_answers_block(&tags::with_block("Go on @logo.png", &["logo.png".to_owned()]), block),
-        ));
-        // A message made only of the block shows no text, and still names its card.
-        chat.apply_update(&chunk("user_message_chunk", &block.replace("abcd1234", "wxyz9876")));
-        // An ordinary message names no card.
-        chat.apply_update(&chunk("user_message_chunk", "Thanks"));
-        let found: Vec<(&str, Option<&str>)> = chat
-            .entries()
-            .iter()
-            .filter_map(|entry| match entry {
-                Entry::Developer { text, card, .. } => Some((text.as_str(), card.as_deref())),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            found,
-            [
-                ("Go on @logo.png", Some("abcd1234")),
-                ("", Some("wxyz9876")),
-                ("Thanks", None)
-            ]
-        );
-        // A job's conversation never reads a block: what it holds stays as it was written.
-        let mut job = Conversation::new();
-        job.apply_update(&chunk("user_message_chunk", "Use the weaver-scan skill."));
-        job.apply_update(&chunk("user_message_chunk", block));
-        assert!(matches!(
-            &job.entries()[1],
-            Entry::Developer { text, card: None, .. } if text == block
-        ));
-    }
-
-    #[test]
     fn changes_come_in_batches_in_index_order_and_the_sequence_counts_them() {
         let mut c = Conversation::new();
         assert!(c.take_changes().is_empty());
@@ -1420,7 +1354,6 @@ mod tests {
             delivery: Delivery::NotDelivered {
                 reason: "busy".into(),
             },
-            card: None,
         })
         .unwrap();
         assert_eq!(

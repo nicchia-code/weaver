@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use weaver_core::question::RoundRequest;
-
-use super::service::{CardPublication, JobFacts, RoundsHost};
+use super::service::{JobFacts, RoundsHost};
 use super::view::QuestionRoundChanged;
 use crate::events::EventName;
 use crate::general::General;
@@ -55,11 +53,20 @@ impl RoundsHost for TauriRoundsHost {
             .tell(job, false, |observer, info| observer.round_closed(info));
     }
 
-    fn publish_card(&self, token: &str, request: RoundRequest) -> CardPublication {
-        self.general()
-            .map_or(CardPublication::Unavailable, |general| {
-                general.publish_card(token, request)
-            })
+    fn chat(&self, token: &str) -> Option<String> {
+        self.general()?.chat_of(token)
+    }
+
+    fn chat_round_opened(&self, project_id: &str) {
+        if let Some(general) = self.general() {
+            general.round_opened(project_id);
+        }
+    }
+
+    fn chat_round_closed(&self, project_id: &str) {
+        if let Some(general) = self.general() {
+            general.round_closed(project_id);
+        }
     }
 
     fn focus_project(&self, project_id: &str) {
