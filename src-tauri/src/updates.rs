@@ -1,7 +1,7 @@
 //! Updates of Weaver (`requirements/release#General`, "Updates of Weaver").
 //!
 //! * The Tauri updater plugin looks for `latest.json` at the endpoint of `tauri.conf.json`.
-//! * A check runs at start and then every [`CHECK_INTERVAL`] (24 hours) while Weaver runs
+//! * A check runs at start and then every [`CHECK_INTERVAL`] (one hour) while Weaver runs
 //!   ([`run_schedule`]). The instant of each check goes to the settings ([`AppSettings`]).
 //!   A failed check is logged at `warn` and retried at the next due time; the UI never hears of it.
 //! * An update found is offered with its version and notes ([`UpdateStatus`], event
@@ -36,7 +36,7 @@ use crate::logging::{self, Level};
 use crate::state::AppState;
 
 /// At most one check in this time while Weaver runs.
-pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+pub const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// The exit code of the exit that **Install and restart** asks for.
 pub const UPDATE_EXIT_CODE: i32 = i32::MAX - 1;
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn checks_at_start_and_then_once_every_24_hours() {
+    async fn checks_at_start_and_then_once_every_hour() {
         let h = harness(vec![
             Ok(None),
             Ok(Some(info("0.2.0"))),
@@ -657,11 +657,8 @@ mod tests {
         ]);
         let (task, mut ticks) = scheduled(h.updates.clone(), CHECK_INTERVAL);
 
-        // The first check runs at start, then the schedule waits a whole day.
-        assert_eq!(
-            ticks.asked.recv().await,
-            Some(Duration::from_secs(24 * 60 * 60))
-        );
+        // The first check runs at start, then the schedule waits an hour.
+        assert_eq!(ticks.asked.recv().await, Some(Duration::from_secs(60 * 60)));
         assert_eq!(h.source.checked.load(Ordering::SeqCst), 1);
         assert_eq!(h.offered(), None);
 
@@ -670,7 +667,7 @@ mod tests {
         assert_eq!(h.source.checked.load(Ordering::SeqCst), 2);
         assert_eq!(h.offered().as_deref(), Some("0.2.0"));
 
-        // No third check before the second day is over.
+        // No third check before the second hour is over.
         assert!(ticks.asked.try_recv().is_err());
         assert_eq!(h.source.checked.load(Ordering::SeqCst), 2);
         ticks.grant.add_permits(1);
@@ -687,7 +684,7 @@ mod tests {
         h.updates.check().await;
         assert_eq!(
             *h.store.0.lock().unwrap(),
-            ["2026-11-02T07:00:00.000Z", "2026-11-03T07:00:00.000Z"]
+            ["2026-11-02T07:00:00.000Z", "2026-11-02T08:00:00.000Z"]
         );
     }
 

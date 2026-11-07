@@ -4,6 +4,7 @@
 //! The Machine itself is `weaver_core::omp::machine` (pure: events in, effects out). This module
 //! is the glue: [`OmpSetup`] holds it, runs each [`Effect`] on the blocking pool, turns what comes
 //! back into an [`Event`], keeps the 3 s re-check timer alive only while the Machine wants it,
+//! keeps the one app-wide timer of the usage readings (`time.USAGE_REFRESH_DUE`),
 //! tells every window ([`events::emit_omp_changed`]) and tells the backend whether omp is ready.
 //!
 //! # For the jobs
@@ -16,7 +17,7 @@
 //! let path = omp.child_path(&ready.omp);           // the PATH every omp process gets
 //! let settings = app.state::<AppState>().settings.current();
 //! // ...start `ready.omp` with PATH = path; when it cannot be started at all:
-//! omp.report_missing(Some("could not start omp".into()));
+//! omp.report_missing(Some("could not start the agent".into()));
 //! ```
 //!
 //! `omp.ready()` answers at once (`None` while not Ready); `omp.subscribe()` is a watch of the same.
@@ -58,6 +59,8 @@ use crate::{blocking, events, log_info, log_warn};
 /// The Machine lets at most one check through per hour.
 const FIRST_UPDATE_CHECK: Duration = Duration::from_secs(60);
 const UPDATE_CHECK_TICK: Duration = Duration::from_secs(10 * 60);
+/// How long after the start of a reading of usage the next one is due (`time.USAGE_REFRESH_DUE`).
+const USAGE_REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// The terminal could not be opened: why, and the command the developer can copy.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +127,9 @@ pub struct Runtime {
     pub emit: Arc<dyn Fn(&OmpStatus) + Send + Sync>,
     /// Tells the windows that the usage limits, or their reading, changed.
     pub emit_usage: Arc<dyn Fn(&UsageStatus) + Send + Sync>,
+    /// Whether a window of Weaver is on the screen: not hidden in the background and not
+    /// minimised. A tick of the usage timer is skipped when none is.
+    pub window_on_screen: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 struct Core {
@@ -139,6 +145,21 @@ struct Shared {
     runtime: OnceLock<Runtime>,
     ready: watch::Sender<Option<Arc<ReadyOmp>>>,
     usage: UsageState,
+    usage_timer: Mutex<UsageTimer>,
+}
+
+/// The one app-wide timer of `time.USAGE_REFRESH_DUE`: a reading starts as soon as omp is ready
+/// with none since the app started, then 5 minutes after the start of the last reading, whatever
+/// started it (`requirements/tech#usage`).
+#[derive(Default)]
+struct UsageTimer {
+    /// Alive while a tick is due; replaced, so that the five minutes count again, each time a
+    /// reading starts. A tick that is skipped changes nothing: the next one is counted from it.
+    guard: Option<Box<dyn Any + Send>>,
+    /// A reading started since the app started.
+    read_since_start: bool,
+    /// The tick for the first reading (due at once) was set.
+    first_set: bool,
 }
 
 /// The app-wide readiness of omp. Cheap to clone; managed by Tauri.
@@ -167,6 +188,7 @@ impl OmpSetup {
                 runtime: OnceLock::new(),
                 ready,
                 usage: UsageState::new(),
+                usage_timer: Mutex::new(UsageTimer::default()),
             }),
         }
     }
@@ -198,6 +220,10 @@ impl OmpSetup {
             .lock()
             .expect("omp state poisoned")
             .update_timer = Some(timer);
+        {
+            let mut usage_timer = self.shared.usage_timer.lock().expect("usage timer poisoned");
+            self.shared.set_usage_timer(&mut usage_timer, USAGE_REFRESH_EVERY);
+        }
         self.shared.dispatch(Event::Start {
             omp_path: omp_path.to_owned(),
             system_certificates,
@@ -248,7 +274,7 @@ impl OmpSetup {
         }
     }
 
-    /// `omp.MISSING` while Ready: a job could not start omp, so it disappeared.
+    /// `omp.MISSING` while Ready: a job could not start the agent, so it disappeared.
     pub fn report_missing(&self, reason: Option<String>) {
         let omp_path = self.status().omp_path;
         self.shared.dispatch(Event::OmpMissing { omp_path, reason });
@@ -298,19 +324,7 @@ impl OmpSetup {
     /// reading when omp is Ready and none runs, else joins the one that runs. `None` while omp is
     /// not ready (the dialog shows why and asks again when omp is ready).
     pub fn begin_usage(&self) -> Option<tokio::sync::watch::Receiver<()>> {
-        let runtime = self.shared.runtime.get()?;
-        let ready = self.ready()?;
-        let begin = self.shared.usage.begin(&ready.omp_path);
-        if let Some(status) = &begin.status {
-            (runtime.emit_usage)(status);
-        }
-        if let Some(started) = begin.started {
-            let shared = Arc::clone(&self.shared);
-            runtime
-                .scheduler
-                .spawn(Box::new(move || shared.run_usage(started, ready)));
-        }
-        Some(begin.done)
+        self.shared.begin_usage()
     }
 
     /// [`OmpSetup::begin_usage`], then waits until the reading ends, and answers the status.
@@ -366,6 +380,7 @@ impl Shared {
                 true
             }
         });
+        self.set_first_usage_tick();
         if changed {
             (runtime.emit)(&status);
         }
@@ -395,7 +410,7 @@ impl Shared {
                 } = &ticket;
                 let mut result =
                     guard(|| ops.probe(omp_path)).unwrap_or_else(|| ProbeResult::Missing {
-                        reason: Some("the check of omp failed unexpectedly".to_owned()),
+                        reason: Some("the check of the agent failed unexpectedly".to_owned()),
                     });
                 if matches!(result, ProbeResult::Missing { .. }) {
                     // While Installing, no omp reads the marker of the current installer.
@@ -478,6 +493,73 @@ impl Shared {
                 self.dispatch(Event::ExportWaitOver);
             }
         }
+    }
+
+    /// `developer.OPEN_USAGE`, `developer.RETRY_USAGE` and `time.USAGE_REFRESH_DUE`: starts a
+    /// reading for the omp that is Ready, or joins the one that runs, and counts the five minutes
+    /// until the next one from the start of a new reading.
+    fn begin_usage(self: &Arc<Self>) -> Option<watch::Receiver<()>> {
+        let runtime = self.runtime.get()?;
+        let ready = self.ready.borrow().clone()?;
+        let begin = self.usage.begin(&ready.omp_path);
+        if let Some(status) = &begin.status {
+            (runtime.emit_usage)(status);
+        }
+        if let Some(started) = begin.started {
+            {
+                let mut timer = self.usage_timer.lock().expect("usage timer poisoned");
+                timer.read_since_start = true;
+                self.set_usage_timer(&mut timer, USAGE_REFRESH_EVERY);
+            }
+            let shared = Arc::clone(self);
+            runtime
+                .scheduler
+                .spawn(Box::new(move || shared.run_usage(started, ready)));
+        }
+        Some(begin.done)
+    }
+
+    /// Replaces the timer of `time.USAGE_REFRESH_DUE`: its first tick comes after `first`, the
+    /// next ones every five minutes.
+    fn set_usage_timer(self: &Arc<Self>, timer: &mut UsageTimer, first: Duration) {
+        let Some(runtime) = self.runtime.get() else {
+            return;
+        };
+        let weak = Arc::downgrade(self);
+        timer.guard = Some(runtime.scheduler.repeat(
+            first,
+            USAGE_REFRESH_EVERY,
+            Arc::new(move || {
+                if let Some(shared) = weak.upgrade() {
+                    shared.usage_tick();
+                }
+            }),
+        ));
+    }
+
+    /// omp just became ready: with no reading since the app started, the first tick is due at once.
+    fn set_first_usage_tick(self: &Arc<Self>) {
+        if self.ready.borrow().is_none() {
+            return;
+        }
+        let mut timer = self.usage_timer.lock().expect("usage timer poisoned");
+        if timer.read_since_start || timer.first_set {
+            return;
+        }
+        timer.first_set = true;
+        self.set_usage_timer(&mut timer, Duration::ZERO);
+    }
+
+    /// `time.USAGE_REFRESH_DUE`: reads the limits by itself, unless omp is not ready or no window
+    /// of Weaver is on the screen: the tick is then skipped, not delayed.
+    fn usage_tick(self: &Arc<Self>) {
+        let Some(runtime) = self.runtime.get() else {
+            return;
+        };
+        if self.ready.borrow().is_none() || !(runtime.window_on_screen)() {
+            return;
+        }
+        self.begin_usage();
     }
 
     /// Runs a reading of usage (on the blocking pool), keeps its result and tells the windows. The
@@ -760,6 +842,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     );
     let emit_handle = app.clone();
     let usage_emit_handle = app.clone();
+    let screen_handle = app.clone();
     let setup = app.state::<OmpSetup>().inner().clone();
     setup.start(
         Runtime {
@@ -776,6 +859,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                     crate::log_error!("cannot tell the windows about usage: {error}");
                 }
             }),
+            window_on_screen: Arc::new(move || window_on_screen(&screen_handle)),
         },
         &settings.omp_path,
         settings.system_certificates.enabled,
@@ -830,6 +914,14 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a window of Weaver is on the screen: shown and not minimised. A window in the
+/// background is hidden (`requirements/tech#window`), so it never counts.
+fn window_on_screen(app: &AppHandle) -> bool {
+    app.webview_windows().values().any(|window| {
+        window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+    })
+}
+
 /// The login PATH of the user's shell, read once; the inherited PATH when that fails.
 fn login_path() -> OsString {
     let inherited = path_env::inherited_path();
@@ -868,7 +960,7 @@ fn known_provider(id: &str) -> Result<&'static Provider, AppError> {
     provider(id).ok_or_else(|| {
         AppError::new(
             ErrorCode::InvalidInput,
-            "that is not a provider omp can log in to",
+            "that is not a provider the agent can log in to",
         )
     })
 }
@@ -895,6 +987,13 @@ pub async fn omp_log_out(omp: State<'_, OmpSetup>, provider: String) -> Result<(
 #[tauri::command]
 pub async fn omp_usage(omp: State<'_, OmpSetup>) -> Result<UsageStatus, AppError> {
     Ok(omp.read_usage().await)
+}
+
+/// The usage limits as the windows last heard of them, for a window that just loaded (the summary
+/// in its sidebar); it reads nothing. Later changes arrive as `usage-changed`.
+#[tauri::command]
+pub async fn usage_status(omp: State<'_, OmpSetup>) -> Result<UsageStatus, AppError> {
+    Ok(omp.usage_status())
 }
 
 #[cfg(test)]
@@ -1040,13 +1139,16 @@ mod tests {
         }
     }
 
+    /// A repeating timer: first delay, period, tick and the flag that stops it.
+    type Timer = (Duration, Duration, Tick, Arc<AtomicBool>);
+
     type Tick = Arc<dyn Fn() + Send + Sync>;
 
     /// Jobs wait in a queue until the test runs them; timers never fire by themselves.
     #[derive(Default)]
     struct ManualScheduler {
         jobs: Mutex<VecDeque<Box<dyn FnOnce() + Send>>>,
-        timers: Mutex<Vec<(Duration, Tick, Arc<AtomicBool>)>>,
+        timers: Mutex<Vec<Timer>>,
     }
 
     struct Guard(Arc<AtomicBool>);
@@ -1061,12 +1163,12 @@ mod tests {
         fn spawn(&self, job: Box<dyn FnOnce() + Send>) {
             self.jobs.lock().unwrap().push_back(job);
         }
-        fn repeat(&self, _first: Duration, period: Duration, tick: Tick) -> Box<dyn Any + Send> {
+        fn repeat(&self, first: Duration, period: Duration, tick: Tick) -> Box<dyn Any + Send> {
             let alive = Arc::new(AtomicBool::new(true));
             self.timers
                 .lock()
                 .unwrap()
-                .push((period, tick, alive.clone()));
+                .push((first, period, tick, alive.clone()));
             Box::new(Guard(alive))
         }
     }
@@ -1085,12 +1187,17 @@ mod tests {
 
         /// The tick of the timer with this period, when it is alive.
         fn live_timer(&self, period: Duration) -> Option<Tick> {
+            self.live(period).map(|(_, tick)| tick)
+        }
+
+        /// When the first tick of the timer with this period comes, and its tick, when it is alive.
+        fn live(&self, period: Duration) -> Option<(Duration, Tick)> {
             self.timers
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|(p, _, alive)| *p == period && alive.load(Ordering::SeqCst))
-                .map(|(_, tick, _)| tick.clone())
+                .filter(|(_, p, _, alive)| *p == period && alive.load(Ordering::SeqCst))
+                .map(|(first, _, tick, _)| (*first, tick.clone()))
                 .next_back()
         }
     }
@@ -1102,6 +1209,8 @@ mod tests {
         clock: Arc<ClockAt>,
         emitted: Arc<Mutex<Vec<OmpStatus>>>,
         usage_emitted: Arc<Mutex<Vec<UsageStatus>>>,
+        /// Whether a window of Weaver is on the screen.
+        on_screen: Arc<AtomicBool>,
         /// The wiring, taken by `start`.
         runtime: Mutex<Option<Runtime>>,
     }
@@ -1122,12 +1231,15 @@ mod tests {
         let sink = emitted.clone();
         let usage_emitted = Arc::new(Mutex::new(Vec::new()));
         let usage_sink = usage_emitted.clone();
+        let on_screen = Arc::new(AtomicBool::new(true));
+        let screen = on_screen.clone();
         let runtime = Runtime {
             ops: ops.clone(),
             scheduler: scheduler.clone(),
             clock: clock.clone(),
             emit: Arc::new(move |status| sink.lock().unwrap().push(status.clone())),
             emit_usage: Arc::new(move |status| usage_sink.lock().unwrap().push(status.clone())),
+            window_on_screen: Arc::new(move || screen.load(Ordering::SeqCst)),
         };
         Rig {
             setup: OmpSetup::new(),
@@ -1136,6 +1248,7 @@ mod tests {
             clock,
             emitted,
             usage_emitted,
+            on_screen,
             runtime: Mutex::new(Some(runtime)),
         }
     }
@@ -1395,14 +1508,14 @@ mod tests {
         // The first check is queued but has not run when the setting changes.
         rig.setup.change_settings("/new", false);
         rig.script_probe(ProbeResult::Missing {
-            reason: Some("omp not found at /new".into()),
+            reason: Some("the agent not found at /new".into()),
         });
         rig.scheduler.drain();
         // The probe of "/old" took the first scripted answer (Ready) but its result was dropped.
         assert_eq!(rig.phase(), Phase::Missing);
         assert_eq!(
             rig.setup.status().reason.as_deref(),
-            Some("omp not found at /new")
+            Some("the agent not found at /new")
         );
         assert!(rig.setup.ready().is_none());
     }
@@ -1413,7 +1526,7 @@ mod tests {
         rig.script_probe(ready());
         rig.start("");
         rig.scheduler.drain();
-        rig.setup.report_missing(Some("could not start omp".into()));
+        rig.setup.report_missing(Some("could not start the agent".into()));
         assert_eq!(rig.phase(), Phase::Missing);
         assert!(rig.setup.ready().is_none());
     }
@@ -1517,7 +1630,7 @@ mod tests {
             .installer_failure
             .expect("the failure of the installer");
         assert!(
-            text.starts_with("The omp installer failed (exit code 22);"),
+            text.starts_with("The agent installer failed (exit code 22);"),
             "{text}"
         );
         assert!(rig.scheduler.live_timer(RECHECK_EVERY).is_none());
@@ -1561,7 +1674,7 @@ mod tests {
             omp: omp(),
             version: Some("18.0.0".into()),
         });
-        let explained = "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
+        let explained = "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
         rig.ops
             .updates
             .lock()
@@ -1598,20 +1711,138 @@ mod tests {
         rig.ops.usages.lock().unwrap().push_back(result);
     }
 
+    /// How many timers of this period are alive.
+    fn live_timers(rig: &Rig, period: Duration) -> usize {
+        let timers = rig.scheduler.timers.lock().unwrap();
+        timers
+            .iter()
+            .filter(|(_, p, _, alive)| *p == period && alive.load(Ordering::SeqCst))
+            .count()
+    }
+
     #[test]
-    fn nothing_is_read_while_omp_is_not_ready_or_by_itself() {
+    fn nothing_is_read_while_omp_is_not_ready_and_a_tick_is_skipped() {
         let rig = rig();
         rig.script_probe(ProbeResult::Missing { reason: None });
         rig.start("");
         rig.scheduler.drain();
         assert!(rig.setup.begin_usage().is_none());
         rig.scheduler.drain();
+        // The one timer of the app runs from the start; its tick finds omp not ready.
+        let (first, tick) = rig
+            .scheduler
+            .live(USAGE_REFRESH_EVERY)
+            .expect("the app-wide timer");
+        assert_eq!(first, USAGE_REFRESH_EVERY);
+        tick();
+        rig.scheduler.drain();
         assert!(rig.ops.usage_calls.lock().unwrap().is_empty());
         assert!(rig.usage_emitted.lock().unwrap().is_empty());
-        // Ready on its own reads nothing either: only an opening does.
-        let ready = ready_rig("");
-        assert!(ready.ops.usage_calls.lock().unwrap().is_empty());
-        assert!(ready.usage_emitted.lock().unwrap().is_empty());
+        assert_eq!(live_timers(&rig, USAGE_REFRESH_EVERY), 1);
+    }
+
+    #[test]
+    fn the_first_reading_is_due_at_once_when_omp_is_ready_then_five_minutes_after_each_start() {
+        let rig = ready_rig("");
+        assert_eq!(live_timers(&rig, USAGE_REFRESH_EVERY), 1, "one timer");
+        let (first, tick) = rig.scheduler.live(USAGE_REFRESH_EVERY).unwrap();
+        assert_eq!(first, Duration::ZERO, "no reading since the app started");
+        assert!(rig.ops.usage_calls.lock().unwrap().is_empty());
+
+        script_usage(&rig, Ok(usage_of(1.0)));
+        tick();
+        rig.scheduler.drain();
+        assert_eq!(rig.ops.usage_calls.lock().unwrap().len(), 1);
+        // The five minutes count from the start of that reading.
+        assert_eq!(live_timers(&rig, USAGE_REFRESH_EVERY), 1);
+        let (first, _) = rig.scheduler.live(USAGE_REFRESH_EVERY).unwrap();
+        assert_eq!(first, USAGE_REFRESH_EVERY);
+
+        // So do they from an opening, whatever started the last reading.
+        script_usage(&rig, Ok(usage_of(2.0)));
+        rig.setup.begin_usage().unwrap();
+        rig.scheduler.drain();
+        assert_eq!(live_timers(&rig, USAGE_REFRESH_EVERY), 1);
+        let (first, _) = rig.scheduler.live(USAGE_REFRESH_EVERY).unwrap();
+        assert_eq!(first, USAGE_REFRESH_EVERY);
+
+        // Ready again later is not a first time: nothing is read at once.
+        rig.script_probe(ready());
+        rig.setup.change_settings("/new", false);
+        rig.scheduler.drain();
+        let (first, _) = rig.scheduler.live(USAGE_REFRESH_EVERY).unwrap();
+        assert_eq!(first, USAGE_REFRESH_EVERY);
+        assert_eq!(rig.ops.usage_calls.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_tick_reads_by_itself_keeping_the_limits_read_before_while_it_runs() {
+        let rig = ready_rig("");
+        script_usage(&rig, Ok(usage_of(1.0)));
+        rig.setup.begin_usage().unwrap();
+        rig.scheduler.drain();
+
+        script_usage(&rig, Ok(usage_of(2.0)));
+        let tick = rig.scheduler.live_timer(USAGE_REFRESH_EVERY).unwrap();
+        tick();
+        let reading = rig.setup.usage_status();
+        assert_eq!(reading.phase, UsagePhase::Reading);
+        assert_eq!(reading.usage, Some(usage_of(1.0)));
+        rig.scheduler.drain();
+        let done = rig.setup.usage_status();
+        assert_eq!(done.phase, UsagePhase::Idle);
+        assert_eq!(done.usage, Some(usage_of(2.0)));
+        // The windows were told at the start and at the end of the reading of the tick.
+        let phases: Vec<UsagePhase> = rig
+            .usage_emitted
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|s| s.phase)
+            .collect();
+        assert_eq!(
+            phases,
+            [
+                UsagePhase::Reading,
+                UsagePhase::Idle,
+                UsagePhase::Reading,
+                UsagePhase::Idle
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tick_is_skipped_while_no_window_is_on_the_screen_and_not_delayed() {
+        let rig = ready_rig("");
+        let tick = rig.scheduler.live_timer(USAGE_REFRESH_EVERY).unwrap();
+        rig.on_screen.store(false, Ordering::SeqCst);
+        tick();
+        rig.scheduler.drain();
+        assert!(rig.ops.usage_calls.lock().unwrap().is_empty());
+        assert!(rig.usage_emitted.lock().unwrap().is_empty());
+        assert_eq!(rig.setup.usage_status().phase, UsagePhase::Idle);
+        // The timer goes on as it was: the next tick is counted from the skipped one.
+        assert_eq!(live_timers(&rig, USAGE_REFRESH_EVERY), 1);
+
+        // A window back on the screen: the next tick reads.
+        rig.on_screen.store(true, Ordering::SeqCst);
+        script_usage(&rig, Ok(usage_of(1.0)));
+        tick();
+        rig.scheduler.drain();
+        assert_eq!(rig.ops.usage_calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_tick_during_a_reading_waits_for_it_and_one_reading_runs_at_a_time() {
+        let rig = ready_rig("");
+        script_usage(&rig, Ok(usage_of(1.0)));
+        let opening = rig.setup.begin_usage().unwrap();
+        let tick = rig.scheduler.live_timer(USAGE_REFRESH_EVERY).unwrap();
+        tick();
+        assert_eq!(rig.scheduler.jobs.lock().unwrap().len(), 1, "one reading");
+        rig.scheduler.drain();
+        assert!(opening.has_changed().is_err(), "the reading ended");
+        assert_eq!(rig.ops.usage_calls.lock().unwrap().len(), 1);
     }
 
     #[test]
