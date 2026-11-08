@@ -44,7 +44,7 @@ impl RequestState {
 /// The events of the Machine (`developer.*`, `workspace.*`, `proposal.*`, `job.*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestEvent {
-    /// `developer.NEW_REQUEST`: `New Request` of the Backlog or Start from Scratch.
+    /// `developer.NEW_REQUEST`: `New Request` in the Board header or Start from Scratch.
     NewRequest,
     /// `developer.SEND_REQUEST`; `empty` is whether nothing is left after removing whitespace.
     SendRequest { empty: bool },

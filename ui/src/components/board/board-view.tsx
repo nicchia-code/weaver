@@ -1,5 +1,5 @@
-import { Play, Plus, ScanSearch, TriangleAlert, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Ellipsis, Play, Plus, ScanSearch, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 
 import type { BoardCard } from "@/bindings/BoardCard";
 import type { Ghost } from "@/bindings/Ghost";
@@ -21,6 +21,7 @@ import { useViewShown } from "@/components/view-shown";
 import { ViewHeader } from "@/components/view-header";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type ColumnName = "backlog" | "active";
 
@@ -142,8 +143,8 @@ function EmptyBacklog() {
 }
 
 /**
- * The Board of the project window: the header (the count of what is active and done, `Merge`,
- * `Scan System` and `Run all`), the notices, and the two lanes `Backlog` and `Active`. What each
+ * The Board of the project window: the header (the count of what is active and done, `Merge`, the
+ * `More actions` menu with `Scan System…`, `New Request` and `Run all`), the notices, and the two lanes `Backlog` and `Active`. What each
  * column holds, in which order, what is blocked and why a control is disabled all come from the
  * backend's snapshot; this view groups and sorts nothing.
  */
@@ -151,6 +152,8 @@ export function BoardView() {
   const { snapshot, loadError, notices, closeNotice, reload } = useBoard();
   const actions = useBoardActions();
   const merge = useMerge();
+  const mergeInProgress = Boolean(merge?.merge?.inProgress);
+  const scanReasonId = useId();
   const shown = useViewShown();
   const [opened, setOpened] = useState<OpenCard | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -240,9 +243,33 @@ export function BoardView() {
       <div className="flex h-full min-h-0 flex-col">
         <ViewHeader view="board" subtitle={subtitle}>
           <MergeButton />
-          <GuardedButton variant="secondary" reasons={[merge?.merge?.inProgress && "A merge is in progress"]} onClick={() => setScanning(true)}>
-            <ScanSearch aria-hidden />
-            Scan System
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <GuardedButton variant="secondary" size="icon" label="More actions">
+                <Ellipsis aria-hidden />
+              </GuardedButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={mergeInProgress}
+                aria-describedby={mergeInProgress ? scanReasonId : undefined}
+                onSelect={() => setScanning(true)}
+              >
+                <ScanSearch aria-hidden />
+                <span className="flex flex-col">
+                  <span>Scan System…</span>
+                  {mergeInProgress ? (
+                    <span id={scanReasonId} aria-hidden className="text-xs text-muted-foreground">
+                      A merge is in progress
+                    </span>
+                  ) : null}
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <GuardedButton variant="secondary" tooltip="Write a request in Markdown and send it to an agent" onClick={() => actions.newRequest?.()}>
+            <Plus aria-hidden />
+            New Request
           </GuardedButton>
           <GuardedButton
             aria-label={ready > 0 ? `Run all, ${ready} ready` : "Run all"}
@@ -285,18 +312,6 @@ export function BoardView() {
             empty={<EmptyBacklog />}
             cards={<CardList cards={snapshot.backlog} />}
             ghosts={<GhostList ghosts={ghostsOf("backlog")} />}
-            action={
-              <GuardedButton
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                aria-label="New Request"
-                tooltip="Write a request in Markdown and send it to an agent"
-                onClick={() => actions.newRequest?.()}
-              >
-                <Plus aria-hidden />
-              </GuardedButton>
-            }
           />
           <Column
             ref={activeRef}

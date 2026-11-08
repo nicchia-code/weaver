@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BoardCard } from "@/bindings/BoardCard";
@@ -244,16 +244,17 @@ describe("Run all", () => {
     expect(runAll).toHaveBeenCalledTimes(1);
   });
 
-  it("is a primary button in the header, after Scan System, with the tooltip `Run all the Tasks in To do`", async () => {
+  it("is a primary button in the header, the last after New Request, with the tooltip `Run all the Tasks in To do`", async () => {
     const user = userEvent.setup();
     install(board(1, { runAllReasons: [] }));
     await show();
     const header = screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
     const buttons = within(header).getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual(["Scan System", "Run all"]);
-    expect(buttons[1]).toHaveClass("bg-primary");
+    expect(buttons.map((button) => button.textContent)).toEqual(["", "New Request", "Run all"]);
+    expect(buttons[2]).toHaveClass("bg-primary");
     expect(buttons[0]).not.toHaveClass("bg-primary");
-    await user.hover(buttons[1]!);
+    expect(buttons[1]).not.toHaveClass("bg-primary");
+    await user.hover(buttons[2]!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Run all the Tasks in To do");
   });
 
@@ -298,20 +299,14 @@ describe("the lanes", () => {
     expect(screen.queryByRole("region", { name: "Done" })).not.toBeInTheDocument();
   });
 
-  it("ends the Backlog heading with the icon-only `New Request`, always enabled, with its tooltip", async () => {
-    const user = userEvent.setup();
-    const newRequest = vi.fn();
-    await show({ newRequest });
-    const heading = backlog().querySelector("h2")!.parentElement!;
-    const add = within(heading).getByRole("button", { name: "New Request" });
-    expect(add).not.toHaveAttribute("aria-disabled");
-    expect(add.textContent).toBe("");
-    expect(heading.lastElementChild).toContainElement(add);
-    await user.hover(add);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Write a request in Markdown and send it to an agent");
-    await user.click(add);
-    expect(newRequest).toHaveBeenCalledTimes(1);
-    expect(within(active().querySelector("h2")!.parentElement!).queryByRole("button")).not.toBeInTheDocument();
+  it("holds no control in either column heading", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")], active: [task("aaaaaaaa", "T1", "Ready")] }));
+    await show();
+    for (const column of [backlog(), active()]) {
+      const heading = column.querySelector("h2")!.parentElement!;
+      expect(within(heading).queryByRole("button")).not.toBeInTheDocument();
+      expect(heading.textContent).toMatch(/^(Backlog1|Active1)$/);
+    }
   });
 
   it("shows in an empty Backlog the weave, what lands there, `Request` and `Ask in Chat`, also above ghosts", async () => {
@@ -342,30 +337,64 @@ describe("the lanes", () => {
   });
 });
 
+describe("New Request", () => {
+  it("is a secondary button with a Plus icon and its tooltip, always enabled, right before Run all, and opens a new request", async () => {
+    const user = userEvent.setup();
+    const newRequest = vi.fn();
+    install(board(1, { runAllReasons: ["No Task is in To do"] }));
+    await show({ newRequest });
+    const header = screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+    const button = within(header).getByRole("button", { name: "New Request" });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveClass("border-input");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.nextElementSibling).toBe(within(header).getByRole("button", { name: /^Run all/ }));
+    await user.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Write a request in Markdown and send it to an agent");
+    await user.click(button);
+    expect(newRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Scan System", () => {
+  const header = () => screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+  const openMenu = async (user: UserEvent) => {
+    await user.click(within(header()).getByRole("button", { name: "More actions" }));
+    return screen.findByRole("menuitem", { name: "Scan System…" });
+  };
+
+  it("is no button of the header: only the item of the `More actions` menu", async () => {
+    await show();
+    expect(within(header()).queryByRole("button", { name: /Scan System/ })).not.toBeInTheDocument();
+    const more = within(header()).getByRole("button", { name: "More actions" });
+    expect(more).toHaveClass("border-input", "size-9");
+    expect(more.textContent).toBe("");
+    expect(more).not.toHaveAttribute("aria-disabled");
+    const user = userEvent.setup();
+    await user.hover(more);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("More actions");
+    const item = await openMenu(user);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+    expect(item.querySelector("svg")).not.toBeNull();
+    expect(item).not.toHaveAttribute("aria-disabled");
+  });
+
   it("confirms first, and cancelling leaves the count and the work untouched", async () => {
     const scanSystem = vi.fn();
     install(board(1, { doneSinceLastScan: 3 }));
     await show({ scanSystem });
     expect(screen.getByText("3 done since last scan")).toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Scan System" }));
+    await user.click(await openMenu(user));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Compare the whole System with the code?")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(scanSystem).not.toHaveBeenCalled();
     expect(screen.getByText("3 done since last scan")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Scan System" }));
+    await user.click(await openMenu(user));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Scan System" }));
     expect(scanSystem).toHaveBeenCalledTimes(1);
-  });
-
-  it("is secondary, with the icon before the text", async () => {
-    await show();
-    const button = screen.getByRole("button", { name: "Scan System" });
-    expect(button).toHaveClass("border-input");
-    expect(button.querySelector("svg")).not.toBeNull();
   });
 });
 
@@ -373,12 +402,12 @@ describe("the view header", () => {
   const subtitle = (header: HTMLElement) => header.querySelector("p")?.textContent ?? null;
   const header = () => screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
 
-  it("holds the title `Board` on the left, the subtitle in Muted under it, and Scan System and Run all on the right, in one row", async () => {
+  it("holds the title `Board` on the left, the subtitle in Muted under it, and More actions, New Request and Run all on the right, in one row", async () => {
     install(board(1, { doneSinceLastScan: 18, active: [task("tttttttt", "T1", "Write the cart")] }));
     await show();
     expect(subtitle(header())).toBe("1 active · 18 done since last scan");
     expect(header().querySelector("p")).toHaveClass("text-muted-foreground");
-    expect(within(header()).getByRole("button", { name: "Scan System" })).toBeInTheDocument();
+    expect(within(header()).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "New Request", expect.stringMatching(/^Run all/)]);
     expect(document.querySelectorAll("header")).toHaveLength(1);
   });
 

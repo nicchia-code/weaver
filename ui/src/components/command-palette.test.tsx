@@ -157,7 +157,7 @@ describe("the palette", () => {
     expect(value.palette.close).toHaveBeenCalledTimes(1);
   });
 
-  it("names the action `New Request` in its place and runs the Backlog's `+`", async () => {
+  it("keeps the order of the actions and runs the Board header's `New Request` for its action", async () => {
     renderPalette(controls());
     const actions = within(screen.getByRole("group", { name: "Actions" })).getAllByRole("option");
     expect(actions.map((row) => row.textContent)).toEqual(["Scan System", "Run all", "New Request", "Open Folder…", "Usage"]);

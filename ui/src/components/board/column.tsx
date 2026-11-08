@@ -16,8 +16,6 @@ export interface ColumnProps {
   cards: ReactNode;
   /** The ghosts, after the cards. */
   ghosts?: ReactNode;
-  /** At the end of the heading (the Backlog's `New Request`). */
-  action?: ReactNode;
 }
 
 /**
@@ -26,7 +24,7 @@ export interface ColumnProps {
  * title and the number of real cards in Muted. It scrolls on its own, and takes the focus (it is a
  * focus target, not a tab stop) when a details dialog closes because its card left the Board.
  */
-export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, cards, ghosts, action }, ref) {
+export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, cards, ghosts }, ref) {
   const headingId = useId();
   return (
     <section
@@ -41,7 +39,6 @@ export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ tit
           <span id={headingId}>{title}</span>
           <span className="text-xs font-normal text-muted-foreground">{count}</span>
         </h2>
-        {action ? <div className="ml-auto">{action}</div> : null}
       </div>
       <ScrollArea className="-mx-1.5 min-h-0 flex-1">
         <div className="flex flex-col gap-3 px-1.5 pb-2">

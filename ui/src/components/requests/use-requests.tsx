@@ -19,7 +19,7 @@ export interface RequestsState {
   selected: string | null;
   /** `← Board`, or `← Jobs` for a request opened from `View request` of its job. */
   origin: EditorOrigin;
-  /** `developer.NEW_REQUEST`: creates an empty request and opens it for writing (the `+` of the Backlog, `New Request`): always a new one. */
+  /** `developer.NEW_REQUEST`: creates an empty request and opens it for writing (`New Request` in the Board header): always a new one. */
   newRequest: () => void;
   /**
    * `Start from Scratch`: opens for writing the oldest request being written, when there is one; only
