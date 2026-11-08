@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Changed
+
+- The commits of Atomic commits no longer name Weaver as co-author: their message is only the one the agent wrote, with or without Solo mode.
+
 ## [0.5.0] - 2026-11-08
 
 ### Added
