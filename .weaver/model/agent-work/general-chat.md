@@ -2,7 +2,13 @@
 
 The brainstorming conversation with omp of a project, always there in its window. The developer explores ideas, problems and alternatives about the project and about Weaver with the agent, which reads freely whatever it needs and reasons with him, guided by an instruction of Weaver; no written request is attached to it. The agent writes nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it, and a wish, a problem or an idea is not an order; when the reasoning reaches something worth writing down, it says so in one line and waits. It never edits Weaver's files by hand.
 
+The developer knows Weaver only through its app, so in its replies the agent speaks to him only in the words of the app. On its own initiative it never names what the app does not show, such as Weaver's commands, its files, its skills or its instructions; it names a card as the Board shows it, by its short number and title; it tells why Weaver refused something or failed in the app's own terms, never with the text Weaver gave the agent; and when the developer has to act, it points to the controls of the app. It goes into those details only when the developer explicitly asks about them.
+
 When the developer explicitly asks for a Proposal, the agent does not write it: it writes a design request with what they agreed on and sends it, as if the developer had written it and sent it himself, so that the design job that starts explores, asks its question rounds and hands the Proposal over. A resolution of open Drifts asked in Chat goes the same way, as a Resolve job the agent starts. The agent never writes or changes a Proposal. On explicit order it may file a Task or a Drift, take one of the developer's decisions, or start a job of Weaver. It asks the developer in its replies, and with a question round only when the developer asks for one.
+
+When a job Chat started, or the job its request started, hands a Proposal over, Chat shows that Proposal in the conversation, under the line of that job, and follows it as it changes. The developer can decide it there exactly as on the Board, with the same conditions and the same reasons for refusing: approve it or have it refined, reject it, reject it with feedback for a rework, or discard a Draft left half-way by a refinement. An approval is final: nothing undoes it. While Chat waits for the answers of its round, the conversation offers to open the round again.
+
+The model Chat's agent uses is the analysis model of the settings, and the developer can change it from Chat as well; the change is the same change of the settings, for every project. It applies when Chat's agent starts again: changing it while no turn is in progress ends the agent, keeping the conversation, so that the next message starts it again with the new model.
 
 It is not a job: it never waits for other work and no work waits for it, it holds no Task, announces no card, and shows nothing on the Board; the jobs it starts, and the job its request starts, show there as any job does. Its conversation is kept across closing the window and quitting Weaver, and comes back as it was. When the window opens, a kept conversation comes back at once, before the developer writes anything and without sending anything to the agent; with no kept conversation, omp starts only with the first message. As in a job, the developer can open and read the conversation of each of its sub-agents, read-only.
 
@@ -13,6 +19,7 @@ No turn is in progress; the conversation may be empty.
 - `window.OPENED` → Reloading: only when a conversation is kept and omp is ready; Weaver starts omp and reloads it, sending nothing.
 - `window.OPENED` → Waiting for omp: only when a conversation is kept and omp is not ready.
 - `developer.SEND_MESSAGE` → Working: Weaver starts omp when it is not running, reloading the kept conversation when it has not come back yet, and sends the message.
+- `developer.CHANGE_SETTINGS` → Idle: only a change of the analysis model, while omp runs; Weaver ends omp, the conversation is kept, and the next message starts omp again with the new model and reloads the kept conversation.
 - `developer.CLEAR_GENERAL` → Idle: the conversation starts again empty.
 
 ### Loading

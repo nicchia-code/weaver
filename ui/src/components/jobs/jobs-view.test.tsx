@@ -431,6 +431,7 @@ describe("JobsView", () => {
   });
 
   describe("sub-agents", () => {
+    const SUB_AT = new Date(2026, 10, 2, 7, 6).getTime();
     const nodes: AgentNode[] = [
       {
         call: "t1",
@@ -458,6 +459,7 @@ describe("JobsView", () => {
       path,
       seq: 0,
       entries: [{ kind: "assignment", from: "Run aaaaaaaa", text: "Read the code." }, { kind: "agent", text: "On it.", complete: true }],
+      arrivals: [SUB_AT, SUB_AT + 1000],
       unavailable: null,
       ...patch,
     });
@@ -557,6 +559,24 @@ describe("JobsView", () => {
       const band = screen.getByRole("heading", { level: 1, name: "Jobs" }).closest("header")!;
       expect(within(band).getByRole("heading", { level: 2, name: "Run aaaaaaaa › Lead" }).parentElement).toHaveTextContent("working");
       expect(within(conversation).queryByRole("heading")).toBeNull();
+    });
+
+    it("shows the time its transcript record was written on the sender row, and the running summary of a working sub-agent", async () => {
+      const user = userEvent.setup();
+      const tools: Entry[] = [
+        { kind: "tool", id: "x1", title: "Read the Model", icon: "read", command: null, status: "done", subAgents: [] },
+        { kind: "tool", id: "x2", title: "Search", icon: "search", command: null, status: "done", subAgents: [] },
+      ];
+      mount(
+        [job("aaaaaaaa", "running")],
+        { jobId: "aaaaaaaa", seq: 0, entries: [], notes: [] },
+        handlers((path) => reply(path, { entries: tools, arrivals: [SUB_AT, SUB_AT + 7000] })),
+      );
+      const list = await screen.findByRole("list", { name: "Sub-agents" });
+      await user.click(within(list).getByRole("button", { name: /^Lead/ }));
+      const conversation = screen.getByRole("region", { name: "Conversation" });
+      expect(await within(conversation).findByRole("button", { name: "Working · 2 steps · Search" })).toBeInTheDocument();
+      expect(within(conversation).getByText("Lead").parentElement).toHaveTextContent(clockText(SUB_AT));
     });
   });
 });

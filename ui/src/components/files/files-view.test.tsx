@@ -28,6 +28,7 @@ const { tabs, toast, webview } = vi.hoisted(() => ({
   webview: { handlers: new Set<(event: { payload: unknown }) => void>() },
 }));
 
+vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: null }) }));
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/lib/backend", async (importOriginal) => ({
   ...(await importOriginal<typeof BackendModule>()),
@@ -178,20 +179,20 @@ describe("the Files entry", () => {
     renderView();
     const treeNode = await tree();
     const header = screen.getByRole("heading", { level: 1, name: "Files" }).closest("header")!;
-    expect(header).toHaveClass("h-14", "border-b");
+    expect(header).toHaveClass("h-[76px]", "border-b");
     expect(header.contains(treeNode)).toBe(false);
     expect(header.nextElementSibling).toContainElement(treeNode);
     expect(header.nextElementSibling).toContainElement(screen.getByText("Open a file from the tree."));
   });
 
-  it("is a sidebar entry after Jobs, and choosing another entry closes the view and tells the backend", async () => {
+  it("is a sidebar entry of the PROJECT group after Specs, and choosing another entry closes the view and tells the backend", async () => {
     const user = userEvent.setup();
     renderView();
     await tree();
-    const entries = within(screen.getByRole("navigation", { name: "Views" }))
+    const entries = within(screen.getByRole("group", { name: "Project" }))
       .getAllByRole("button")
       .map((button) => button.textContent);
-    expect(entries.slice(0, 5)).toEqual(["Board", "Chat", "Jobs", "Files", "Assets"]);
+    expect(entries.slice(0, 4)).toEqual(["Requirements", "Specs", "Files", "Assets"]);
     await user.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.queryByRole("tree", { name: "Project files" })).not.toBeInTheDocument();
     expect(screen.getByText("Board content")).toBeInTheDocument();
@@ -506,7 +507,7 @@ describe("deleting", () => {
     await user.click(within(menu).getByRole("menuitem", { name: "Delete" }));
     const dialog = await screen.findByRole("alertdialog", { name: 'Move "src" to the trash?' });
     expect(within(dialog).getByText("2 open files have unsaved changes that will be lost.")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Move to Trash" })).toHaveClass("bg-destructive");
+    expect(within(dialog).getByRole("button", { name: "Move to Trash" })).toHaveClass("text-destructive", "border-destructive-line");
   });
 
   it("changes nothing with Cancel, and a refused deletion shows its reason", async () => {
@@ -1038,7 +1039,7 @@ describe("leaving the view", () => {
     expect(within(dialog).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual(["src/main.ts", "notes.txt"]);
     const buttons = within(dialog).getAllByRole("button");
     expect(buttons.map((button) => button.textContent)).toEqual(["Save all", "Discard all", "Cancel"]);
-    expect(buttons[1]).toHaveClass("bg-destructive");
+    expect(buttons[1]).toHaveClass("text-destructive", "border-destructive-line");
     expect(buttons[2]).toHaveFocus();
     expect(screen.queryByText("Board content")).not.toBeInTheDocument();
     expect(tabs.closeAll).not.toHaveBeenCalled();

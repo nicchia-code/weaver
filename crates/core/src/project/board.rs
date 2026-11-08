@@ -66,10 +66,15 @@ impl AgentFacts {
             .is_some_and(|job| self.working_jobs.contains(job))
     }
 
-    /// Whether a working job holds the Task (its `holder` key).
-    pub fn holds(&self, task: &Card) -> bool {
+    /// The working job that holds the Task (its `holder` key), if there is one.
+    pub fn holder<'a>(&self, task: &'a Card) -> Option<&'a str> {
         task.str_key("holder")
-            .is_some_and(|job| self.working_jobs.contains(job))
+            .filter(|job| self.working_jobs.contains(*job))
+    }
+
+    /// Whether a working job holds the Task.
+    pub fn holds(&self, task: &Card) -> bool {
+        self.holder(task).is_some()
     }
 }
 

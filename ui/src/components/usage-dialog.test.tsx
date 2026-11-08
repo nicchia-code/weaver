@@ -1,7 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactElement } from "react";
 
 import type { OmpStatus } from "@/bindings/OmpStatus";
 import type { ProviderUsage } from "@/bindings/ProviderUsage";
@@ -10,6 +10,7 @@ import type { UsageLimit } from "@/bindings/UsageLimit";
 import type { UsageNoLimits } from "@/bindings/UsageNoLimits";
 import type { UsageStatus } from "@/bindings/UsageStatus";
 import { UsageDialog, formatLimitValue, formatReset } from "@/components/usage-dialog";
+import { UsageProvider } from "@/hooks/use-usage";
 import { call, on } from "@/lib/backend";
 import { formatDate, formatTime } from "@/lib/format";
 
@@ -35,7 +36,11 @@ const limit = (patch: Partial<UsageLimit> = {}): UsageLimit => ({
 });
 const provider = (id: string, name: string, limits: UsageLimit[], noLimits: UsageNoLimits | null = null): ProviderUsage => ({ id, name, limits, noLimits });
 const usageOf = (providers: ProviderUsage[], fetchedAt: number | null = READ_AT): Usage => ({ fetchedAt, providers });
-const statusOf = (patch: Partial<UsageStatus>): UsageStatus => ({ revision: 1, phase: "idle", failure: null, usage: null, ...patch });
+const statusOf = (patch: Partial<UsageStatus>): UsageStatus => ({ revision: 1, phase: "idle", failure: null, usage: null, summary: null, ...patch });
+
+/** How many readings the dialog asked the backend for (the provider also asks for the status, which reads nothing). */
+const reads = () => vi.mocked(call).mock.calls.filter(([name]) => name === "omp_usage").length;
+const withUsage = (node: ReactElement) => <UsageProvider>{node}</UsageProvider>;
 
 let handlers: Record<string, (payload: never) => void>;
 const push = (status: UsageStatus) => act(() => handlers["usage-changed"]?.(status as never));
@@ -54,7 +59,7 @@ beforeEach(() => {
 function renderDialog(props: Partial<ComponentProps<typeof UsageDialog>> = {}) {
   const onClose = vi.fn();
   const onOpenSettings = vi.fn();
-  const view = render(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} {...props} />);
+  const view = render(withUsage(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} {...props} />));
   return { ...view, onClose, onOpenSettings };
 }
 
@@ -62,29 +67,28 @@ const dialog = () => screen.getByRole("dialog", { name: "Usage" });
 
 describe("closed", () => {
   it("shows nothing and reads nothing", () => {
-    render(<UsageDialog open={false} onClose={() => {}} onOpenSettings={() => {}} />);
+    render(withUsage(<UsageDialog open={false} onClose={() => {}} onOpenSettings={() => {}} />));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(call).not.toHaveBeenCalled();
-    expect(on).not.toHaveBeenCalled();
+    expect(reads()).toBe(0);
   });
 });
 
-describe("waiting for omp", () => {
+describe("waiting for the agent", () => {
   const cases: Array<[string, OmpStatus | null, string]> = [
-    ["missing", ompStatus("missing"), "omp is not installed."],
-    ["installing", ompStatus("installing"), "Installing omp in the terminal…"],
-    ["updating", ompStatus("updating", { updateTarget: "18.17.0" }), "Updating omp to 18.17.0…"],
+    ["missing", ompStatus("missing"), "The agent is not installed."],
+    ["installing", ompStatus("installing"), "Installing the agent in the terminal…"],
+    ["updating", ompStatus("updating", { updateTarget: "18.17.0" }), "Updating the agent to 18.17.0…"],
     ["logging in", ompStatus("loggingIn", { loginProvider: null }), "Waiting for the login to the provider in the terminal…"],
-    ["not connected", ompStatus("notConnected"), "omp 18.16.0 has no model provider. Log in to one below."],
-    ["checking", ompStatus("checking"), "Checking omp…"],
-    ["no answer yet", null, "Checking omp…"],
+    ["not connected", ompStatus("notConnected"), "The agent has no model provider. Log in to one below."],
+    ["checking", ompStatus("checking"), "Checking the agent…"],
+    ["no answer yet", null, "Checking the agent…"],
   ];
-  it.each(cases)("says why omp is not ready when it is %s, with the text of its status box, and reads nothing", (_name, status, text) => {
+  it.each(cases)("says why the agent is not ready when it is %s, with the text of its status box, and reads nothing", (_name, status, text) => {
     omp.current = status;
     renderDialog();
     expect(within(dialog()).getByText(text)).toBeInTheDocument();
     expect(within(dialog()).getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
-    expect(call).not.toHaveBeenCalled();
+    expect(reads()).toBe(0);
     expect(within(dialog()).queryByText("Reading usage…")).not.toBeInTheDocument();
   });
 
@@ -96,14 +100,14 @@ describe("waiting for omp", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("starts reading by itself when omp becomes ready, without closing and opening the dialog", async () => {
+  it("starts reading by itself when the agent becomes ready, without closing and opening the dialog", async () => {
     omp.current = ompStatus("updating");
     const { rerender, onClose, onOpenSettings } = renderDialog();
-    expect(call).not.toHaveBeenCalled();
+    expect(reads()).toBe(0);
     omp.current = READY;
-    rerender(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />);
+    rerender(withUsage(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />));
     expect(call).toHaveBeenCalledWith("omp_usage");
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(reads()).toBe(1);
     expect(await screen.findByText("Reading usage…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
   });
@@ -113,7 +117,7 @@ describe("reading", () => {
   it("asks for the limits at each opening and shows a centred Loader and Reading usage… without earlier limits", () => {
     renderDialog();
     expect(call).toHaveBeenCalledWith("omp_usage");
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(reads()).toBe(1);
     const text = within(dialog()).getByText("Reading usage…");
     expect(text).toHaveClass("justify-center");
     expect(text.querySelector("svg")).toHaveClass("animate-spin", "motion-reduce:animate-none");
@@ -189,7 +193,7 @@ describe("shown", () => {
     );
     expect(within(within(dialog()).getByRole("region", { name: "Gemini CLI" })).getByText("No usage data")).toBeInTheDocument();
     expect(within(within(dialog()).getByRole("region", { name: "xAI" })).getByText("Login expired")).toBeInTheDocument();
-    expect(within(within(dialog()).getByRole("region", { name: "Cursor" })).getByText("Not reported by omp")).toBeInTheDocument();
+    expect(within(within(dialog()).getByRole("region", { name: "Cursor" })).getByText("Not reported by the agent")).toBeInTheDocument();
     expect(within(dialog()).queryByText("No usage limits to show.")).not.toBeInTheDocument();
   });
 
@@ -219,13 +223,13 @@ describe("shown", () => {
     const row = (name: string) => within(dialog()).getByText(name).closest("li") as HTMLElement;
     const bar = (name: string) => within(row(name)).getByRole("progressbar").firstElementChild;
 
-    expect(within(row("Nearly")).getByText("85% used")).toHaveClass("text-amber-600", "dark:text-amber-400");
-    expect(within(row("Nearly")).getByText("Almost used up")).toHaveClass("text-amber-600", "dark:text-amber-400");
-    expect(bar("Nearly")).toHaveClass("bg-amber-600", "dark:bg-amber-400");
+    expect(within(row("Nearly")).getByText("85% used")).toHaveClass("text-peach-ink");
+    expect(within(row("Nearly")).getByText("Almost used up")).toHaveClass("text-peach-ink");
+    expect(bar("Nearly")).toHaveClass("bg-peach");
 
-    expect(within(row("Gone")).getByText("100% used")).toHaveClass("text-red-600", "dark:text-red-400");
-    expect(within(row("Gone")).getByText("Used up")).toHaveClass("text-red-600", "dark:text-red-400");
-    expect(bar("Gone")).toHaveClass("bg-red-600", "dark:bg-red-400");
+    expect(within(row("Gone")).getByText("100% used")).toHaveClass("text-rose-ink");
+    expect(within(row("Gone")).getByText("Used up")).toHaveClass("text-rose-ink");
+    expect(bar("Gone")).toHaveClass("bg-rose");
 
     expect(within(row("Fine")).queryByText("Almost used up")).not.toBeInTheDocument();
     expect(within(row("Fine")).queryByText("Used up")).not.toBeInTheDocument();
@@ -273,8 +277,8 @@ describe("failed", () => {
 
   it("keeps a reason that ends with a full stop to one", () => {
     renderDialog();
-    push(statusOf({ revision: 3, phase: "failed", failure: "omp did not return valid usage." }));
-    expect(within(dialog()).getByRole("alert")).toHaveTextContent("Could not read usage: omp did not return valid usage.");
+    push(statusOf({ revision: 3, phase: "failed", failure: "the agent did not return valid usage." }));
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("Could not read usage: the agent did not return valid usage.");
     expect(within(dialog()).getByRole("alert").textContent).not.toContain("..");
     expect(within(dialog()).queryByText("No usage limits to show.")).not.toBeInTheDocument();
   });
@@ -302,12 +306,12 @@ describe("failed", () => {
     expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("goes to Waiting for omp when omp is no longer ready", () => {
+  it("goes to Waiting for the agent when the agent is no longer ready", () => {
     const { rerender, onClose, onOpenSettings } = renderDialog();
     push(statusOf({ revision: 3, phase: "failed", failure: "timed out", usage: earlier }));
     omp.current = ompStatus("missing");
-    rerender(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />);
-    expect(within(dialog()).getByText("omp is not installed.")).toBeInTheDocument();
+    rerender(withUsage(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />));
+    expect(within(dialog()).getByText("The agent is not installed.")).toBeInTheDocument();
     expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -328,18 +332,34 @@ describe("closing", () => {
     renderDialog();
     expect(dialog()).toHaveClass("max-w-[480px]");
     expect(within(dialog()).queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(reads()).toBe(1);
   });
 
-  it("reads again each time it is opened", () => {
+  it("reads again each time it is opened, keeping the limits read last meanwhile", () => {
     const { rerender, onClose, onOpenSettings } = renderDialog();
     push(statusOf({ revision: 2, usage: usageOf([provider("anthropic", "Anthropic", [limit()])]) }));
-    rerender(<UsageDialog open={false} onClose={onClose} onOpenSettings={onOpenSettings} />);
+    rerender(withUsage(<UsageDialog open={false} onClose={onClose} onOpenSettings={onOpenSettings} />));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    rerender(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />);
-    expect(call).toHaveBeenCalledTimes(2);
-    // Nothing of the earlier opening is kept by the interface: the backend sends it again.
-    expect(within(dialog()).getByText("Reading usage…")).toBeInTheDocument();
+    rerender(withUsage(<UsageDialog open onClose={onClose} onOpenSettings={onOpenSettings} />));
+    expect(reads()).toBe(2);
+    // The limits are the ones every window holds: they stay, marked as being updated.
+    expect(within(dialog()).getByText("Updating…")).toBeInTheDocument();
+    expect(within(dialog()).getByRole("progressbar", { name: "Claude 5 Hour: 17% used" })).toBeInTheDocument();
+  });
+
+  it("shows the reading a timer started while it is open, keeping the limits shown", () => {
+    renderDialog();
+    push(statusOf({ revision: 2, usage: usageOf([provider("anthropic", "Anthropic", [limit()])]) }));
+    expect(within(dialog()).queryByText("Updating…")).not.toBeInTheDocument();
+    push(statusOf({ revision: 3, phase: "reading", usage: usageOf([provider("anthropic", "Anthropic", [limit()])]) }));
+    expect(within(dialog()).getByText("Updating…")).toBeInTheDocument();
+    expect(within(dialog()).getByRole("progressbar", { name: "Claude 5 Hour: 17% used" })).toBeInTheDocument();
+    // A failed one in the background is shown too, with Retry.
+    push(statusOf({ revision: 4, phase: "failed", failure: "timed out", usage: usageOf([provider("anthropic", "Anthropic", [limit()])]) }));
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("Could not read usage: timed out.");
+    push(statusOf({ revision: 5, phase: "reading", usage: usageOf([provider("anthropic", "Anthropic", [limit()])]) }));
+    expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog()).getByText("Updating…")).toBeInTheDocument();
   });
 });
 

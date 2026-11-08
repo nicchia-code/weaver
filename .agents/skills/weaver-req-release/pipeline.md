@@ -10,8 +10,8 @@
 
 ### App icon
 
-- Weaver has one app icon, the woven "W" logo: a cream rounded square holding a "W" woven from flat pastel ribbons (salmon pink, lavender, peach, sage green) that pass over and under horizontal ribbons. It is the icon of the bundles on every platform, of the macOS Dock, of the Windows and Linux taskbar, of the tray icon (`requirements/tech#window`), of the system notifications (`requirements/ui#notification`) and of the drag-out preview of assets (`requirements/tech#asset-view`). The interface itself never shows it: the welcome window keeps its lucide mark.
-- Its master is `src-tauri/icons/source.png`, 1024×1024 px with an alpha channel: the rounded square is 896×896 px, centred, and everything outside it is fully transparent (64 px per side), with no white left around the shape. There is no other master: no vector source is kept.
+- Weaver has one app icon, its logo (`requirements/ui#window`, **Logo**): a cream (`#FBF6EE`) rounded square crossed by a horizontal Sky thread and by four diagonal threads, Peach, Lavender, Rose and Sage, that weave a "W". It is the icon of the bundles on every platform, of the macOS Dock, of the Windows and Linux taskbar, of the tray icon (`requirements/tech#window`), of the system notifications (`requirements/ui#notification`) and of the drag-out preview of assets (`requirements/tech#asset-view`). The interface shows the same drawing.
+- Its master is the vector drawing `src-tauri/icons/source.svg`, a square canvas in which the rounded square takes 896/1024 of each side, centred, and everything outside it is fully transparent, with no white left around the shape. The interface uses the same SVG, never a raster copy; there is no other master and `source.png` is no longer kept.
 - Every file listed in `bundle.icon` of `src-tauri/tauri.conf.json` (`32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns`, `icon.ico`) and `src-tauri/icons/icon.png` is generated from the master by plain downscaling (`tauri icon`), with no separate drawing for small sizes. Outputs the app does not use (Windows Store, Android, iOS) are not kept in the repository.
 
 ### Workflow `ci`
@@ -57,6 +57,6 @@
 ### Updates of Weaver
 
 - Weaver uses the Tauri updater plugin with endpoint `https://github.com/nicchia-code/weaver/releases/latest/download/latest.json`.
-- It checks at start and then at most once every 24 hours while running; the time of the last check is stored in the settings. A failed check is logged and retried at the next due time, never shown as an error.
+- It checks at start and then at most once every hour while running, a fixed interval with no setting; the time of the last check is stored in the settings. A failed check is logged and retried at the next due time, never shown as an error.
 - A found update shows its version and notes and is installed only when the developer chooses **Install and restart**; **Later** hides it until the next check. Install and restart goes through the same path as quitting Weaver, including its confirmation when jobs are working.
 - An update whose signature does not verify is refused and logged.

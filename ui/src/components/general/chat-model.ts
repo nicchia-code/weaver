@@ -82,7 +82,7 @@ export function clockText(milliseconds: number): string {
 /**
  * `Worked for <duration> · <n> steps`, or `Working · <n> steps` while the run is still going; the
  * latest step follows the running text when the view shows it (jobs, Ask more and sub-agents).
- * A run whose instants are not known (a sub-agent's transcript) reads `Worked · <n> steps`.
+ * Every conversation gives the instants its entries arrived (a sub-agent's, those its transcript records say).
  */
 export function workText(
   item: Extract<ChatItem, { kind: "work" }>,
@@ -92,8 +92,8 @@ export function workText(
 ): string {
   const steps = `${item.steps} ${item.steps === 1 ? "step" : "steps"}`;
   if (running) return latest === null ? `Working · ${steps}` : `Working · ${steps} · ${latest}`;
-  if (item.began === null || item.ended === null) return `Worked · ${steps}`;
-  return `Worked for ${duration(Math.max(0, item.ended - item.began))} · ${steps}`;
+  const span = item.began !== null && item.ended !== null ? Math.max(0, item.ended - item.began) : 0;
+  return `Worked for ${duration(span)} · ${steps}`;
 }
 
 /** The latest step of a run: the title of its last tool row, or `Thinking`. */

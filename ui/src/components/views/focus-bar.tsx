@@ -23,8 +23,8 @@ export function FocusBar({ view }: { view: ViewName }) {
   const step = steps[active.index];
   const announcement = step ? `${step.name}${steps.length > 1 ? `, ${active.index + 1} of ${steps.length}` : ""}` : "";
   return (
-    <div role="region" aria-label="Focus" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-cyan-500/10 px-4 py-2 text-sm">
-      <Crosshair className="size-4 shrink-0 text-cyan-600 dark:text-cyan-400" aria-hidden />
+    <div role="region" aria-label="Focus" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-sky-tint px-4 py-2 text-sm">
+      <Crosshair className="size-4 shrink-0 text-sky-ink" aria-hidden />
       <span className="min-w-0 truncate font-medium">{subjectText(active.subject)}</span>
       {step ? <span className="min-w-0 truncate text-muted-foreground">{step.name}</span> : null}
       {steps.length > 1 ? (

@@ -115,7 +115,7 @@ async function show(places = 1) {
     <TooltipProvider>
       <SettingsProvider>
         {Array.from({ length: places }, (_, index) => (
-          <SystemCertificatesSetting key={index} />
+          <SystemCertificatesSetting key={index} place="settings" />
         ))}
       </SettingsProvider>
     </TooltipProvider>,
@@ -230,7 +230,7 @@ describe("the status line", () => {
     [
       "failed without a bundle",
       certificates({ phase: "failed", error: "no certificate authority found" }),
-      "Could not export the system certificates (no certificate authority found). omp gets no certificates from Weaver.",
+      "Could not export the system certificates (no certificate authority found). The agent gets no certificates from Weaver.",
     ],
   ])("shows the line when %s", async (_case, status, text) => {
     install(true, status);

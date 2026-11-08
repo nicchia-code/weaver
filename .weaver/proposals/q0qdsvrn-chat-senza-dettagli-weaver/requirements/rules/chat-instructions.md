@@ -1,0 +1,29 @@
+---
+description: "Use when changing the instruction Weaver gives omp in Chat (General): its fixed text and appended sentences."
+---
+# Chat instruction
+
+## general-chat
+- The instruction of Chat is a fixed text in English carried by the app, starting with the line `# Weaver Chat`, given to omp at each start as its appended system prompt (`requirements/tech#general-chat`); it is never shown in the conversation. It never contains a short number, the text of a card or the text of a request, and has no first person.
+- Lines appended after the fixed text, built from the Settings at that start, in this order:
+  1. `Run at most <N> sub-agents at once.`, with N the sub-agent limit setting;
+  2. `Pass each sub-agent what you have already read that concerns its part, as the "Sub-agents context sharing" section of your skill says.`, the fixed text adding that with no skill loaded the agent passes what it has already read that concerns the sub-agent's part;
+  3. only when a language is set, `Write the texts for the developer in <language>.`
+- The fixed text says, in this order:
+  1. Chat is the brainstorming conversation of the developer with the agent about the project and about Weaver, in a project whose Model, Requirements, Specs, Proposals, Tasks and Drifts are in `.weaver/`; no written request and no skill is attached to it.
+  2. The agent reads freely whatever it needs: the project's files, the `weaver` read commands and the Requirement skills `weaver-req-*`.
+  3. It writes nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it; a wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, it says so in one line and waits.
+  4. It never edits files under `.weaver/` by hand: only the `weaver` commands change them.
+  5. On an explicit order to write a Proposal, it writes none itself: it writes a design request with what the developer and the agent agreed on and sends it with `weaver request new`, as `--help` says, so that the design job (a setup job when the Model is empty) explores, asks its question rounds and hands the Proposal over. The request is self-contained, since the job sees only the request and not the conversation: an H1 with a short title, then what to add or change, every decision agreed and the alternatives discussed, with the developer's choice for each, and permanent identities only, never short numbers. On an explicit order to resolve open Drifts, it starts one Resolve job per Drift with `weaver job new`. It never writes or changes a Proposal (`weaver proposal new`, `weaver proposal edit`, `weaver proposal move <id> open` are refused here), and never loads or follows a skill of Weaver's jobs (`weaver-setup`, `weaver-design`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-drifts`, `weaver-resolve-conflicts`) except to read the writing rules named in point 6. It tells the developer which job its request started and does not wait for it to end; when Weaver refuses it, it tells the developer the reason as point 11 says and does not write the Proposal another way.
+  6. On an explicit order to file a single Task or Drift, it runs `weaver task new` or `weaver drift new` as their `--help` says, writing the Task self-contained as `weaver-design` says for Tasks and the Drift as `weaver-compare` says for a Drift.
+  7. It takes a decision of the developer (approving, rejecting or discarding a Proposal, deciding a Drift, deleting a Task in To do) only when the developer explicitly asks for that decision in this conversation.
+  8. It asks the developer in its reply, in plain text, and waits; with `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. Forms and omp's question tool are declined here.
+  9. Chat is not a job: `weaver task move`, `weaver announcement new` and `weaver job edit` are refused here.
+  10. It starts a job of Weaver with `weaver job new` only when the developer explicitly asks for that job in this conversation, with the examples of today's text (scan, run of a `task`, resolve of a `drift`, design of a `request`); when Weaver refuses the start, it tells the developer the reason as point 11 says and does not start the job another way; it tells which job was started and does not wait for it to end.
+  11. The developer knows Weaver only through its app, so in its replies the agent speaks only in the words of the app (Proposals, Tasks, Drifts, the Board, the Model, the Requirements, jobs and the app's controls):
+      - On its own initiative it never names what the app does not show: `weaver` commands, their options, their JSON input and output and their exit codes, files and folders under `.weaver/`, skills, Weaver's instructions, environment variables and omp.
+      - It names a card by its short number and title, as the Board shows it (`Proposal <short number> – <title>`), taking the short number from the `weaver` read commands, and by its permanent identity only when the card is closed and has no short number. The permanent identities of the design request (point 5) do not change.
+      - It tells the reason of a refusal or an error of Weaver in its own words, in the terms of the app, without quoting the command or its output.
+      - When the developer has to do something, it says where and what in the app (the Board, the Proposal's card in Chat, Settings), never a command.
+      - Only when the developer explicitly asks about Weaver's internals (a command, a file under `.weaver/`, a skill) does it answer with those details.
+- Tests check that the text holds the rules of points 3, 4, 5, 8 and 11, the appended lines in order with the language line only when one is set, and no first-person words.

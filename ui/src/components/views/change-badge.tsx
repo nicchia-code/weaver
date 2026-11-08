@@ -9,7 +9,7 @@ const CHANGE: Record<Change, { variant: "success" | "warning" | "error"; icon: t
   removed: { variant: "error", icon: Minus },
 };
 
-/** The overlay change as text with an icon and its colour (green, amber, red): never colour alone. */
+/** The overlay change as text with an icon, as ink on its tint (Sage added, Peach changed, Rose removed): never colour alone. */
 export function ChangeBadge({ change, label }: { change: Change; label?: string }) {
   const { variant, icon: Icon } = CHANGE[change];
   return (
@@ -21,15 +21,15 @@ export function ChangeBadge({ change, label }: { change: Change; label?: string 
 }
 
 // Full class names, so Tailwind sees them.
-const FOCUS_CYAN = "border-l-4 border-cyan-600 bg-cyan-500/10 dark:border-cyan-400";
+const FOCUS_SKY = "border-l-4 border-sky bg-sky-tint";
 const FOCUS_CHANGE: Record<Change, string> = {
-  added: "border-l-4 border-green-600 bg-green-500/10 dark:border-green-400",
-  changed: "border-l-4 border-amber-600 bg-amber-500/10 dark:border-amber-400",
-  removed: "border-l-4 border-red-600 bg-red-500/10 dark:border-red-400",
+  added: "border-l-4 border-sage bg-sage-tint",
+  changed: "border-l-4 border-peach bg-peach-tint",
+  removed: "border-l-4 border-rose bg-rose-tint",
 };
 
-/** A focused section or field: a left border and tint in cyan, or in its change colour under an overlay. */
+/** A focused section or field: a left border and tint in Sky, or in its change colour under an overlay. */
 export function focusClass(focused: boolean, change: Change | null): string {
   if (!focused) return "";
-  return change ? FOCUS_CHANGE[change] : FOCUS_CYAN;
+  return change ? FOCUS_CHANGE[change] : FOCUS_SKY;
 }

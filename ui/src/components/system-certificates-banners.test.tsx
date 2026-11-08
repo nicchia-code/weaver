@@ -83,7 +83,7 @@ describe("the turn-on notice", () => {
     mount(() => {});
     const banner = await screen.findByRole("status", { name: NOTICE });
     expect(banner).toHaveTextContent(
-      "Weaver turned on System Certificates because Zscaler is installed: omp and the agent's commands now trust the certificates your system trusts.",
+      "Weaver turned on System Certificates because Zscaler is installed: the agent and its commands now trust the certificates your system trusts.",
     );
     expect(TURN_ON_TEXT).toBe(banner.querySelector("p")?.textContent);
     expect(within(banner).getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
@@ -188,11 +188,11 @@ describe("the export failure banner", () => {
     expect(within(banner).getByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 
-  it("says that omp gets no certificates when there is no earlier bundle", async () => {
+  it("says that the agent gets no certificates when there is no earlier bundle", async () => {
     held = failed({ count: null, writtenAt: null });
     mount(() => {});
     expect(await screen.findByRole("alert", { name: FAILURE })).toHaveTextContent(
-      "Could not export the system certificates (no certificate authority found). omp gets no certificates from Weaver.",
+      "Could not export the system certificates (no certificate authority found). The agent gets no certificates from Weaver.",
     );
   });
 

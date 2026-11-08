@@ -75,6 +75,8 @@ pub struct TestHost {
     pub lock_events: Arc<FileEventsRecorder>,
     /// The names of the assets of every project, for the `@` tags.
     pub assets: Mutex<Vec<String>>,
+    /// The jobs the Chat started in an earlier run: identity, name and creation instant.
+    pub chat_jobs: Mutex<Vec<(String, String, i64)>>,
     _base: tempfile::TempDir,
 }
 
@@ -103,6 +105,7 @@ impl TestHost {
             gate: tokio::sync::watch::channel(true).0,
             _base: base,
             assets: Mutex::default(),
+            chat_jobs: Mutex::default(),
         })
     }
 
@@ -200,6 +203,10 @@ impl Host for TestHost {
 
     fn asset_names(&self, _project_id: &str) -> Vec<String> {
         self.assets.lock().unwrap().clone()
+    }
+
+    fn chat_jobs(&self, _project_id: &str) -> Vec<(String, String, i64)> {
+        self.chat_jobs.lock().unwrap().clone()
     }
 
     fn inherited_env(&self) -> Vec<(OsString, OsString)> {

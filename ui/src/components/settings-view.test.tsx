@@ -231,7 +231,7 @@ describe("settings view", () => {
   it("starts with the view header, titled Settings, and its groups are 14 px semibold, never larger than the title", async () => {
     await show({ projectSlot: <p>Update skills box</p> });
     const title = screen.getByRole("heading", { level: 1, name: "Settings" });
-    expect(title.closest("header")).toHaveClass("h-14", "border-b");
+    expect(title.closest("header")).toHaveClass("h-[76px]", "border-b");
     expect(title.closest("header")?.nextElementSibling).toContainElement(screen.getByRole("heading", { name: "omp" }));
     for (const group of screen.getAllByRole("heading", { level: 2 })) {
       expect(group).toHaveClass("text-sm", "font-semibold");
@@ -610,7 +610,7 @@ describe("Solo mode in Settings", () => {
     await user.click(screen.getByRole("radio", { name: "Whole folders" }));
     const failure = await screen.findByRole("alert");
     expect(failure).toHaveTextContent("Could not change Solo mode: git was not found.");
-    expect(failure).toHaveClass("text-red-600");
+    expect(failure).toHaveClass("text-rose-ink");
     await vi.waitFor(() => expect(screen.getByRole("radio", { name: "Off" })).toBeChecked());
     expect(screen.getByRole("radio", { name: "Whole folders" })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: "Off" })).toBeEnabled();
@@ -642,7 +642,7 @@ describe("Solo mode in Settings", () => {
     act(() => pushStatus(projectStatus({ revision: 2, solo: { mode: "folders", unavailable: "git was not found", problem: "git was not found" } })));
     const text = "Solo mode is on but cannot exclude Weaver's files: git was not found.";
     const line = await screen.findByText(text);
-    expect(line).toHaveClass("text-amber-600");
+    expect(line).toHaveClass("text-peach-ink");
     expect(line.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
     for (const radio of screen.getAllByRole("radio", { name: /Off|Whole folders|Weaver's files only/ })) expect(radio).toBeEnabled();
     expect(screen.getByRole("radiogroup", { name: "Solo mode" })).toHaveAccessibleDescription(`${NOTE} ${VERSIONED_NOWHERE} ${text}`);
@@ -667,7 +667,7 @@ describe("Solo mode in Settings", () => {
     trackedFiles = () => Promise.resolve(files);
     await showSolo();
     const region = await screen.findByRole("region", { name: "Git still tracks 10 of Weaver's files: their changes still go into commits." });
-    expect(region).toHaveClass("border-amber-600");
+    expect(region).toHaveClass("border-peach");
     const list = within(region).getByRole("list", { name: "Files git still tracks" });
     expect(list).toHaveClass("font-mono", "overflow-auto", "max-h-[12rem]");
     expect(within(list).getAllByRole("listitem").map((item) => item.textContent)).toEqual(files);
@@ -886,7 +886,7 @@ describe("Atomic commits in Settings", () => {
     const failure = await screen.findByRole("alert");
     const text = "Could not change Atomic commits: could not write /r/.weaver/commits/commits.json: Permission denied (os error 13).";
     expect(failure).toHaveTextContent(text);
-    expect(failure).toHaveClass("text-red-600");
+    expect(failure).toHaveClass("text-rose-ink");
     await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Atomic commits" })).toBeEnabled());
     expect(screen.getByRole("switch", { name: "Atomic commits" })).not.toBeChecked();
     expect(screen.getByRole("switch", { name: "Atomic commits" })).toHaveAccessibleDescription(`${ATOMIC_NOTE} ${text}`);
@@ -932,7 +932,7 @@ describe("Atomic commits file that cannot be used", () => {
     expect(control).not.toBeChecked();
     expect(control).toBeEnabled();
     const line = screen.getByText(text);
-    expect(line).toHaveClass("text-amber-600");
+    expect(line).toHaveClass("text-peach-ink");
     expect(line.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
     expect(control).toHaveAccessibleDescription(`${ATOMIC_NOTE} ${text}`);
     // The next change rewrites the file: the project's status then carries no diagnostic.

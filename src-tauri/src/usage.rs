@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tokio::sync::watch;
 use ts_rs::TS;
-use weaver_core::omp::usage::Usage;
+use weaver_core::omp::usage::{Usage, UsageSummary};
 
 /// Whether a reading runs or the last one failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -37,6 +37,9 @@ pub struct UsageStatus {
     pub failure: Option<String>,
     /// The limits read last, for the omp path that is current; `None` until a reading worked.
     pub usage: Option<Usage>,
+    /// The limit of `usage` closest to being used up (`requirements/tech#usage`), computed by the
+    /// core; `None` when `usage` is `None` or no shown provider has a limit.
+    pub summary: Option<UsageSummary>,
 }
 
 /// The reading that runs: its number, so that a result of a superseded one is ignored, and the
@@ -204,6 +207,7 @@ fn status_of(inner: &Inner) -> UsageStatus {
         phase,
         failure: inner.failure.clone(),
         usage: inner.last.as_ref().map(|(_, usage)| usage.clone()),
+        summary: inner.last.as_ref().and_then(|(_, usage)| usage.summary()),
     }
 }
 
@@ -332,5 +336,41 @@ mod tests {
             .finish(old.started.as_ref().unwrap(), "/new", Ok(usage(1.0)))
             .is_none());
         assert_eq!(state.status().phase, UsagePhase::Reading);
+    }
+
+    #[test]
+    fn the_status_carries_the_summary_of_the_last_result_and_drops_it_with_it() {
+        use weaver_core::omp::usage::{LimitStatus, ProviderUsage, UsageLimit};
+
+        let state = UsageState::new();
+        assert_eq!(state.status().summary, None);
+        let with_limit = Usage {
+            fetched_at: Some(1.0),
+            providers: vec![ProviderUsage {
+                id: "anthropic".into(),
+                name: "Anthropic".into(),
+                limits: vec![UsageLimit {
+                    label: "Claude 5 Hour".into(),
+                    resets_at: Some(9.0),
+                    used: Some(85.0),
+                    limit: Some(100.0),
+                    unit: Some("percent".into()),
+                    used_fraction: Some(0.85),
+                    status: LimitStatus::AlmostUsedUp,
+                }],
+                no_limits: None,
+            }],
+        };
+        let first = state.begin("/omp");
+        let done = state
+            .finish(first.started.as_ref().unwrap(), "/omp", Ok(with_limit))
+            .unwrap();
+        let summary = done.summary.expect("a limit is shown");
+        assert_eq!(summary.label, "Claude 5 Hour");
+        assert_eq!(summary.used_fraction, Some(0.85));
+        assert_eq!(summary.status, LimitStatus::AlmostUsedUp);
+        // Reading again keeps it; a change of the omp path drops it.
+        assert!(state.begin("/omp").status.unwrap().summary.is_some());
+        assert_eq!(state.omp_path_is("/new").unwrap().summary, None);
     }
 }

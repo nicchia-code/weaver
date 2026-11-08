@@ -1,53 +1,108 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
-/* shadcn/ui, base colour zinc, blue primary; light and dark. */
+/*
+ * Weaver's tokens (`requirements/ui#General`), light and dark. Neutrals: Paper is the window's
+ * ground, Surface the work surface, cards, dialogs, popovers and menus, Lane the boxes set inside
+ * the surface. Ink is the only colour of actions. The five threads of the logo (Sky, Sage, Peach,
+ * Lavender, Rose) are the only colours of state, each with a base (dots, bars, stripes), a tint
+ * (backgrounds of badges and boxes) and an ink (text and icons on the tint). The dark values keep
+ * every role: warm dark greys with Surface the lighter of the two, Ink near white, threads with the
+ * same hue, a darker tint and a lighter ink.
+ */
 :root {
-  --radius: 0.5rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.004 286.32);
-  /* Borders of controls keep at least 3:1 against the background (WCAG 2.2 AA). */
-  --input: oklch(0.62 0.014 286);
-  --ring: oklch(0.546 0.245 262.881);
+  --radius: 12px;
+
+  --paper: #f6f5f1;
+  --surface: #ffffff;
+  --lane: #faf9f6;
+  --line: #e7e5df;
+  --line-control: #e0ddd5;
+  --line-soft: #efede7;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --muted-ink: #6b6b73;
+  /* The border of an unchecked checkbox or radio: at least 3:1 against Surface. */
+  --control: #86868e;
+  --hover: #f1efea;
+  --shadow-color: rgb(24 24 27 / 0.05);
+  --shadow-pop-color: rgb(24 24 27 / 0.12);
+
+  --sky: #96bbe0;
+  --sky-tint: #e6eff8;
+  --sky-ink: #2e5f8f;
+  --sage: #9dc09a;
+  --sage-tint: #e9f2e7;
+  --sage-ink: #3f6b3c;
+  --peach: #edb08f;
+  --peach-tint: #fbede4;
+  --peach-ink: #9a4a22;
+  --lavender: #a996d6;
+  --lavender-tint: #efeaf8;
+  --lavender-ink: #5b4a99;
+  --rose: #e3a3b5;
+  --rose-tint: #f9e8ed;
+  --rose-ink: #9b3b57;
+  --rose-line: #ebcbd4;
+
+  --background: var(--surface);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--hover);
+  --secondary-foreground: var(--ink);
+  --muted: var(--lane);
+  --muted-foreground: var(--muted-ink);
+  --accent: var(--hover);
+  --accent-foreground: var(--ink);
+  --destructive: var(--rose-ink);
+  --destructive-foreground: var(--rose-ink);
+  --border: var(--line);
+  --input: var(--line-control);
+  --ring: var(--ink);
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.141 0.005 285.823);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.141 0.005 285.823);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(0.55 0.014 286);
-  --ring: oklch(0.623 0.214 259.815);
+  --paper: #141413;
+  --surface: #1f1f1d;
+  --lane: #191918;
+  --line: #33332f;
+  --line-control: #3d3d38;
+  --line-soft: #2a2a27;
+  --ink: #f4f4f2;
+  --ink-2: #b6b6b0;
+  --muted-ink: #9c9c96;
+  --control: #7d7d77;
+  --hover: #2a2a27;
+  --shadow-color: rgb(0 0 0 / 0.3);
+  --shadow-pop-color: rgb(0 0 0 / 0.5);
+
+  --sky: #96bbe0;
+  --sky-tint: #1c2a38;
+  --sky-ink: #9dc4ea;
+  --sage: #9dc09a;
+  --sage-tint: #1f2d1e;
+  --sage-ink: #a8d2a5;
+  --peach: #edb08f;
+  --peach-tint: #33241a;
+  --peach-ink: #f2b998;
+  --lavender: #a996d6;
+  --lavender-tint: #272136;
+  --lavender-ink: #c0b2e8;
+  --rose: #e3a3b5;
+  --rose-tint: #33202a;
+  --rose-ink: #eeaebf;
+  --rose-line: #5b3443;
+
+  --primary-foreground: #141413;
 }
 
 @theme inline {
@@ -67,15 +122,45 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-line: var(--rose-line);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-control: var(--control);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-lane: var(--lane);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-sky: var(--sky);
+  --color-sky-tint: var(--sky-tint);
+  --color-sky-ink: var(--sky-ink);
+  --color-sage: var(--sage);
+  --color-sage-tint: var(--sage-tint);
+  --color-sage-ink: var(--sage-ink);
+  --color-peach: var(--peach);
+  --color-peach-tint: var(--peach-tint);
+  --color-peach-ink: var(--peach-ink);
+  --color-lavender: var(--lavender);
+  --color-lavender-tint: var(--lavender-tint);
+  --color-lavender-ink: var(--lavender-ink);
+  --color-rose: var(--rose);
+  --color-rose-tint: var(--rose-tint);
+  --color-rose-ink: var(--rose-ink);
+  --font-sans: "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 6 px ids, chips and inline code; 9 px buttons, inputs, menu items and sidebar entries; 12 px cards, boxes and list rows; 14 px work surface, Board columns and dialogs. */
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  /* Rings instead of borders: a card is a 1 px Line ring; on a lane it adds a light shadow; dialogs, popovers and menus a wider one. */
+  --shadow-ring: 0 0 0 1px var(--line);
+  --shadow-card: 0 0 0 1px var(--line), 0 2px 6px var(--shadow-color);
+  --shadow-pop: 0 0 0 1px var(--line), 0 8px 28px var(--shadow-pop-color);
+  --tracking-title: -0.015em;
 }
 
 @layer base {
@@ -88,7 +173,7 @@
     @apply h-full;
   }
   body {
-    @apply bg-background text-foreground font-sans text-sm antialiased;
+    @apply bg-paper text-foreground font-sans text-sm antialiased;
   }
   /* Ids, paths and code are monospace. */
   code,
@@ -96,6 +181,12 @@
   pre,
   samp {
     @apply font-mono;
+  }
+  /* Titles take a slightly negative letter spacing. */
+  h1,
+  h2,
+  h3 {
+    @apply tracking-title;
   }
   /* Nothing ever scrolls the page sideways: long words wrap. */
   body {
@@ -126,9 +217,9 @@
 }
 
 /*
- * A Task held by a job: a 2 px border turning from blue to cyan, one turn every 3 s, drawn by CSS
- * only. The left side keeps the 3 px border in the label's colour. Under reduced motion the border
- * is a still cyan (the rule below switches the animation off).
+ * A Task held by a job: a 2 px border turning through Sky's base and ink, one turn every 3 s, drawn
+ * by CSS only. Under reduced motion the border is a still Sky (the rule below switches the
+ * animation off).
  */
 @property --task-angle {
   syntax: "<angle>";
@@ -143,15 +234,10 @@
 }
 
 .task-held {
-  border-top-width: 2px;
-  border-right-width: 2px;
-  border-bottom-width: 2px;
-  border-top-color: transparent;
-  border-right-color: transparent;
-  border-bottom-color: transparent;
+  border: 2px solid transparent;
   background:
     linear-gradient(var(--card), var(--card)) padding-box,
-    conic-gradient(from var(--task-angle), #2563eb, #06b6d4, #2563eb) border-box;
+    conic-gradient(from var(--task-angle), var(--sky), var(--sky-ink), var(--sky)) border-box;
   animation: task-spin 3s linear infinite;
 }
 
@@ -159,7 +245,7 @@
   .task-held {
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      linear-gradient(#06b6d4, #06b6d4) border-box;
+      linear-gradient(var(--sky), var(--sky)) border-box;
   }
 }
 
@@ -196,7 +282,7 @@
  * The Notes view's editor (`requirements/ui#notes-view`): the sheet formatted as the developer
  * writes it, Markdown markers never shown. Headings 24, 20 and 16 px semibold with space above,
  * paragraphs at the base size with a 1.6 line height, code on `muted`, quotes with a 3 px `border`
- * rule on the left, dividers as a 1 px `border` line, links in the primary blue.
+ * rule on the left, dividers as a 1 px `border` line, links in the Sky ink.
  */
 @layer components {
   .notes-editor {
@@ -238,7 +324,7 @@
     @apply rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.9em];
   }
   .notes-editor pre {
-    @apply overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs;
+    @apply overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs;
     white-space: pre;
   }
   .notes-editor pre code {
@@ -278,7 +364,7 @@
     @apply text-muted-foreground line-through;
   }
   .notes-editor a {
-    @apply text-primary underline underline-offset-2;
+    @apply text-sky-ink underline underline-offset-2;
   }
   .notes-editor .is-editor-empty:first-child::before {
     @apply text-muted-foreground;

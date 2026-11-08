@@ -50,11 +50,11 @@ describe("the status line of System Certificates", () => {
     );
   });
 
-  it("says that omp gets no certificates when a failed export has no bundle behind it", () => {
+  it("says that the agent gets no certificates when a failed export has no bundle behind it", () => {
     const failed = status({ phase: "failed", count: null, writtenAt: null, error: "no certificate authority found" });
     expect(systemCertificatesLine(failed, NOW)).toEqual({
       kind: "failed",
-      text: "Could not export the system certificates (no certificate authority found). omp gets no certificates from Weaver.",
+      text: "Could not export the system certificates (no certificate authority found). The agent gets no certificates from Weaver.",
     });
   });
 });

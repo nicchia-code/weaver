@@ -1,0 +1,66 @@
+---
+description: "Use when building windows, their closing and quitting, or system notifications."
+---
+# Windows and notifications
+
+## window
+- **Single instance:** `tauri-plugin-single-instance` is registered first.
+  - A second launch passes its arguments and cwd to the running instance and exits.
+  - A folder argument is `developer.OPEN_PROJECT`; when that project's window is in the background, it alone comes back. Otherwise the launch is `developer.REOPEN_APP`.
+- **Project identity:** the canonical path, with symlinks resolved and the Windows `\\?\` prefix stripped (`dunce`), compared case-insensitively on Windows.
+- **Window labels:** a project window is `p-<project hash>`; the welcome window is `welcome`.
+- **Project switcher:** one backend command returns, for the asking window, the open projects (from the window registry, the background ones included, in focus order) each with its working jobs (running or waiting for the developer), and the recent projects of `state.json` with whether each folder exists (checked off the main thread). An event to every project window repeats it at each window opened or closed, change of `recent` and change of a project's working jobs. Choosing a project calls the same opening as the `open_project` command; `Open Folder…` the same picker as the File menu's, with the asking window as parent.
+- **Branch:** read in the project root with `git symbolic-ref --short -q HEAD`; when it exits 1 (detached), `git rev-parse --short HEAD`; when git is missing, fails or the folder is not in a repository, no branch. Reads use the read-only git call of Solo mode (`GIT_OPTIONAL_LOCKS=0`, 10 s), never block the window and are tagged with the project. They run when the window opens, on `WindowEvent::Focused(true)` and when git's HEAD file of the working copy changes: its path comes from `git rev-parse --git-path HEAD` (worktrees and a `.git` file included) and is watched on its own, outside the project's picture (`requirements/tech#project`). A new value reaches only that project's window, as an event.
+- **User name:** `git config user.name` in the project root, which falls back to the global value; outside a repository `git config --global user.name`; trimmed. Read with the branch, at window open and focus; empty or failed means none. Only the name: no email or other identity field is read.
+- **Palette shortcut:** a `keydown` listener in the capture phase on the project window's document takes `Cmd+K` on macOS and `Ctrl+K` elsewhere before any editor or field, and prevents its default; no native menu accelerator is used for it.
+- **Window state:** `tauri-plugin-window-state` saves size, position, maximised and fullscreen per label, never visibility.
+  - A position on a missing monitor falls back to centred on the primary monitor.
+  - Default 1280×800, minimum 960×600.
+- **Close confirmation:**
+  - `WindowEvent::CloseRequested` is prevented while jobs of that project work or its File view has unsaved changes, and `RunEvent::ExitRequested` while jobs of any project work or any File view has unsaved changes. The UI tells the backend, at every change, whether its File view has unsaved changes and in which files.
+  - The confirmation is a native `tauri-plugin-dialog` dialog, so it works even with a hung webview. It says how many jobs work and lists the files with unsaved changes. With unsaved changes its buttons are `Save all`, `Discard all` and `Cancel`; on quit with working jobs only, it asks to confirm or cancel.
+  - Closing a window with working jobs only: the buttons are `Suspend and Close`, `Keep working in background` and `Cancel` (`MessageDialogButtons::YesNoCancelCustom`, `Cancel` last). `Keep working in background` sends the window to the background (see Background): nothing is suspended and the window does not close. With unsaved changes the dialog keeps its three buttons and offers no background; the quit confirmation never offers it.
+  - On quit, every window with unsaved changes asks in turn, its dialog also counting the jobs of every project; Cancel in any of them stops the quit and nothing more closes.
+  - `Save all`: the backend asks that window's UI for the texts of its tabs, as `requests-flush` does for the request editor, and waits at most the same time limit; then saves them as `developer.SAVE_FILE`. When the UI does not answer in time, or a file cannot be saved, the window stays open, the UI shows the tab of that file, and nothing is suspended.
+  - After confirming and saving, the jobs are suspended (omp ended as in `requirements/tech#job`), then the window closes or the app exits.
+- **Background:**
+  - Only `Keep working in background` of the close confirmation sends a window to the background; the UI has no command for it. The backend calls `WebviewWindow::hide()` on that window. The window and its webview stay alive, nothing is suspended and `window.CLOSED` is not emitted; the UI keeps every view as it was.
+  - When `hide()` fails, the window stays shown and open, nothing is suspended, the background flag is not set, the failure is logged as a warning, and the backend sends the reason to that window's UI, which shows the error toast of `requirements/ui#window`.
+  - A hidden window leaves the taskbar on Windows and Linux; on macOS the Dock icon stays.
+  - The window registry keeps, per project window, whether it is in the background, in memory only. A window in the background counts as open everywhere: jobs, notifications, the restore list, the last-window rule.
+  - Coming back is `show()`, `unminimize()`, then `set_focus()`. `developer.REOPEN_APP` shows every project window in the background, the least recently used first, then focuses the one used most recently (focus order of the window registry), so that it ends on top. With no window in the background it focuses the window used most recently, the welcome window when no project window is open.
+  - `developer.OPEN_PROJECT`, a notification click and a `Save all` that failed bring back only their own window.
+  - macOS: `RunEvent::Reopen` (a click on the Dock icon) is `developer.REOPEN_APP` whenever a project window is in the background, whatever `has_visible_windows` says; otherwise it shows the welcome window only when no window is visible, as before.
+- **Tray icon (Windows and Linux):**
+  - Tauri 2's tray (`tray-icon` feature, `TrayIconBuilder`), created once at start and kept until Weaver exits, with the app icon and the tooltip `Weaver`. No tray icon on macOS.
+  - Menu: `Show Weaver` (`developer.REOPEN_APP`), a separator, `Quit` (`developer.QUIT_APP`, with the same confirmations as `Ctrl+Q`).
+  - Windows: a left click (button released) is `developer.REOPEN_APP`; the right click opens the menu (`show_menu_on_left_click(false)`). Linux: only the menu, since libayatana-appindicator reports no clicks.
+  - A tray icon that cannot be created is logged as a warning and changes nothing else: launching Weaver again still brings the windows back.
+- **Last window:**
+  - Closing the last project window opens the welcome window. A project window in the background counts as open: closing the last window on the screen while others are in the background opens nothing.
+  - Closing the welcome window quits on Windows and Linux, unless a project window is in the background. On macOS the app stays in the Dock with no window, and `RunEvent::Reopen` shows the welcome window.
+  - Quit is `Cmd+Q` on macOS, `Ctrl+Q` and File › Quit elsewhere, and `Quit` in the tray menu on Windows and Linux.
+- **File menu:**
+  - Weaver keeps one app menu, shared by every window (`Builder::menu`, events in `on_menu_event`). On macOS `Open Folder…`, the `Open Recent` submenu and a separator are inserted at the top of the File submenu of Tauri's default menu, above `Close Window`; on Windows and Linux at the top of Weaver's own File menu, above `Close Window` and `Quit`.
+  - `Open Folder…` has the accelerator `CmdOrCtrl+O`. A native menu accelerator is handled before the webview sees the key, so it works whatever has the focus in the window; the UI binds neither `Cmd+O` nor `Ctrl+O`.
+  - The window an item is chosen from is the Weaver window focused when the menu event arrives (`is_focused()`, as `Close Window` finds it); there is none when no window is focused, for example on macOS with no window or with every project window in the background.
+  - The menu event handler never blocks: it starts async work and returns. `Open Folder…` runs the same picker and opening as the welcome window's `open_folder` command (`tauri-plugin-dialog` `pick_folder`, then the opening of `developer.OPEN_PROJECT`), with the chosen-from window as the dialog's parent and no parent when there is none. At most one picker from the menu is open at a time: while one is open, `Open Folder…` is ignored.
+  - An `Open Recent` item opens its canonical path as the `open_project` command does. `Clear Recent` empties `recent` (`requirements/data#window`) through the single owner of `state.json`.
+  - The `Open Recent` submenu is created once and changed in place (items removed and appended): at start, after every change of `recent` (an opening, a removal in the welcome window, `Clear Recent`) and whenever a Weaver window gets the focus (`WindowEvent::Focused(true)`). Each rebuild checks every folder with `Path::is_dir`, off the main thread, then updates the submenu on it. Every change of `recent` is also sent to the welcome window, when it is open, with the new list.
+  - An opening from the menu that fails is logged as a warning and its reason is sent as an event to the chosen-from window's UI only, which shows it as `requirements/ui#window` says. With no chosen-from window, the welcome window is opened (or brought to the front) and receives it.
+- **Restore list:** written only when Weaver quits. It lists the project windows open then, also those in the background; at the next start every one of them opens on the screen.
+- **Abnormal ends:** a shutdown that allows no confirmation suspends the jobs without asking. After a crash, the last-written resume registry brings them back as Suspended.
+
+## notification
+- **Sending:** `tauri-plugin-notification` ≥ 2.8, called from Rust only. Desktop clicks arrive through `Notification::on_action`. There is no Weaver setting; the OS permission decides.
+- **Foreground test, at send time:** the project window is visible, not minimised and `is_focused()`, tracked from `WindowEvent::Focused`. Another focused Weaver window does not count.
+- **Click routing:**
+  - Each notification gets an `i32` id from an app-wide counter, mapped to the project hash and its target (job, round or permission).
+  - A `tap` on a mapped id is `desktop.NOTIFICATION_CLICKED`: the project window is shown, unminimised and focused, and the UI is told what to show.
+  - Clicks on unmapped ids, or for a closed project, are ignored.
+  - **App notification:** the System Certificates notification is mapped to no project and skips the foreground test. Its `tap` focuses the project window used most recently (focus order of the window registry) and tells its UI to show Settings; with no project window, it focuses the welcome window. A system that does not show it while Weaver is in front changes nothing else: the banners still say it.
+- **Withdrawing:**
+  - Linux: `remove_active`.
+  - macOS and Windows cannot remove a shown notification. Weaver drops its mapping instead, so a later click only brings the window forward.
+  - All mappings are dropped when the window closes.
+- **Windows:** a click is reported only while the toast is on screen. A click from the Action Center launches Weaver, and single-instance treats it as `developer.REOPEN_APP`.

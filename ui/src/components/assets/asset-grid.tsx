@@ -311,7 +311,7 @@ export function AssetGrid({
                         {isLarge(asset.size) ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span role="img" aria-label={LARGE_TEXT} className="absolute -right-2 -top-1 rounded-full bg-background text-amber-600 dark:text-amber-400">
+                              <span role="img" aria-label={LARGE_TEXT} className="absolute -right-2 -top-1 rounded-full bg-background text-peach-ink">
                                 <TriangleAlert aria-hidden className="size-4" />
                               </span>
                             </TooltipTrigger>

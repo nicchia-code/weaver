@@ -57,7 +57,7 @@ async function show(cards: BoardCard[], patch: Partial<BoardSnapshot> = {}, acti
   }) as unknown as typeof call);
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <BoardActionsContext.Provider value={{ focusSteps: () => 1, viewOn: vi.fn(), ...actions }}>
           <BoardProvider projectId={PROJECT}>
             <BoardView />
@@ -82,10 +82,10 @@ beforeEach(() => {
 });
 
 describe("the card of a Drift", () => {
-  it("has a red left border, the id, the title, Resolve and Dismiss Drift", async () => {
+  it("has a Peach left border, the id, the title, Resolve and Dismiss Drift", async () => {
     await show([drift()]);
     const shown = within(card());
-    expect(card().className).toContain("border-l-red-600");
+    expect(card().className).toContain("border-l-peach");
     expect(shown.getByRole("img", { name: "Short number (temporary) D3" })).toBeInTheDocument();
     expect(shown.getByRole("button", { name: "The code ships twice" })).toBeInTheDocument();
     expect(shown.getByRole("button", { name: "Resolve" })).not.toHaveAttribute("aria-disabled");

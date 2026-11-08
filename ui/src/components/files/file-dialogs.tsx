@@ -87,7 +87,7 @@ export function LeaveDialog({
           <AlertDialogTitle>Save changes to {plural(listed.length, "file", "files")}?</AlertDialogTitle>
           <AlertDialogDescription>These files have unsaved changes:</AlertDialogDescription>
         </AlertDialogHeader>
-        <ul className="max-h-48 overflow-auto rounded-md border px-3 py-2 font-mono text-xs">
+        <ul className="max-h-48 overflow-auto rounded-lg px-3 py-2 font-mono shadow-ring text-xs">
           {listed.map((path) => (
             <li key={path} className="truncate">
               {path}
@@ -256,7 +256,7 @@ function FolderChooser({
         role="tree"
         aria-label="Folders of the project"
         onKeyDown={onKeyDown}
-        className="max-h-72 overflow-auto rounded-md border py-1 text-sm"
+        className="max-h-72 overflow-auto rounded-lg py-1 text-sm shadow-ring"
       >
         {rows.map((row) => {
           const isOpen = open.has(row.path);

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · Jobs</title>
+<script src="a2d24565-26f6-4809-9499-3df1e9e23fbd"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F6F5F1; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; font-size: 14px">
+  <div style="flex: 1 1 248px; max-width: 100%; display: flex">
+    <dc-import name="Sidebar" active="jobs" hint-size="248px,960px"></dc-import>
+  </div>
+
+  <main style="flex: 999 1 560px; min-width: 0; margin: 8px; background: #FFFFFF; border-radius: 14px; box-shadow: 0 0 0 1px #E7E5DF, 0 1px 3px rgba(24,24,27,0.04); display: flex; flex-wrap: wrap; overflow: hidden">
+
+    <section aria-label="Job list" style="flex: 1 1 300px; max-width: 100%; display: flex; flex-direction: column; background: #FAF9F6; border-right: 1px solid #EFEDE7">
+      <div style="display: flex; flex-direction: column; gap: 14px; padding: 18px 18px 14px">
+        <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em">Jobs</h1>
+        <div role="tablist" aria-label="Filter" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; border-radius: 10px; background: #EFEDE7">
+          <button type="button" role="tab" aria-selected="true" style="height: 30px; border: 0; border-radius: 8px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(24,24,27,0.08); font: inherit; font-size: 12.5px; font-weight: 500; color: #18181B; cursor: pointer">All 3</button>
+          <button type="button" role="tab" aria-selected="false" style="height: 30px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">Running 1</button>
+          <button type="button" role="tab" aria-selected="false" style="height: 30px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">Done 2</button>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding: 0 10px 16px">
+        <a href="#" aria-current="true" style="display: flex; flex-direction: column; gap: 6px; padding: 12px 12px 12px; border-radius: 11px; background: #FFFFFF; box-shadow: 0 0 0 1px #E0DDD5, 0 2px 6px rgba(24,24,27,0.05); text-decoration: none; color: #18181B">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-size: 13.5px; font-weight: 600">All tasks</span>
+            <span style="font-size: 12px; color: #6B6B73">run</span>
+            <span style="flex: 1"></span>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #2E5F8F; background: #E6EFF8; border-radius: 999px; padding: 2px 8px 2px 7px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4A86C5"></span>Running</span>
+          </div>
+          <span style="font-size: 12.5px; color: #52525B; line-height: 1.45">Implementa il primo gruppo di Task eseguibili con un sotto-agente per gruppo</span>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6B6B73"><span>Today 09:34</span><span aria-hidden="true">·</span><span style="font-variant-numeric: tabular-nums">2m 16s</span><span aria-hidden="true">·</span><span>1 sub-agent</span></div>
+        </a>
+        <a href="#" style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 11px; text-decoration: none; color: #18181B">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-size: 13.5px; font-weight: 600">All tasks</span>
+            <span style="font-size: 12px; color: #6B6B73">run</span>
+            <span style="flex: 1"></span>
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: #3F6B3C; background: #E9F2E7; border-radius: 999px; padding: 2px 8px"><svg width="10" height="10" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Done</span>
+          </div>
+          <span style="font-size: 12.5px; color: #52525B; line-height: 1.45">Controlli finali superati; registra nella cronologia</span>
+          <div style="display: flex; gap: 6px; font-size: 12px; color: #6B6B73"><span>6 Nov 14:10</span><span aria-hidden="true">·</span><span>1h 58m</span></div>
+        </a>
+        <a href="#" style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 11px; text-decoration: none; color: #18181B">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-size: 13.5px; font-weight: 600">Setup</span>
+            <span style="font-size: 12px; color: #6B6B73">setup</span>
+            <span style="flex: 1"></span>
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: #3F6B3C; background: #E9F2E7; border-radius: 999px; padding: 2px 8px"><svg width="10" height="10" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Done</span>
+          </div>
+          <span style="font-size: 12.5px; color: #52525B; line-height: 1.45">Consegna la Proposal di avvio e ne verifica la validità</span>
+          <div style="display: flex; gap: 6px; font-size: 12px; color: #6B6B73"><span>6 Nov 13:52</span><span aria-hidden="true">·</span><span>18m 17s</span></div>
+        </a>
+      </div>
+    </section>
+
+    <section aria-label="Job detail" style="flex: 999 1 480px; min-width: 0; display: flex; flex-direction: column">
+      <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px 28px; border-bottom: 1px solid #EFEDE7">
+        <div style="display: flex; flex-direction: column; gap: 3px; flex: 1 1 260px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <h2 style="margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em">All tasks</h2>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: #2E5F8F; background: #E6EFF8; border-radius: 999px; padding: 3px 9px 3px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4A86C5"></span>Running · 2m 16s</span>
+          </div>
+          <span style="font-size: 13px; color: #6B6B73">Started today at 09:34 · batch 1 of 1 · up to 20 sub-agents</span>
+        </div>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #EBCBD4; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; color: #9B3B57; cursor: pointer">
+          <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.8"></rect></svg>Stop job
+        </button>
+      </header>
+
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 22px; padding: 22px 28px 28px; max-width: 860px; width: 100%; box-sizing: border-box">
+        <details style="border-radius: 12px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7; padding: 12px 14px">
+          <summary style="cursor: pointer; font-size: 12.5px; font-weight: 500; color: #52525B">Instructions from Weaver</summary>
+          <p style="margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #52525B">Use the weaver-implement skill on the runnable Tasks, one batch at a time, until none is left. Run at most 20 sub-agents at once. Ask the developer only with <code style="font-family: 'Geist Mono', monospace; font-size: 12px">weaver question new</code>. Write texts for the developer in it-IT.</p>
+        </details>
+
+        <ol aria-label="Timeline" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+            <li style="display: flex; gap: 14px">
+              <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex: none">
+                <span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 50%; background: #E9F2E7; color: #3F6B3C; display: grid; place-items: center; margin-top: 1px">
+                  <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                </span>
+                <span style="flex: 1; width: 2px; background: #EFEDE7; min-height: 14px"></span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 3px; padding-bottom: 16px; min-width: 0; flex: 1">
+                <span style="font-size: 13.5px; line-height: 1.45; font-family: {{s.font}}">{{s.label}}</span>
+                <span style="font-size: 12px; color: #6B6B73">{{s.meta}}</span>
+              </div>
+            </li>
+          </sc-for>
+
+          <li style="display: flex; gap: 14px">
+            <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex: none">
+              <span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 50%; background: #E6EFF8; display: grid; place-items: center; margin-top: 12px">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #4A86C5; box-shadow: 0 0 0 3px rgba(74,134,197,0.2)"></span>
+              </span>
+              <span style="flex: 1; width: 2px; background: linear-gradient(#C7DBF0, #EFEDE7); min-height: 14px"></span>
+            </div>
+            <article style="flex: 1; min-width: 0; margin-bottom: 16px; border-radius: 12px; background: #FFFFFF; box-shadow: 0 0 0 1px #D6E4F2, 0 4px 14px rgba(46,95,143,0.07); overflow: hidden">
+              <div style="height: 3px; background: #E6EFF8"><div style="width: 45%; height: 3px; background: #4A86C5"></div></div>
+              <div style="display: flex; flex-direction: column; gap: 12px; padding: 14px 16px">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                  <span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 7px; background: #E6EFF8; color: #2E5F8F; display: grid; place-items: center">
+                    <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="5" width="10.4" height="8" rx="2.2"></rect><path d="M8 2.6V5M6 9h.01M10 9h.01"></path></svg>
+                  </span>
+                  <div style="display: flex; flex-direction: column; gap: 1px; flex: 1 1 200px; min-width: 0">
+                    <span style="font-size: 14px; font-weight: 600">Implementing omp ACP simplifier Task</span>
+                    <span style="font-size: 12px; color: #6B6B73">weaver-implementer · working for 1m 48s</span>
+                  </div>
+                  <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #52525B; background: #F6F5F1; border-radius: 5px; padding: 2px 6px">T1</span>
+                </div>
+                <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px">
+                  <li style="display: flex; align-items: center; gap: 8px; color: #52525B"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" stroke="#3F6B3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Read requirements and the Task body</li>
+                  <li style="display: flex; align-items: center; gap: 8px; color: #52525B"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" stroke="#3F6B3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Added <code style="font-family: 'Geist Mono', monospace; font-size: 12px">omp-acp</code> to the service settings</li>
+                  <li style="display: flex; align-items: center; gap: 8px; color: #18181B; font-weight: 500"><span aria-hidden="true" style="width: 13px; height: 13px; display: grid; place-items: center"><span style="width: 7px; height: 7px; border-radius: 50%; background: #4A86C5"></span></span>Writing the ACP client for the worker</li>
+                </ul>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid #EFEDE7">
+                  <span style="font-size: 12px; color: #6B6B73; flex: 1">3 files changed so far</span>
+                  <button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 0; background: #F6F5F1; font: inherit; font-size: 12.5px; font-weight: 500; color: #18181B; cursor: pointer">Open sub-agent</button>
+                </div>
+              </div>
+            </article>
+          </li>
+
+          <li style="display: flex; gap: 14px">
+            <div style="display: flex; justify-content: center; width: 20px; flex: none">
+              <span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px #D9D6CE; display: grid; place-items: center">
+                <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" stroke="#6B6B73" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3l2 1.2"></path></svg>
+              </span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <span style="font-size: 13.5px; color: #52525B">Waiting for weaver-implementer</span>
+              <span style="font-size: 12px; color: #6B6B73">Nothing else is actionable until it returns · checked 5 times</span>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div style="padding: 0 28px 24px">
+        <div style="max-width: 860px; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; border-radius: 14px; box-shadow: 0 0 0 1px #E0DDD5, 0 4px 14px rgba(24,24,27,0.05)">
+          <label for="agentmsg" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message the agent</label>
+          <input id="agentmsg" type="text" placeholder="Steer the agent while it runs…" style="flex: 1; min-width: 0; border: 0; outline: none; font: inherit; font-size: 14px; color: #18181B; background: transparent; height: 32px">
+          <button type="button" aria-label="Send" style="width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: #18181B; border-radius: 10px; color: #FFFFFF; cursor: pointer">
+            <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3.5M4 7.5l4-4 4 4"></path></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000}}">
+class Component extends DCLogic {
+  renderVals() {
+    var mono = "'Geist Mono', monospace";
+    return {
+      steps: [
+        { label: 'Read the weaver-implement skill', meta: '09:34', font: 'inherit' },
+        { label: 'weaver task list --runnable --groups', meta: '1 runnable Task in 1 group', font: mono },
+        { label: 'Read the implementer agent definition', meta: '09:34', font: 'inherit' },
+        { label: 'Implementa il primo gruppo di Task eseguibili con un sotto-agente per gruppo', meta: 'Note · 09:34', font: 'inherit' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

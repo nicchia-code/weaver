@@ -85,7 +85,7 @@ export function UpdateSkills() {
             ) : null}
           </div>
         ) : last?.kind === "failed" ? (
-          <p className="text-red-600 dark:text-red-400">{skillsFailure(last.reason)}</p>
+          <p className="text-rose-ink">{skillsFailure(last.reason)}</p>
         ) : null}
       </div>
     </div>

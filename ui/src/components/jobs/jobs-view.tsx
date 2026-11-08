@@ -346,7 +346,6 @@ function MessageBox({ projectId, job }: { projectId: string; job: JobRow }) {
 }
 
 const NOT_ASKED = () => {};
-const NO_ARRIVALS: readonly number[] = [];
 
 /**
  * The read-only conversation of the sub-agent at `path` (of a job, of an Ask more conversation or of
@@ -377,7 +376,7 @@ export function SubAgentConversationView({
    */
   headerOf?: ViewId;
 }) {
-  const { entries, unavailable } = useSubAgentConversation(api, path);
+  const { entries, arrivals, unavailable } = useSubAgentConversation(api, path);
   const node = nodeAt(nodes, path);
   const names = namesAlong(nodes, path);
   return (
@@ -398,7 +397,7 @@ export function SubAgentConversationView({
         ) : (
           <ConversationEntries
             entries={entries}
-            arrivals={NO_ARRIVALS}
+            arrivals={arrivals}
             working={node?.state === "working"}
             agent={names[names.length - 1]}
             latest

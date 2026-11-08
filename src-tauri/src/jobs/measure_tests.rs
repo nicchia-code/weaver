@@ -254,7 +254,7 @@ async fn a_job_stopped_in_the_queue_is_measured_without_session_and_without_acti
     assert!(line.get("files").is_none() && line.get("advisors").is_none());
     assert_eq!(
         line["unavailable"],
-        "the job has no session: omp never opened one"
+        "the job has no session: the agent never opened one"
     );
     // The same line in text: the durations and the reason.
     let text = measure::describe(&line);

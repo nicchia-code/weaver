@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · Foundations</title>
+<script src="ee8692cb-8632-4353-ab01-796e0d6e4861"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="width: 1280px; height: 900px; box-sizing: border-box; padding: 56px; background: #FFFFFF; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 56px">
+
+  <section style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">Threads</h2>
+      <p style="margin: 0; font-size: 13px; color: #6B6B73">The logo's five threads. Each carries one meaning, and only that meaning.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{threads}}" as="t" hint-placeholder-count="5">
+        <div style="display: flex; align-items: center; gap: 14px">
+          <div style="display: flex; border-radius: 9px; overflow: hidden; box-shadow: 0 0 0 1px #E7E5DF; flex: none">
+            <span style="width: 44px; height: 36px; background: {{t.base}}"></span>
+            <span style="width: 44px; height: 36px; background: {{t.tint}}"></span>
+            <span style="width: 44px; height: 36px; background: {{t.ink}}"></span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex: 1">
+            <span style="font-size: 13.5px; font-weight: 600">{{t.name}}</span>
+            <span style="font-size: 12.5px; color: #52525B">{{t.role}}</span>
+          </div>
+          <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">{{t.hex}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">Ground and ink</h2>
+      <p style="margin: 0; font-size: 13px; color: #6B6B73">Warm paper outside, white work surface inside. Black is the only action color.</p>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+      <sc-for list="{{neutrals}}" as="n" hint-placeholder-count="6">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span style="height: 52px; border-radius: 10px; background: {{n.hex}}; box-shadow: 0 0 0 1px #E7E5DF"></span>
+          <span style="font-size: 12.5px; font-weight: 500">{{n.name}}</span>
+          <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">{{n.hex}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">Type · Geist</h2>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">22 / 600</span><span style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">Stored information</span></div>
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">19 / 600</span><span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em">Board</span></div>
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">15 / 600</span><span style="font-size: 15px; font-weight: 600">Semplificazione con omp ACP</span></div>
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">14 / 400</span><span style="font-size: 14px">Il worker gira sul Mac e avvia omp acp.</span></div>
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">12 / 400</span><span style="font-size: 12px; color: #6B6B73">Today 09:34 · 2m 16s</span></div>
+      <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 92px; font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">Mono 12</span><span style="font-family: 'Geist Mono', monospace; font-size: 12px">weaver proposal show q0ewq9c0</span></div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">Components</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+      <button type="button" style="height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: #18181B; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500">Primary</button>
+      <button type="button" style="height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; color: #18181B; font: inherit; font-size: 13px; font-weight: 500">Secondary</button>
+      <button type="button" style="height: 36px; padding: 0 12px; border-radius: 9px; border: 0; background: transparent; color: #52525B; font: inherit; font-size: 13px; font-weight: 500">Ghost</button>
+      <button type="button" style="height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #EBCBD4; background: #FFFFFF; color: #9B3B57; font: inherit; font-size: 13px; font-weight: 500">Destructive</button>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #2E5F8F; background: #E6EFF8; border-radius: 999px; padding: 3px 9px 3px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4A86C5"></span>Running</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #3F6B3C; background: #E9F2E7; border-radius: 999px; padding: 3px 9px">Done</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #9A4A22; background: #FBEDE4; border-radius: 999px; padding: 3px 9px">Needs you</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #5B4A99; background: #EFEAF8; border-radius: 999px; padding: 3px 9px">Proposal</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #9B3B57; background: #F9E8ED; border-radius: 999px; padding: 3px 9px">Failed</span>
+    </div>
+    <ul style="margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.55; color: #52525B">
+      <li>Radii 6 · 9 · 12 · 14. Rings (1px) instead of borders on cards.</li>
+      <li>Color only for state. Everything else is ink on paper.</li>
+      <li>Every agent action ends in a decision you can take right there.</li>
+    </ul>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      threads: [
+        { name: 'Sky', role: 'Running, live work', base: '#96BBE0', tint: '#E6EFF8', ink: '#2E5F8F', hex: '#96BBE0' },
+        { name: 'Sage', role: 'Done, validated', base: '#9DC09A', tint: '#E9F2E7', ink: '#3F6B3C', hex: '#9DC09A' },
+        { name: 'Peach', role: 'Needs you, data and risk notes', base: '#EDB08F', tint: '#FBEDE4', ink: '#9A4A22', hex: '#EDB08F' },
+        { name: 'Lavender', role: 'Proposals, agent decisions, questions', base: '#A996D6', tint: '#EFEAF8', ink: '#5B4A99', hex: '#A996D6' },
+        { name: 'Rose', role: 'Failed, destructive', base: '#E3A3B5', tint: '#F9E8ED', ink: '#9B3B57', hex: '#E3A3B5' }
+      ],
+      neutrals: [
+        { name: 'Paper', hex: '#F6F5F1' },
+        { name: 'Surface', hex: '#FFFFFF' },
+        { name: 'Lane', hex: '#FAF9F6' },
+        { name: 'Line', hex: '#E7E5DF' },
+        { name: 'Ink 2', hex: '#52525B' },
+        { name: 'Ink', hex: '#18181B' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

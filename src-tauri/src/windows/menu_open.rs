@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 use super::commands::pick_folder;
 use super::jobs::OpenReason;
@@ -59,9 +59,15 @@ fn chosen_from(app: &AppHandle) -> Option<String> {
     super::menu::focused_window(app).map(|window| window.label().to_owned())
 }
 
-/// **Open Folder…**
+/// **Open Folder…** of the File menu: the picker is modal to the window with the focus.
 pub fn open_folder(app: &AppHandle) {
-    let from = super::menu::focused_window(app);
+    open_folder_from(app, super::menu::focused_window(app));
+}
+
+/// `Open Folder…`, modal to `from` (the window it was chosen from: the one with the focus for the
+/// File menu, the asking window for the project switcher and the palette), and the opening of the
+/// folder chosen. A failure reaches `from` as `menu-open-failed`.
+pub fn open_folder_from(app: &AppHandle, from: Option<WebviewWindow>) {
     let Some(open) = app
         .try_state::<Arc<PickerLatch>>()
         .and_then(|latch| latch.inner().try_take())

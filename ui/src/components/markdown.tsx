@@ -1,4 +1,4 @@
-import type { Element, ElementContent } from "hast";
+import type { Element, ElementContent, Root, RootContent } from "hast";
 import { useMemo, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { MermaidBlock } from "@/components/mermaid-block";
 import { call } from "@/lib/backend";
+import { MATCH_CLASS, splitMatches } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 /** `http` and `https` are the only schemes a link opens with. */
@@ -39,6 +40,8 @@ export interface MarkdownProps {
    * `null` when it cannot be shown. Without it no image is shown: its alt text takes its place.
    */
   resolveImage?: (path: string) => string | null;
+  /** Words to mark wherever they occur in the text (a search): each match is wrapped in a `mark`. Code blocks are left as they are. */
+  highlight?: readonly string[];
   className?: string;
 }
 
@@ -46,6 +49,25 @@ function textOf(node: ElementContent): string {
   if (node.type === "text") return node.value;
   if (node.type === "element") return node.children.map(textOf).join("");
   return "";
+}
+
+const NO_WORDS: readonly string[] = [];
+
+/** A rehype plugin that wraps the matches of `words` in `mark` elements, outside code blocks. */
+function markMatches(words: readonly string[]) {
+  const mark = (children: RootContent[]): RootContent[] =>
+    children.flatMap((child): RootContent[] => {
+      if (child.type === "text") {
+        return splitMatches(child.value, words).map((piece) =>
+          piece.match ? { type: "element", tagName: "mark", properties: {}, children: [{ type: "text", value: piece.text }] } : { type: "text", value: piece.text },
+        );
+      }
+      if (child.type === "element" && child.tagName !== "pre") child.children = mark(child.children) as ElementContent[];
+      return [child];
+    });
+  return () => (tree: Root) => {
+    tree.children = mark(tree.children);
+  };
 }
 
 function mermaidSource(pre: Element | undefined): string | null {
@@ -69,7 +91,7 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-primary underline underline-offset-2 hover:no-underline"
+      className="text-sky-ink underline underline-offset-2 hover:no-underline"
       onClick={(event) => {
         event.preventDefault();
         openInBrowser(href);
@@ -87,7 +109,8 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
  * `http` or `https`, in the system browser; remote images are never fetched and show as links;
  * nothing scrolls sideways except tables and code, inside their own box.
  */
-export function Markdown({ children, holderHeadingLevel = 2, resolveImage, className }: MarkdownProps) {
+export function Markdown({ children, holderHeadingLevel = 2, resolveImage, highlight = NO_WORDS, className }: MarkdownProps) {
+  const rehypePlugins = useMemo(() => (highlight.length > 0 ? [markMatches(highlight)] : []), [highlight]);
   const components = useMemo<Components>(() => {
     const heading = (level: number) => {
       const Tag = `h${Math.min(6, Math.max(level, holderHeadingLevel + 1))}` as "h3";
@@ -148,13 +171,14 @@ export function Markdown({ children, holderHeadingLevel = 2, resolveImage, class
         if (diagram !== null) return <MermaidBlock code={diagram} />;
         return <pre className="max-w-full overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{children}</pre>;
       },
-      code: ({ className: c, children }) => <code className={cn("font-mono", !c && "rounded bg-muted px-1 py-0.5 text-xs")}>{children}</code>,
+      code: ({ className: c, children }) => <code className={cn("font-mono", !c && "rounded-sm bg-muted px-1 py-0.5 text-xs")}>{children}</code>,
+      mark: ({ children }) => <mark className={MATCH_CLASS}>{children}</mark>,
     };
   }, [holderHeadingLevel, resolveImage]);
 
   return (
     <div className={cn("min-w-0 max-w-full space-y-2 break-words text-sm", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={(url) => url}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={components} urlTransform={(url) => url}>
         {children}
       </ReactMarkdown>
     </div>

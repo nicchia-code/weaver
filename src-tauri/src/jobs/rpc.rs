@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, oneshot};
 /// Why a request got no result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RpcError {
-    /// omp answered with an error: its message and the `data` of the JSON-RPC error (a string as
+    /// the agent answered with an error: its message and the `data` of the JSON-RPC error (a string as
     /// it is, any other value serialized), where omp may carry the cause.
     Remote {
         code: i64,
@@ -50,7 +50,7 @@ impl RpcError {
                 format!("{message}: {data}")
             }
             RpcError::Remote { message, .. } => message.clone(),
-            RpcError::Closed => "omp closed the connection".to_owned(),
+            RpcError::Closed => "the agent closed the connection".to_owned(),
         }
     }
 }
@@ -255,7 +255,7 @@ fn route(
                     message: error
                         .get("message")
                         .and_then(Value::as_str)
-                        .unwrap_or("omp answered with an error")
+                        .unwrap_or("the agent answered with an error")
                         .to_owned(),
                     data: error
                         .get("data")

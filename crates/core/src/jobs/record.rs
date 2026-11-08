@@ -109,6 +109,10 @@ pub struct JobRecord {
     /// developer: the time since its last change of state is unknown and never counted.
     #[serde(default, skip_serializing_if = "is_false")]
     pub running_incomplete: bool,
+    /// The Chat of the project started the job, or sent the request that started it: the Chat
+    /// shows its `Started <name>` line again when the conversation is reloaded.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub by_chat: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -363,6 +367,7 @@ mod tests {
             overlay: "bash:\n".to_owned(),
             running: None,
             running_incomplete: false,
+            by_chat: false,
         }
     }
 

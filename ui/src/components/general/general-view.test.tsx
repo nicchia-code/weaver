@@ -356,6 +356,7 @@ describe("GeneralView", () => {
         { kind: "agent", text: "On it.", complete: true },
         ...(path.length === 1 ? [nestedRow] : []),
       ],
+      arrivals: [],
       unavailable: null,
       ...patch,
     });

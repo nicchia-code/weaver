@@ -551,7 +551,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
             data-drag-label=""
             aria-hidden
             style={{ position: "fixed", left: lastPoint.current.x + LABEL_OFFSET_PX, top: lastPoint.current.y + LABEL_OFFSET_PX, pointerEvents: "none" }}
-            className="z-50 flex max-w-64 items-center gap-2 rounded-md border bg-popover px-2 py-1 text-sm text-popover-foreground shadow-md"
+            className="z-50 flex max-w-64 items-center gap-2 rounded-lg bg-popover px-2 py-1 text-sm text-popover-foreground shadow-pop"
           >
             {dragging.kind === "folder" ? <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" /> : <File aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
             <span className="truncate">{dragging.name}</span>

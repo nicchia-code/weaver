@@ -35,11 +35,12 @@ description: "Use when reading or writing Weaver's settings, recent projects, jo
 
 ## window
 
-- Local state that is not a setting lives in Tauri's local data folder (`app_local_data_dir`), never in a project. `<project hash>` is the first 16 hex characters of the SHA-256 of the canonical project root path.
+- Local state that is not a setting lives in Tauri's local data folder (`app_local_data_dir`), never in a project, except the window-state file below. `<project hash>` is the first 16 hex characters of the SHA-256 of the canonical project root path; on Windows the path is lowercased first, so one folder written with different cases gives one hash.
 - `state.json`:
   - `recent`: up to 10 projects, most recently opened first, each `{path, name, opened}`; one entry per canonical path; an entry leaves only when pushed out by newer ones, even if its folder no longer exists, when the developer removes it from the welcome window, or when `Clear Recent` of the File menu empties the list. Emptying the list changes neither `lastSession` nor the open windows.
   - `lastSession`: the canonical paths of the projects whose window was open when Weaver last quit, in opening order. It is written at quit and on each window open or close; closing a window removes it from the list, quitting does not.
-- Window size and position are kept by Tauri's window-state plugin in its own file, keyed by project hash.
+  - `jobsList`: the Jobs list of each project's window (`requirements/ui#job`), keyed by `<project hash>`: `{width, hidden}`, `width` the chosen width in px, an integer from 240 to 420, `hidden` a boolean. A project without an entry, or a value out of range or of the wrong type, counts as 280 px and shown. The backend writes it when a drag of the list's rule ends, at each keyboard step of the rule and when the list is hidden or shown, never during a drag; the narrowing of a narrow window is never written. The UI receives the values with the window's state and sends the changes.
+- Window size and position are kept by Tauri's window-state plugin in its own file, in the app's config folder (`app_config_dir`) where the plugin puts it, keyed by the window's label, which carries the project hash.
 
 ## job
 
@@ -50,6 +51,7 @@ description: "Use when reading or writing Weaver's settings, recent projects, jo
   - `sessionId` (omp's ACP session), `omp` (program path), `args` and `env` (the arguments and the Weaver-set environment variables it was started with; never inherited variables, and never the System Certificates variables, which are computed again at every start and resume);
   - `announcements`: `{id, kind, title}` of each card it announced, plus `card` (`{kind, id}`) once the card was filed with that announcement, so that after a restart Weaver still knows which announced cards already arrived; an announcement waits until its card is on the Board, and all are withdrawn when the job ends;
   - `notes`: its last notes with their instants;
+  - `byChat: true`: only for a job that Chat started or whose request Chat sent, so that the Chat shows its `Started <job name>` line and the cards of its Proposals again after a restart (`requirements/ui#general-chat`);
   - `running`: only for a measured job (`design`, `rework`, `refinement`, `run`), the milliseconds it has spent in Running so far and, while it is Running, the instant it entered Running, updated at each change of its state, so that a resumed job goes on counting; `runningIncomplete: true` once Weaver found it Running or Waiting for the developer after stopping unexpectedly (crash or forced quit): the time since its last change of state is unknown and never counted.
 - No conversation text is stored by Weaver: omp keeps it in its own session files, and Weaver reloads it from there.
 - Records of ended jobs are kept for the Jobs list: the 50 most recent per project; older ones are deleted.

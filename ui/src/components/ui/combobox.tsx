@@ -147,7 +147,7 @@ const Combobox = React.forwardRef<HTMLInputElement, ComboboxProps>(
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(option)}
                 className={cn(
-                  "flex cursor-default select-none items-baseline gap-2 rounded-sm px-2 py-1.5 text-sm",
+                  "flex cursor-default select-none items-baseline gap-2 rounded-md px-2 py-1.5 text-sm",
                   index === active ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground",
                 )}
               >

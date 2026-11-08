@@ -55,9 +55,9 @@ File: `acp.md`
 
 ## Architecture
 
-Use when building the app structure, backend state, the project's file watching, IPC with the CLI or question rounds.
+Use when building the app structure, backend state, the project's file watching, the requests behind the Board's drafts, IPC with the CLI or question rounds.
 
-Sections: `General`, `project`, `question-round`
+Sections: `General`, `project`, `design-request`, `question-round`
 
 File: `architecture.md`
 
@@ -119,7 +119,7 @@ File: `system-certificates.md`
 
 ## omp usage
 
-Use when reading, parsing or keeping omp's usage limits of the connected providers.
+Use when reading, parsing or keeping omp's usage limits of the connected providers, or computing the summary of Usage.
 
 Sections: `usage`
 

@@ -473,12 +473,12 @@ mod tests {
     fn a_queued_job_fails_with_the_reason_or_is_stopped() {
         let mut failed = JobMachine::new();
         assert_eq!(
-            failed.handle(Event::StartFailed("omp did not answer within 30 s".into())),
+            failed.handle(Event::StartFailed("the agent did not answer within 30 s".into())),
             [ShutDown, Ended]
         );
         assert_eq!(
             (failed.state(), failed.reason()),
-            (JobState::Failed, Some("omp did not answer within 30 s"))
+            (JobState::Failed, Some("the agent did not answer within 30 s"))
         );
 
         for event in [Event::StopAgent, Event::WindowClosed] {
@@ -520,12 +520,12 @@ mod tests {
         // omp is gone already: no shutdown to run.
         let mut exit = running();
         assert_eq!(
-            exit.handle(Event::Exited("omp exited with code 3".into())),
+            exit.handle(Event::Exited("the agent exited with code 3".into())),
             [Ended]
         );
         assert_eq!(
             (exit.state(), exit.reason()),
-            (JobState::Failed, Some("omp exited with code 3"))
+            (JobState::Failed, Some("the agent exited with code 3"))
         );
     }
 

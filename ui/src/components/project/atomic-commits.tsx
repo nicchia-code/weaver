@@ -120,14 +120,14 @@ export function AtomicCommitsSetting() {
           </p>
         ) : null}
         {diagnostic ? (
-          <p id={diagnosticId} className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+          <p id={diagnosticId} className="flex items-start gap-1.5 text-sm text-peach-ink">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
             {diagnostic}
           </p>
         ) : null}
       </div>
       {failure ? (
-        <p id={failureId} role="alert" className="flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
+        <p id={failureId} role="alert" className="flex items-start gap-1.5 text-sm text-rose-ink">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {failure}
         </p>

@@ -1,0 +1,11 @@
+# Agent work
+
+How Weaver gets omp to work and how the agent talks to the developer. Weaver never calls a language model: it starts omp as an ACP server in the project and sends it a one-line instruction that names a skill Weaver installed (setup, design, import, scan, implement, resolve) and the thing to work on. Each instruction is a job, with one omp process and one conversation inside Weaver, where the developer reads what the agent does, writes to it and can stop it. Every job runs on the model of its role, set by the developer once for all projects: the analysis model for setup, design, import, rework, refinement and resolve, the scan model for scans, the execution model for Runs; a Proposal's chosen model replaces the analysis and execution models for the jobs born from it. An empty role uses omp's default.
+
+When it has sub-agents the agent works in parallel in the same folder: at most as many at once as the developer's limit, which every instruction states. The agent passes each sub-agent what it already read about its part, and each sub-agent tells back where it found the code.
+
+The agent asks the developer only through question rounds of Weaver, never in another way; omp's own ways of asking are declined in every job. Decisions that belong to the developer never become questions: the agent stops and says the decision is his, on the Board.
+
+Next to the jobs there is General, a free conversation with omp in each project, with no instruction and no skill, for small work the developer asks directly. General is not a job and shows nothing on the Board; on the developer's explicit request the agent there can start a job of Weaver.
+
+Ask more opens a free conversation of the same kind about one thing the developer is reading: a Proposal, a Task, a Drift, a History entry with the Tasks it cites, a question of a round or the Requirements as a whole. Each one starts empty; the developer's first message reaches the agent together with an instruction of Weaver that describes the chosen thing; for the Requirements, the agent loads by itself the Requirement skills that fit the question. Like General it is not a job: it never waits for other work and no work waits for it, it holds no Task, announces no card, asks no question round and shows nothing on the Board.
