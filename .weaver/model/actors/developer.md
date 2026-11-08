@@ -65,7 +65,7 @@ The developer asks Weaver to read the usage limits again after reading them fail
 The developer closes Usage, also by choosing to open Settings from it.
 
 ### NEW_REQUEST
-The developer starts writing a design request, from the Board's Backlog or by starting from scratch: the setup request when the Model is empty, an ordinary design request otherwise.
+The developer starts writing a design request, from the Board or by starting from scratch: the setup request when the Model is empty, an ordinary design request otherwise.
 
 ### SEND_REQUEST
 The developer sends the design request he wrote to the agent, from the request itself or from its card on the Board. Every asset the request tags at that moment is passed to the agent as a file to read; the request itself stays as he wrote it.

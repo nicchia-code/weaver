@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -462,15 +462,16 @@ describe("the other controls during a merge", () => {
     const scanSystem = vi.fn();
     install(conflicts(2));
     await show({ scanSystem });
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const user = userEvent.setup();
     await screen.findByRole("region", { name: "Merge in progress" });
     const more = within(header()).getByRole("button", { name: "More actions" });
     await user.click(more);
     const item = await screen.findByRole("menuitem", { name: "Scan System…" });
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveAccessibleDescription("A merge is in progress");
+    expect(item).toHaveAttribute("data-disabled");
     expect(within(item).getByText("A merge is in progress")).toHaveClass("text-xs", "text-muted-foreground");
-    await user.click(item);
+    fireEvent.click(item);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     await publish(statusOf(2, AVAILABLE));

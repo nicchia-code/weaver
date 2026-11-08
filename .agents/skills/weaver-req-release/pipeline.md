@@ -5,8 +5,15 @@
 ### Repository
 
 - The code lives in the GitHub repository `nicchia-code/weaver`. Work lands on `dev`; `main` holds what is released. Both are protected: changes to `main` come from `dev` through a pull request whose `ci` checks passed.
-- The version lives in `src-tauri/tauri.conf.json` (`version`). `src-tauri/Cargo.toml`, `crates/core/Cargo.toml`, `crates/cli/Cargo.toml` and `ui/package.json` carry the same version; `ci` fails when they differ.
+- The version lives in `src-tauri/tauri.conf.json` (`version`). The Rust crates of the workspace (`src-tauri`, `crates/core`, `crates/cli`) take it from `[workspace.package]` of the root `Cargo.toml` through `version.workspace = true`, and `ui/package.json` carries the same version; `ci` fails when they differ. A change of version also updates `Cargo.lock`, which records it for every crate of the workspace, in the same commit.
 - Toolchains are pinned: Rust in `rust-toolchain.toml` (exact version, with `rustfmt` and `clippy`), Node in `.nvmrc` (exact version) and `ui/package.json` `engines`, pnpm through `packageManager`. Dependencies install from the committed lockfiles without updating them (`cargo --locked`, `pnpm install --frozen-lockfile`).
+
+### Dependencies
+
+- npm forced versions live in `pnpm-workspace.yaml` under `overrides:`, never in a `pnpm` field of a `package.json`, which the pinned pnpm ignores. They are recorded in `pnpm-lock.yaml`.
+- Current forced versions, for the end-to-end tests only: `glob` `>=14.0.2` (GHSA-3g3m-2fjr-6pw4) and `minimatch` `>=11.0.1` (GHSA-g3hv-75wg-m249), because Mocha and `readdir-glob` (through `webdriverio` → `archiver`) still ask for the vulnerable ranges. They are temporary: each is removed as soon as every package that brings it asks for a fixed version by itself.
+- The end-to-end tests use WebdriverIO 10.2.0 or later in the 10 line, for every `@wdio/*` package and `webdriverio`.
+- Accepted risk: `glib` 0.18 (GHSA-wrw7-89jp-8q8g, RUSTSEC-2024-0429), built only on Linux, comes from Tauri 2 and `drag` through GTK3 (`gtk` 0.18), whose bindings get no more releases. No Tauri 2 release allows `glib` 0.20 or later, and `glib` is never forced, which would break the Linux build. Weaver's own code never uses `glib`. The alert is dismissed on GitHub as `tolerable_risk`, with a comment saying why, and the risk stays accepted until Tauri moves to GTK4.
 
 ### App icon
 
