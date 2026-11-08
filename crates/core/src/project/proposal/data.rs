@@ -11,7 +11,7 @@ use crate::project::image::ProjectImage;
 use crate::project::layout::PROPOSALS_DIR;
 
 /// Keys of `proposal.md`, in the order `requirements/data#proposal` lists them.
-pub const KEYS: [&str; 15] = [
+pub const KEYS: [&str; 13] = [
     "status",
     "kind",
     "requires",
@@ -24,10 +24,12 @@ pub const KEYS: [&str; 15] = [
     "label",
     "refining",
     "job",
-    "chat",
-    "chatWriting",
     "drifts",
 ];
+
+/// Keys of a Proposal of an earlier version that no longer have a meaning: ignored when read and
+/// dropped the next time Weaver writes that `proposal.md`.
+const LEGACY_KEYS: [&str; 2] = ["chat", "chatWriting"];
 
 /// The folder of the Proposal's Task files, inside its folder.
 pub const TASKS_FOLDER: &str = "tasks";
@@ -167,17 +169,6 @@ pub fn job_of(card: &Card) -> Option<&str> {
     card.str_key("job")
 }
 
-/// `chat: true`: the agent of Chat created it; never removed.
-pub fn created_by_chat(card: &Card) -> bool {
-    card.bool_key("chat") == Some(true)
-}
-
-/// `chatWriting: true`: the agent of Chat is writing it, from its `proposal new` or `proposal edit`
-/// until the hand-over.
-pub fn chat_writing(card: &Card) -> bool {
-    card.bool_key("chatWriting") == Some(true)
-}
-
 /// Rejected with `Rework`.
 pub fn rework_requested(card: &Card) -> bool {
     card.bool_key("reworkRequested") == Some(true)
@@ -251,9 +242,13 @@ pub(crate) fn base_value(base: &BTreeMap<String, String>) -> Value {
     Value::Mapping(map)
 }
 
-/// The text of `card` after an edit of its front matter; the body is kept.
+/// The text of `card` after an edit of its front matter; the body is kept. The keys a Proposal of
+/// an earlier version may carry and no longer have a meaning ([`LEGACY_KEYS`]) are dropped.
 pub fn rewritten(card: &Card, edit: impl FnOnce(&mut Mapping)) -> String {
     let mut front = card.front.clone();
+    for key in LEGACY_KEYS {
+        front.remove(key);
+    }
     edit(&mut front);
     frontmatter::render(&front, &KEYS, &card.body)
 }
@@ -310,6 +305,20 @@ mod tests {
         );
         assert!(
             text.contains("label: Shop\nextra: kept\n---\n# Title\n\nWhy.\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn the_keys_of_chat_are_dropped_the_next_time_the_file_is_written() {
+        let card = proposal_card(
+            "---\nstatus: draft\nchat: true\nchatWriting: true\ncreated: 2026-11-02T07:00:00.000Z\n---\n# T\n",
+        );
+        assert_eq!(status_of(&card), Some(Status::Draft));
+        let text = with_status(&card, Status::Discarded);
+        assert!(!text.contains("chat"), "{text}");
+        assert!(
+            text.starts_with("---\nstatus: discarded\ncreated:"),
             "{text}"
         );
     }

@@ -39,7 +39,7 @@ function head(id: string, shortNumber: string | null, title: string, body = "") 
 
 type ProposalCard = Extract<BoardCard, { kind: "proposal" }>;
 
-function proposal(patch: Partial<ProposalCard> = {}, view: Partial<ProposalView> = {}): BoardCard {
+function proposal(patch: Partial<ProposalCard> = {}, view: Partial<ProposalView> = {}): ProposalCard {
   return {
     kind: "proposal",
     head: head("pppppppp", "P1", "Cancel an order", "Why the order is cancelled.\n"),
@@ -75,7 +75,7 @@ async function show(card: BoardCard, actions: BoardActions = {}, fail?: { code: 
   }) as unknown as typeof call);
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <BoardActionsContext.Provider value={actions}>
           <BoardProvider projectId={PROJECT}>
             <BoardView />
@@ -232,14 +232,14 @@ describe("Approve", () => {
     expect(decisions).toEqual([]);
   });
 
-  it("is a yellow `Refine`, enabled, with its tooltip, when only staleness blocks the Proposal", async () => {
+  it("is a primary `Refine` with sparkles, enabled, with its tooltip, when only staleness blocks the Proposal", async () => {
     const user = userEvent.setup();
     await show(proposal({}, { stale: true, blocked: ["Stale: `model/x.md` changed since the Proposal started"], approve: { reasons: [], tooltip: "Refine on the current Model, then approve", refines: true } }));
     expect(within(card()).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     const refine = within(card()).getByRole("button", { name: "Refine" });
     expect(refine).not.toHaveAttribute("aria-disabled");
-    expect(refine).toHaveClass("bg-yellow-500", "dark:bg-yellow-400", "text-zinc-950");
-    expect(refine).not.toHaveClass("bg-primary");
+    expect(refine).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(refine.className).not.toMatch(/yellow/);
     expect(refine.querySelector("svg")).toHaveClass("lucide-sparkles");
     await user.hover(refine);
     expect((await screen.findAllByText("Refine on the current Model, then approve")).length).toBeGreaterThan(0);
@@ -247,11 +247,10 @@ describe("Approve", () => {
     expect(decisions).toEqual([{ name: "approve_proposal", args: { projectId: PROJECT, proposalId: "pppppppp" } }]);
   });
 
-  it("stays a blue `Approve` with a check icon when a click does not refine", async () => {
+  it("stays an `Approve` with a check icon when a click does not refine", async () => {
     await show(proposal());
     const approve = within(card()).getByRole("button", { name: "Approve" });
     expect(approve).toHaveClass("bg-primary");
-    expect(approve).not.toHaveClass("bg-yellow-500");
     expect(approve.querySelector("svg")).toHaveClass("lucide-check");
   });
 
@@ -391,84 +390,8 @@ describe("View requirements", () => {
   });
 });
 
-describe("the card of a Draft Chat writes", () => {
-  function chatDraft(view: Partial<ProposalView> = {}): BoardCard {
-    return proposal(
-      { standing: "chat-draft" },
-      { carriesTasks: true, creates: 2, label: "Orders", files: { added: ["model/a.md"], changed: ["model/b.md"], removed: [] }, scopeRefs: ["order/Paid"], ...view },
-    );
-  }
-
-  it("has the outline badges `draft` and `Chat` first and the layout of an Open Proposal", async () => {
-    await show(chatDraft({ stale: true, model: "anthropic/opus" }));
-    const shown = within(card());
-    const badges = shown.getAllByText(/^(draft|Chat|stale|refining|blocked|anthropic\/opus)$/).map((badge) => badge.textContent);
-    expect(badges).toEqual(["draft", "Chat", "stale", "anthropic/opus"]);
-    expect(shown.getByText(/2 files/)).toBeInTheDocument();
-    expect(shown.getByText("Creates 2 Tasks")).toBeInTheDocument();
-    expect(shown.getByText("Orders")).toBeInTheDocument();
-  });
-
-  it("has only `Open Chat` and `Discard`, no `Approve`, `Refine`, `Reject`, `View requirements` or model control", async () => {
-    await show(chatDraft(), { viewOn: vi.fn(), focusSteps: () => 1 });
-    const controls = card().querySelector<HTMLElement>("[data-card-controls]")!;
-    const names = within(controls)
-      .getAllByRole("button")
-      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
-    expect(names).toEqual(["Open Chat", "Discard"]);
-    expect(within(controls).getByRole("button", { name: "Open Chat" }).querySelector("svg")).toHaveClass("lucide-message-square");
-  });
-
-  it("shows the Chat view with `Open Chat`", async () => {
-    const user = userEvent.setup();
-    await show(chatDraft());
-    await user.click(within(card()).getByRole("button", { name: "Open Chat" }));
-    expect(showView).toHaveBeenCalledWith("general");
-  });
-
-  it("asks `Discard this Draft?` with the focus on Cancel; a cancel changes nothing and a confirm discards", async () => {
-    const user = userEvent.setup();
-    await show(chatDraft());
-    await user.click(within(card()).getByRole("button", { name: "Discard" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Discard this Draft?" });
-    expect(within(dialog).getByText("Its files and Tasks are thrown away.")).toBeInTheDocument();
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus());
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(decisions).toEqual([]);
-    await user.click(within(card()).getByRole("button", { name: "Discard" }));
-    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard" }));
-    expect(decisions).toEqual([{ name: "discard_proposal", args: { projectId: PROJECT, proposalId: "pppppppp" } }]);
-  });
-
-  it("disables `Discard` with `The agent is still finishing` while a turn of Chat is in progress", async () => {
-    const user = userEvent.setup();
-    await show(chatDraft({ rejectReasons: ["The agent is still finishing"] }));
-    const discard = within(card()).getByRole("button", { name: "Discard" });
-    expect(discard).toHaveAttribute("aria-disabled", "true");
-    expect(reasonsOf(discard)).toEqual(["The agent is still finishing"]);
-    await user.click(discard);
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    expect(decisions).toEqual([]);
-    expect(within(card()).getByRole("button", { name: "Open Chat" })).not.toHaveAttribute("aria-disabled");
-  });
-
-  it("shows the same controls in the details dialog, then `Ask more`", async () => {
-    const user = userEvent.setup();
-    await show(chatDraft());
-    await user.click(within(card()).getByRole("button", { name: "Cancel an order" }));
-    const dialog = await screen.findByRole("dialog", { name: /Cancel an order/ });
-    const names = within(dialog)
-      .getAllByRole("button")
-      .map((b) => b.getAttribute("aria-label") ?? b.textContent)
-      .filter((name) => ["Approve", "Refine", "Reject", "Open Chat", "Discard", "Ask more about P1"].includes(name ?? ""));
-    expect(names).toEqual(["Open Chat", "Discard", "Ask more about P1"]);
-    await user.click(within(dialog).getByRole("button", { name: "Open Chat" }));
-    expect(showView).toHaveBeenCalledWith("general");
-  });
-});
-
 describe("the details dialog", () => {
-  async function open(card: BoardCard, extra: BoardActions = {}) {
+  async function open(card: ProposalCard, extra: BoardActions = {}) {
     const user = userEvent.setup();
     await show(card, { focusSteps: () => 1, viewOn: vi.fn(), ...extra });
     await user.click(within(backlog().querySelector<HTMLElement>("[data-card-id]")!).getByRole("button", { name: card.head.title }));
@@ -650,11 +573,11 @@ describe("the card of a resolution", () => {
     view: proposalView(),
   };
 
-  it("has a yellow border and tint, the mark `Resolution` and one row per Drift", async () => {
+  it("has a Lavender border and tint, the mark `Resolution` and one row per Drift", async () => {
     await show(resolution);
     const shown = within(card());
-    expect(card().className).toContain("border-l-yellow-600");
-    expect(card().className).toContain("bg-yellow-500/10");
+    expect(card().className).toContain("border-l-lavender");
+    expect(card().className).toContain("bg-lavender-tint");
     expect(shown.getByText("Resolution")).toBeInTheDocument();
     expect(shown.getByText("Fix the code: option 2")).toBeInTheDocument();
     expect(shown.getByText(/Mind the lock/)).toBeInTheDocument();

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 function SaveStatusText({ status }: { status: SaveStatus }) {
   const failed = status.kind === "error";
   return (
-    <span role="status" className={cn("flex items-center gap-1.5 text-xs", failed ? TONE_TEXT.red : "text-muted-foreground")}>
+    <span role="status" className={cn("flex items-center gap-1.5 text-xs", failed ? TONE_TEXT.rose : "text-muted-foreground")}>
       {failed ? <CircleX className="size-4 shrink-0" aria-hidden /> : null}
       {statusText(status)}
     </span>

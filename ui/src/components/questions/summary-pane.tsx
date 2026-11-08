@@ -42,7 +42,7 @@ export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) 
           {round.questions.map((question, index) => {
             const answer = question.confirmed ? describeAnswer(question, question.confirmed) : null;
             return (
-              <li key={question.id} className="flex items-start gap-3 rounded-md border p-3">
+              <li key={question.id} className="flex items-start gap-3 rounded-lg p-3 shadow-ring">
                 <span className="mt-0.5 text-sm text-muted-foreground">{index + 1}.</span>
                 <div className="min-w-0 flex-1">
                   <Markdown className="line-clamp-3 text-sm font-medium">{question.question}</Markdown>
@@ -57,7 +57,7 @@ export function SummaryPane({ round, act, askSkipAll, handlers }: SummaryProps) 
                       Skipped
                     </p>
                   ) : (
-                    <p className="mt-1 flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 flex items-center gap-1 text-sm font-medium text-peach-ink">
                       <TriangleAlert aria-hidden className="size-4 shrink-0" />
                       {statusText("missing")}
                     </p>

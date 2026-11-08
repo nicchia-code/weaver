@@ -493,13 +493,15 @@ fn dispatch(
         Access::Job => env.job.is_none(),
         // The agent of a job, or of the Chat: the app decides which of them it accepts.
         Access::JobOrUnavailable => env.job.is_none() && env.general.is_none(),
-        Access::Anyone | Access::General => false,
+        Access::Anyone | Access::General | Access::Chat => false,
     };
     let needs_general =
-        command.access == Access::General && env.general.is_none() && env.ask.is_none();
+        (command.access == Access::General && env.general.is_none() && env.ask.is_none())
+            || (command.access == Access::Chat && env.general.is_none());
     if needs_job || needs_general {
         return Err(access_failure(command));
     }
+    exec::refuse_chat_writing(command, state.as_deref(), env.general.as_deref())?;
     if command.object == "question" && command.verb == "new" {
         // A round waits with no time limit, so it never goes through the project's queue.
         return round::run(input, env, dirs, interrupts);
@@ -741,6 +743,60 @@ mod tests {
         let (exit, out, err) = invoke(&args, &Environment::default(), &sandbox, "");
         assert_eq!((exit, out.as_str()), (1, ""));
         assert!(err.contains("Ask more conversation"), "{err}");
+    }
+
+    #[test]
+    fn request_new_goes_to_the_app_with_the_chat_identity_and_nobody_else_may_ask() {
+        let sandbox = sandbox();
+        let server = app(&sandbox, Ok(done("Sent.")));
+        let chat = Environment {
+            general: Some("chatchat".into()),
+            ..Environment::default()
+        };
+        let args = ["request", "new", "--input", "{\"text\":\"# Idea\"}"];
+        let (exit, out, err) = invoke(&args, &chat, &sandbox, "");
+        assert_eq!((exit, out.as_str(), err.as_str()), (0, "Sent.\n", ""));
+        let sent: CommandRequest = serde_json::from_value(server.join().unwrap().payload).unwrap();
+        assert_eq!(sent.general.as_deref(), Some("chatchat"));
+        assert_eq!(sent.input["text"], json!("# Idea"));
+
+        // Ask more, a job and anybody else never reach the app.
+        for env in [
+            Environment {
+                ask: Some("askaskas".into()),
+                ..Environment::default()
+            },
+            Environment {
+                job: Some("abcd1234".into()),
+                ..Environment::default()
+            },
+            Environment::default(),
+        ] {
+            let (exit, out, err) = invoke(&args, &env, &sandbox, "");
+            assert_eq!((exit, out.as_str()), (1, ""), "{env:?}");
+            assert!(
+                err.contains("Only the agent of Chat can run `weaver request new`"),
+                "{err}"
+            );
+        }
+        // A blank text is wrong usage, whoever sends it.
+        let blank = ["request", "new", "--input", "{\"text\":\" \"}"];
+        let (exit, out, _) = invoke(&blank, &chat, &sandbox, "");
+        assert_eq!((exit, out.as_str()), (2, ""));
+    }
+
+    #[test]
+    fn request_new_needs_the_running_app() {
+        let sandbox = sandbox();
+        let chat = Environment {
+            general: Some("chatchat".into()),
+            ..Environment::default()
+        };
+        let args = ["request", "new", "--input", "{\"text\":\"# Idea\"}"];
+        let (exit, out, err) = invoke(&args, &chat, &sandbox, "");
+        assert_eq!((exit, out.as_str()), (1, ""));
+        assert!(err.contains("Weaver is not running"), "{err}");
+        assert!(!sandbox.root.join(".weaver/requests").exists());
     }
 
     #[test]

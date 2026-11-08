@@ -31,6 +31,10 @@ pub struct JobRow {
     /// The latest note.
     pub note: Option<String>,
     pub target: Option<String>,
+    /// For a setup or design job, the request it received.
+    pub request: Option<String>,
+    /// That request exists and is still sent to this job (`View request` shows only then).
+    pub request_sent: bool,
 }
 
 /// The Jobs list of a project, in the order the view shows it: waiting, running, queued,
@@ -52,6 +56,10 @@ pub struct ConversationSnapshot {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
     /// The notes of the job, with their instants, for the Jobs list tooltip.
     pub notes: Vec<Note>,
 }

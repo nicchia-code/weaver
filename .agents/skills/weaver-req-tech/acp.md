@@ -94,8 +94,8 @@
   - No `--advisor`, `--slow` or overlay.
 - **Environment:**
   - `WEAVER_GENERAL=<General identity>` and `WEAVER_ENDPOINT`, with no `WEAVER_JOB`, so `weaver` refuses job-bound commands.
-  - The exceptions are `weaver job new`, accepted only from the live General identity of an open project with the same refusals as the developer's request, and `weaver question new`, accepted only from that identity while a turn of Chat is in progress (`requirements/tech#question-round`).
-  - The app knows the live General identity of each open project, so that `proposal new` and `proposal edit` record `chat` and `chatWriting` (`requirements/data#proposal`) and the Board knows whether a turn of Chat is in progress (`requirements/rules#proposal`, reason 1).
+  - The exceptions are `weaver job new`, accepted only from the live General identity of an open project with the same refusals as the developer's request, and `weaver question new` and `weaver request new`, accepted only from that identity while a turn of Chat is in progress (`requirements/tech#question-round`, `requirements/cli#design-request`).
+  - `weaver proposal new`, `proposal edit` and `proposal move <id> open` are refused by the command line itself whenever `WEAVER_GENERAL` is set (`requirements/cli#agent`).
   - PATH and the certificate variables as in `## omp`.
 - **Session:**
   - The session id and arguments are kept in `<app local data>/general/<project hash>.json`.

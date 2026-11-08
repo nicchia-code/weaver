@@ -41,10 +41,6 @@ impl ChatObserver for Told {
     fn chat_round_ended(&self, project_id: &str) {
         self.0.lock().unwrap().push(format!("ended {project_id}"));
     }
-
-    fn chat_cleared(&self, project_id: &str) {
-        self.0.lock().unwrap().push(format!("cleared {project_id}"));
-    }
 }
 
 struct Fixture {
@@ -143,8 +139,9 @@ async fn the_instruction_of_each_start_carries_the_limit_and_the_language_of_the
     let first = std::fs::read_to_string(&file).unwrap();
     assert!(first.starts_with("# Weaver Chat\n"), "{first}");
     assert!(
-        first.contains("\nRun at most 3 sub-agents at once.\nPass each sub-agent what you have already read")
-            && first.ends_with("Write the texts for the developer in Italian.\n"),
+        first.contains(
+            "\nRun at most 3 sub-agents at once.\nPass each sub-agent what you have already read"
+        ) && first.ends_with("Write the texts for the developer in Italian.\n"),
         "{first}"
     );
 
@@ -296,26 +293,21 @@ async fn stop_ends_the_round_without_answers_and_the_chat_goes_idle() {
 }
 
 #[tokio::test]
-async fn clear_ends_the_round_and_tells_cleared_after_the_turn_stopped() {
+async fn clear_ends_the_round_without_answers_and_stops_the_turn() {
     let (f, told, _token) = asking(json!({
         "prompts": [[agent("Asking"), { "hold": true }]],
     }))
     .await;
     f.general.round_opened(f.id());
     f.general.clear(f.id()).unwrap();
-    until("the Chat to tell it was cleared", LIMIT, || {
-        told.events().len() == 3
-    })
-    .await;
+    f.general.flush();
     assert_eq!(
         told.events(),
-        [
-            format!("waiting {}", f.id()),
-            format!("ended {}", f.id()),
-            format!("cleared {}", f.id())
-        ]
+        [format!("waiting {}", f.id()), format!("ended {}", f.id())]
     );
-    // The turn had stopped when it was told: omp was cancelled and closed.
+    // The turn was cancelled and omp closed.
+    f.received("session/close", |m| m["method"] == "session/close")
+        .await;
     let methods = f.methods();
     assert!(
         methods.contains(&"session/cancel".to_owned())

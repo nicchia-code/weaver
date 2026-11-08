@@ -126,6 +126,10 @@ impl ProposalJobs for JobsProposals {
             Ok(())
         });
     }
+
+    fn request_consumed(&self, project_id: &str) {
+        self.0.rows_changed(project_id);
+    }
 }
 
 /// What `job.ENDED` means for the Proposals: a refinement that did not hand its Proposal over

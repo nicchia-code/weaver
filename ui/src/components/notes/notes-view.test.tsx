@@ -21,6 +21,7 @@ const { backend, toast } = vi.hoisted(() => ({
   toast: { error: vi.fn(), warning: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
 }));
 
+vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: null }) }));
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/lib/backend", () => ({
   call: backend.call,
@@ -273,7 +274,7 @@ describe("autosave", () => {
     typeText("a\n");
     await advance(500);
     expect(status()).toHaveTextContent("Could not save: No space left on device.");
-    expect(status()).toHaveClass("text-red-600");
+    expect(status()).toHaveClass("text-rose-ink");
     expect(status().querySelector("svg")).toHaveClass("lucide-circle-x");
     expect(fake.text).toBe("a\n");
     writeAnswer = () => Promise.resolve({ hash: "h5" });

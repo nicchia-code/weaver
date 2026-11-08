@@ -119,7 +119,7 @@ impl OmpProcess {
                         let (Some(stdin), Some(stdout), Some(stderr)) = (stdin, stdout, stderr)
                         else {
                             let _ = ready_tx
-                                .send(Err(std::io::Error::other("omp has no standard streams")));
+                                .send(Err(std::io::Error::other("the agent has no standard streams")));
                             return;
                         };
                         let pid = child.id();
@@ -141,7 +141,7 @@ impl OmpProcess {
             })?;
         let parts = ready_rx
             .recv()
-            .map_err(|_| std::io::Error::other("omp could not be started"))??;
+            .map_err(|_| std::io::Error::other("the agent could not be started"))??;
 
         let tail = Arc::new(Mutex::new(StderrTail::default()));
         let reader_tail = tail.clone();
@@ -215,7 +215,7 @@ impl OmpProcess {
 
     /// The reason and the details of an exit Weaver did not ask for: the proxy explanation when
     /// the stderr tail is a certificate or an HTTP error, else omp's last error line, else
-    /// `omp exited with code N`; the details are the last lines. `system_certificates_on` is the
+    /// `the agent exited with code N`; the details are the last lines. `system_certificates_on` is the
     /// setting at this moment.
     pub fn exit_reason(
         &self,
@@ -277,8 +277,8 @@ fn exit_reason_of(
 ) -> (String, Option<String>) {
     let plain = match (failure::last_line(stderr), code) {
         (Some(line), _) => line.to_owned(),
-        (None, Some(code)) => format!("omp exited with code {code}"),
-        (None, None) => "omp was stopped".to_owned(),
+        (None, Some(code)) => format!("the agent exited with code {code}"),
+        (None, None) => "the agent was stopped".to_owned(),
     };
     (
         super::session::explained(&plain, &[stderr], system_certificates_on),
@@ -360,7 +360,7 @@ mod tests {
         let exit = process.wait_exit().await;
         assert_eq!(
             process.exit_reason(&exit, true),
-            ("omp exited with code 7".to_owned(), None)
+            ("the agent exited with code 7".to_owned(), None)
         );
     }
 
@@ -386,7 +386,7 @@ mod tests {
         let http = "request failed: HTTP 407\nerror: giving up";
         let (reason, details) = exit_reason_of(http, None, false);
         assert!(
-            reason.starts_with("omp received an HTTP 407 error"),
+            reason.starts_with("the agent received an HTTP 407 error"),
             "{reason}"
         );
         assert!(
@@ -407,9 +407,9 @@ mod tests {
         assert_eq!(exit_reason_of("status 404", Some(3), false).0, "status 404");
         assert_eq!(
             exit_reason_of("", Some(7), false),
-            ("omp exited with code 7".to_owned(), None)
+            ("the agent exited with code 7".to_owned(), None)
         );
-        assert_eq!(exit_reason_of("", None, false).0, "omp was stopped");
+        assert_eq!(exit_reason_of("", None, false).0, "the agent was stopped");
     }
 
     #[cfg(unix)]

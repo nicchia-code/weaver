@@ -82,10 +82,10 @@ export function GhostCard({ ghost }: { ghost: Ghost }) {
       data-ghost-id={ghost.id}
       aria-label={`${kind} being prepared by the agent: ${ghost.title}, ${phase}`}
       onClick={() => openJob(ghost.jobId)}
-      className="flex w-full flex-col gap-1 rounded-lg border border-dashed bg-card p-3 text-left text-card-foreground opacity-70 transition-colors duration-150 hover:bg-accent/40 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex w-full flex-col gap-1 rounded-xl border border-dashed bg-card p-3.5 text-left text-card-foreground opacity-70 transition-colors duration-150 hover:bg-accent/40 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <KindMark kind={ghost.kind} />
-      <span className="line-clamp-3 text-sm font-medium">{ghost.title}</span>
+      <span className="line-clamp-3 text-[15px] font-semibold leading-snug tracking-tight">{ghost.title}</span>
       <span className="w-fit text-xs text-muted-foreground">{phase}</span>
       {ghost.note ? (
         <Tooltip>

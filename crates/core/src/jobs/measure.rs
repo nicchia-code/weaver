@@ -230,10 +230,10 @@ pub fn read_session(
     run: bool,
 ) -> Result<Parts, String> {
     let Some(session_id) = session_id.filter(|id| !id.is_empty()) else {
-        return Err("the job has no session: omp never opened one".to_owned());
+        return Err("the job has no session: the agent never opened one".to_owned());
     };
     let Some(sessions_root) = sessions_root else {
-        return Err("the folder of omp's session files is not known".to_owned());
+        return Err("the folder of the agent's session files is not known".to_owned());
     };
     let Some(main_file) = find_main_file(sessions_root, session_id) else {
         return Err(format!(

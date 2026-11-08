@@ -1,42 +1,34 @@
 import {
-  ArrowDown,
-  ArrowUp,
-  Bot,
   Check,
-  ChevronDown,
-  ChevronRight,
+  CircleDashed,
   Clock,
-  FilePen,
   FileText,
-  Info,
-  Loader,
   MessageCircleQuestion,
   Pause,
-  Search,
+  PanelLeftClose,
+  PanelLeftOpen,
   Square,
-  SquareTerminal,
-  StickyNote,
-  TriangleAlert,
-  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { AgentNode } from "@/bindings/AgentNode";
 import type { AskRow } from "@/bindings/AskRow";
-import type { Entry } from "@/bindings/Entry";
 import type { JobRow } from "@/bindings/JobRow";
 import type { JobState } from "@/bindings/JobState";
 import type { Step } from "@/bindings/Step";
-import type { Tool } from "@/bindings/Tool";
 import { ConfirmDialog } from "@/components/dialogs";
-import { runningText, startedText } from "@/components/jobs/format";
+import { ConversationEntries, ComposerLine, DisabledComposer, FollowScroller, MessageComposer } from "@/components/jobs/conversation-ui";
+import { runningText, startedLine, startedText } from "@/components/jobs/format";
+import { ListSeparator } from "@/components/jobs/list-separator";
 import { useConversation, useJobs } from "@/components/jobs/use-jobs";
+import { shownWidth, useElementWidth, useJobsList } from "@/components/jobs/use-jobs-list";
+import { countRows, filterRows, JOB_FILTERS, type JobFilter } from "@/components/jobs/job-filter";
 import { mergeRows, type ListRow } from "@/components/ask/ask-model";
 import { AskConversation } from "@/components/ask/ask-conversation";
 import { useOptionalAsks } from "@/components/ask/use-asks";
-import { Markdown } from "@/components/markdown";
+import { useOptionalRequests } from "@/components/requests/use-requests";
 import { useProject } from "@/components/project-context";
 import {
   jobSubAgentsApi,
@@ -48,35 +40,67 @@ import {
   useSubAgentsView,
   type SubAgentsApi,
 } from "@/components/sub-agents/api";
-import { AgentState, SubAgentLine, SubAgentList, SubAgentNavProvider, type SubAgentNav } from "@/components/sub-agents/sub-agent-ui";
-import { Badge } from "@/components/ui/badge";
+import { AgentState, SubAgentList, SubAgentNavProvider, type SubAgentNav } from "@/components/sub-agents/sub-agent-ui";
 import { Button } from "@/components/ui/button";
-import { TaggedTextarea } from "@/components/assets/tagged-textarea";
-import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { VIEW_HEADER_CLASS, ViewHeader, viewTitleId } from "@/components/view-header";
-import { useFollowScroll } from "@/hooks/use-follow-scroll";
+import { VIEW_HEADER_CLASS, ViewTitle, viewTitleId } from "@/components/view-header";
 import { call, isAppError } from "@/lib/backend";
+import { TONE_DOT, TONE_PILL } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 import type { ViewId } from "@/views";
 
-const BADGES: Record<JobState, { label: string; icon: LucideIcon | null; className: string }> = {
-  queued: { label: "queued", icon: null, className: "border-border text-foreground" },
-  running: { label: "running", icon: Loader, className: "bg-blue-600/15 text-blue-600 dark:text-blue-400" },
-  waiting: { label: "waiting", icon: MessageCircleQuestion, className: "bg-amber-600/15 text-amber-600 dark:text-amber-400" },
-  suspended: { label: "suspended", icon: Pause, className: "border-border text-foreground" },
-  done: { label: "done", icon: Check, className: "bg-green-600/15 text-green-600 dark:text-green-400" },
-  failed: { label: "failed", icon: X, className: "bg-red-600/15 text-red-600 dark:text-red-400" },
-  stopped: { label: "stopped", icon: Square, className: "bg-muted text-muted-foreground" },
+const NEUTRAL_PILL = "bg-muted text-ink-2 ring-1 ring-inset ring-line";
+
+// Sky for queued and running, Peach for waiting for the developer, Sage for done, Rose for failed and
+// stopped; suspended stays neutral (Ink 2 on Lane). Always a text and an icon.
+const BADGES: Record<JobState, { label: string; icon: LucideIcon | "dot"; className: string }> = {
+  queued: { label: "queued", icon: Clock, className: TONE_PILL.sky },
+  running: { label: "running", icon: "dot", className: TONE_PILL.sky },
+  waiting: { label: "waiting", icon: MessageCircleQuestion, className: TONE_PILL.peach },
+  suspended: { label: "suspended", icon: Pause, className: NEUTRAL_PILL },
+  done: { label: "done", icon: Check, className: TONE_PILL.sage },
+  failed: { label: "failed", icon: X, className: TONE_PILL.rose },
+  stopped: { label: "stopped", icon: Square, className: TONE_PILL.rose },
 };
 
-export function StateBadge({ state }: { state: JobState }) {
-  const { label, icon: Icon, className } = BADGES[state];
+/** A fully rounded pill. */
+function Pill({ className, children }: { className: string; children: ReactNode }) {
   return (
-    <Badge variant="outline" className={className}>
-      {Icon && <Icon aria-hidden className={state === "running" ? "size-3 animate-spin motion-reduce:animate-none" : "size-3"} />}
-      {label}
-    </Badge>
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap [&_svg]:size-2.5 [&_svg]:shrink-0",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** `label` replaces the word of the state, as the job header's `Running · 2m 16s`. */
+export function StateBadge({ state, label }: { state: JobState; label?: string }) {
+  const { label: word, icon: Icon, className } = BADGES[state];
+  return (
+    <Pill className={className}>
+      {Icon === "dot" ? (
+        <span aria-hidden className={cn("size-1.5 rounded-full animate-pulse motion-reduce:animate-none", TONE_DOT.sky)} />
+      ) : (
+        <Icon aria-hidden />
+      )}
+      {label ?? word}
+    </Pill>
+  );
+}
+
+/** The state of an Ask more conversation: `running` and `waiting` as a job's, `idle` before the first message and between turns. */
+function AskBadge({ status }: { status: AskRow["status"] }) {
+  if (status !== "idle") return <StateBadge state={status} />;
+  return (
+    <Pill className={NEUTRAL_PILL}>
+      <CircleDashed aria-hidden />
+      idle
+    </Pill>
   );
 }
 
@@ -92,6 +116,51 @@ function useRunning(job: JobRow): string | null {
   if (!job.started) return null;
   const end = job.ended ? new Date(job.ended).getTime() : now;
   return runningText(end - new Date(job.started).getTime());
+}
+
+/** A row of the list: a 12 px block, on Surface with a ring and a light shadow when selected. */
+function rowClass(selected: boolean) {
+  return cn("rounded-xl", selected ? "bg-surface shadow-[0_0_0_1px_var(--line-control),0_2px_6px_var(--shadow-color)]" : "hover:bg-surface/60");
+}
+
+/** What the button of a row shows: name, kind, pill, latest note on two lines, and the times. */
+function RowButton({
+  name,
+  kind,
+  pill,
+  note,
+  meta,
+  current,
+  onSelect,
+}: {
+  name: string;
+  kind: string;
+  pill: ReactNode;
+  note: string | null;
+  meta: string;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={current}
+      className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onSelect}
+    >
+      <span className="flex items-center gap-2">
+        <span className="min-w-0 truncate text-[13.5px] font-semibold">{name}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{kind}</span>
+        <span className="ml-auto">{pill}</span>
+      </span>
+      {note && (
+        <span className="line-clamp-2 text-[12.5px] leading-[1.45] text-ink-2" title={note}>
+          {note}
+        </span>
+      )}
+      <span className="text-xs text-muted-foreground tabular-nums">{meta}</span>
+    </button>
+  );
 }
 
 function Row({
@@ -113,26 +182,19 @@ function Row({
   const running = useRunning(job);
   const finished = job.state === "done" || job.state === "failed" || job.state === "stopped";
   return (
-    <li className={`border-b ${selected ? "bg-accent" : ""}`}>
-      <div className="flex items-start gap-1">
-        <button type="button" aria-current={current} className="min-w-0 flex-1 px-3 py-2 text-left" onClick={onSelect}>
-          <div className="flex items-center gap-2">
-            <span className="truncate font-semibold">{job.name}</span>
-            <span className="text-xs text-muted-foreground">{job.kind}</span>
-            <StateBadge state={job.state} />
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {startedText(job.created)}
-            {running ? ` · ${running}` : ""}
-          </div>
-          {job.note && (
-            <div className="truncate text-xs text-muted-foreground" title={job.note}>
-              {job.note}
-            </div>
-          )}
-        </button>
+    <li className={rowClass(selected)}>
+      <div className="flex items-start">
+        <RowButton
+          name={job.name}
+          kind={job.kind}
+          pill={<StateBadge state={job.state} />}
+          note={job.note}
+          meta={`${startedText(job.created)}${running ? ` · ${running}` : ""}`}
+          current={current}
+          onSelect={onSelect}
+        />
         {finished && (
-          <Button variant="ghost" size="icon" aria-label={`Remove ${job.name}`} title="Remove from the list" onClick={() => remove(job.id)}>
+          <Button variant="ghost" size="icon" className="mr-1 mt-1.5 size-7" aria-label={`Remove ${job.name}`} title="Remove from the list" onClick={() => remove(job.id)}>
             <X aria-hidden />
           </Button>
         )}
@@ -142,205 +204,117 @@ function Row({
   );
 }
 
-const TOOL_ICONS: Record<Tool["icon"], LucideIcon> = {
-  read: FileText,
-  search: Search,
-  command: SquareTerminal,
-  edit: FilePen,
-  "sub-agent": Bot,
-  other: Wrench,
-};
+const STOPPABLE: readonly JobState[] = ["queued", "running", "waiting", "suspended"];
 
-function ToolRow({ tool }: { tool: Tool }) {
-  const [open, setOpen] = useState(false);
-  const Icon = TOOL_ICONS[tool.icon];
-  const text = tool.command ?? tool.title;
-  const Status = tool.status === "done" ? Check : tool.status === "failed" ? X : Loader;
+/** The header of a job, in the header band: its name with its state pill, when it started, `View request` and, while the job is not over, `Stop job`. */
+function JobHeader({ projectId, job }: { projectId: string; job: JobRow }) {
+  const running = useRunning(job);
+  const [confirming, setConfirming] = useState(false);
+  const working = job.state === "running" || job.state === "waiting";
+  const word = `${job.state.charAt(0).toUpperCase()}${job.state.slice(1)}`;
+  // `View request`: only while the request this setup or design job received is still sent to it;
+  // the editor lives under the Board and its back control comes back to this job.
+  const requests = useOptionalRequests();
+  const { showView } = useProject();
+  const viewable = job.request !== null && job.requestSent && requests !== null;
+  const viewRequest = () => {
+    if (!requests || job.request === null) return;
+    requests.openEditor(job.request, { kind: "jobs", jobId: job.id });
+    showView("board");
+  };
   return (
-    <div className="text-sm">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 text-left"
-        aria-expanded={open}
-        aria-label={tool.title}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? <ChevronDown aria-hidden className="size-4" /> : <ChevronRight aria-hidden className="size-4" />}
-        <Icon aria-hidden className="size-4" />
-        <span className="truncate">{tool.title}</span>
-        <Status aria-hidden className={`ml-auto size-4 ${tool.status === "failed" ? "text-red-600 dark:text-red-400" : ""} ${tool.status === "working" ? "animate-spin motion-reduce:animate-none" : ""}`} />
-      </button>
-      {open && <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{text}</pre>}
-      {tool.subAgents.map((agent) => (
-        <SubAgentLine key={agent.id} call={tool.id} agent={agent} />
-      ))}
-    </div>
-  );
-}
-
-/** The conversation of a job and of General render alike; the permission card answers through `answer`. */
-export function EntryView({ entry, answer }: { entry: Entry; answer: (request: number, option: string) => void }) {
-  switch (entry.kind) {
-    case "instruction":
-      return (
-        <div className="rounded border p-2 text-sm">
-          <div className="text-xs font-semibold text-muted-foreground">Weaver</div>
-          {entry.text}
+    <>
+      <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <div className="flex items-center gap-2.5">
+          <h2 className="min-w-0 truncate text-[17px] font-semibold">{job.name}</h2>
+          <StateBadge state={job.state} label={working && running ? `${word} · ${running}` : word} />
         </div>
-      );
-    case "assignment":
-      return (
-        <div className="rounded border p-2 text-sm">
-          <div className="text-xs font-semibold text-muted-foreground">{entry.from}</div>
-          <div className="whitespace-pre-wrap">{entry.text}</div>
-        </div>
-      );
-    case "developer":
-      return (
-        <div className="ml-auto max-w-[80%] rounded bg-secondary p-2 text-sm whitespace-pre-wrap">
-          {entry.text}
-          {entry.delivery.status === "queued" && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock aria-hidden className="size-3" />
-              Queued
-            </div>
-          )}
-          {entry.delivery.status === "not-delivered" && (
-            <div className="text-xs text-red-600 dark:text-red-400">Not delivered: {entry.delivery.reason}.</div>
-          )}
-        </div>
-      );
-    case "agent":
-      return <Markdown>{entry.text}</Markdown>;
-    case "thinking":
-      return (
-        <details className="text-sm text-muted-foreground">
-          <summary>Thinking</summary>
-          <div className="whitespace-pre-wrap">{entry.text}</div>
-        </details>
-      );
-    case "tool":
-      return <ToolRow tool={entry} />;
-    case "note":
-      return (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <StickyNote aria-hidden className="size-3" />
-          <span>{startedText(entry.at).slice(-5)}</span>
-          <span>{entry.text}</span>
-        </div>
-      );
-    case "permission":
-      return (
-        <div role="group" aria-label="omp asks permission" className="rounded border border-amber-600 p-2 text-sm dark:border-amber-400">
-          <div className="font-semibold">omp asks permission</div>
-          {entry.tool && <ToolRow tool={entry.tool} />}
-          {entry.state.status === "asking" ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {entry.options.map((option) => (
-                <Button
-                  key={option.id}
-                  size="sm"
-                  variant={option.rejects ? "outline" : "default"}
-                  onClick={() => answer(entry.request, option.id)}
-                >
-                  {option.name}
-                </Button>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-1 text-xs text-muted-foreground">
-              {entry.state.status === "chosen" ? entry.state.name : entry.state.status === "void" ? "No longer needed." : "Cancelled."}
-            </div>
-          )}
-        </div>
-      );
-    case "reloaded":
-      return <div className="text-xs text-muted-foreground">Session reloaded; the agent continues its work.</div>;
-    case "end":
-      return entry.outcome === "failed" ? (
-        <FailedLine reason={entry.reason} details={entry.details} />
-      ) : (
-        <div className="text-xs text-muted-foreground">{entry.outcome === "finished" ? "Finished." : "Stopped."}</div>
-      );
-    case "job-started":
-      return <JobStartedLine job={entry.job} name={entry.name} />;
-    case "job-refused":
-      return (
-        <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
-          <TriangleAlert aria-hidden className="size-4 shrink-0" />
-          Weaver did not start {entry.jobKind}: {entry.reason.replace(/\.$/, "")}.
-        </div>
-      );
-    case "notice":
-      return (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Info aria-hidden className="size-3 shrink-0" />
-          {entry.text}
-        </div>
-      );
-    case "turn-failed":
-      return <ErrorLine text={`The turn failed: ${entry.reason.replace(/\.$/, "")}.`} details={null} />;
-    case "omp-stopped":
-      return (
-        <div className="space-y-1">
-          <ErrorLine text={`omp stopped: ${entry.reason.replace(/\.$/, "")}.`} details={entry.details} />
-          <div className="text-xs text-muted-foreground">Your next message starts omp again.</div>
-        </div>
-      );
-  }
-}
-
-/** `Started <job name>` with the button that selects that job in the Jobs view. */
-function JobStartedLine({ job, name }: { job: string; name: string }) {
-  const { openJob } = useProject();
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <Bot aria-hidden className="size-4 shrink-0" />
-      <span>Started {name}</span>
-      <Button variant="outline" size="sm" onClick={() => openJob(job)}>
-        Open conversation
-      </Button>
-    </div>
-  );
-}
-
-function FailedLine({ reason, details }: { reason: string; details: string | null }) {
-  return <ErrorLine text={`Failed: ${reason.replace(/\.$/, "")}.`} details={details} />;
-}
-
-/** A failure in the error colour, with an icon, and its details on request. */
-function ErrorLine({ text, details }: { text: string; details: string | null }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="text-sm text-red-600 dark:text-red-400">
-      <div className="flex items-center gap-2">
-        <TriangleAlert aria-hidden className="size-4" />
-        {text}
-        {details && (
-          <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)}>
-            Show details
-          </Button>
-        )}
+        <span className="truncate text-[13px] text-muted-foreground">{startedLine(job.created)}</span>
       </div>
-      {open && details && <pre className="mt-1 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{details}</pre>}
+      {viewable && (
+        <Button variant="secondary" className="h-[34px] shrink-0 rounded-[9px] px-3" onClick={viewRequest}>
+          <FileText aria-hidden className="size-[13px]" />
+          View request
+        </Button>
+      )}
+      {STOPPABLE.includes(job.state) && (
+        <Button variant="destructive" className="h-[34px] shrink-0 rounded-[9px] px-3" onClick={() => setConfirming(true)}>
+          <Square aria-hidden className="size-[13px] fill-current" />
+          Stop job
+        </Button>
+      )}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Stop ${job.name}?`}
+        description="The agent stops at once and every process it started ends."
+        confirmLabel="Stop"
+        destructive
+        onConfirm={() => void call("job_stop", { projectId, jobId: job.id })}
+      />
+    </>
+  );
+}
+
+/** The header of an Ask more conversation: its name and its state, with no started line and no buttons. */
+function AskHeader({ ask }: { ask: AskRow }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <h2 className="min-w-0 truncate text-[17px] font-semibold">{ask.name}</h2>
+      <AskBadge status={ask.status} />
     </div>
   );
 }
 
+/** The path of a sub-agent from the job (or the conversation) that owns it, with its state. */
+function SubAgentPath({ ownerName, nodes, path }: { ownerName: string; nodes: readonly AgentNode[]; path: readonly Step[] }) {
+  const node = nodeAt(nodes, path);
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <h2 className="min-w-0 truncate text-[17px] font-semibold">{[ownerName, ...namesAlong(nodes, path)].join(" › ")}</h2>
+      {node && <AgentState state={node.state} />}
+    </div>
+  );
+}
+
+function Conversation({ projectId, job, ompReady }: { projectId: string; job: JobRow; ompReady: boolean }) {
+  const { entries, arrivals } = useConversation(projectId, job.id);
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <FollowScroller version={entries}>
+        {job.state === "queued" && (
+          <p className="py-8 text-center text-sm text-muted-foreground">{ompReady ? "Starting Weaver…" : "Waiting for the agent to be ready."}</p>
+        )}
+        <ConversationEntries
+          entries={entries}
+          arrivals={arrivals}
+          working={job.state === "running" || job.state === "waiting"}
+          latest
+          answer={(request, option) => void call("job_answer_permission", { projectId, jobId: job.id, request, option })}
+        />
+        {job.state === "suspended" && (
+          <p className="text-sm text-muted-foreground">Weaver stopped; the job continues when its session is reloaded.</p>
+        )}
+      </FollowScroller>
+      <MessageBox projectId={projectId} job={job} />
+    </div>
+  );
+}
+
+/** The message box of a job, or, once it ended, the line that sends the developer to Chat. */
 function MessageBox({ projectId, job }: { projectId: string; job: JobRow }) {
   const [text, setText] = useState("");
-  const [confirming, setConfirming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const finished = job.state === "done" || job.state === "failed" || job.state === "stopped";
   const { showView } = useProject();
   if (finished) {
     return (
-      <div className="flex items-center gap-2 border-t p-3 text-sm text-muted-foreground">
+      <ComposerLine>
         This job has ended. Continue in Chat.
         <Button variant="outline" size="sm" onClick={() => showView("general")}>
           Open Chat
         </Button>
-      </div>
+      </ComposerLine>
     );
   }
   const canSend = job.state === "running" || job.state === "waiting";
@@ -353,102 +327,31 @@ function MessageBox({ projectId, job }: { projectId: string; job: JobRow }) {
     );
   };
   return (
-    <div className="flex items-end gap-2 border-t p-3">
-      <TaggedTextarea
-        aria-label="Message the agent"
-        placeholder="Message the agent…"
-        rows={1}
-        className="max-h-60 min-h-9 flex-1"
-        value={text}
-        disabled={!canSend}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            send();
-          }
-        }}
-      />
-      <Button size="icon" aria-label="Send" aria-disabled={!canSend || text.trim() === ""} onClick={send}>
-        <ArrowUp aria-hidden />
-      </Button>
-      <Button variant="outline" size="icon" aria-label="Stop the agent" title="Stop the agent" onClick={() => setConfirming(true)}>
-        <Square aria-hidden />
-      </Button>
-      {problem && <span className="text-xs text-red-600 dark:text-red-400">{problem}</span>}
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={`Stop ${job.name}?`}
-        description="The agent stops at once and every process it started ends."
-        confirmLabel="Stop"
-        destructive
-        onConfirm={() => void call("job_stop", { projectId, jobId: job.id })}
-      />
-    </div>
-  );
-}
-
-/** The box of a sub-agent conversation: the layout of the job's message box, with nothing to send. */
-function DisabledMessageBox() {
-  return (
-    <div className="flex items-end gap-2 border-t p-3">
-      <Textarea aria-label="Message the agent" placeholder="Sub-agents take no messages." rows={1} className="max-h-60 min-h-9 flex-1" value="" readOnly disabled />
-      <Button size="icon" aria-label="Send" disabled>
-        <ArrowUp aria-hidden />
-      </Button>
-    </div>
-  );
-}
-
-/** Follows new text unless the developer scrolled up; then `Jump to latest` shows. `version` changes with the content. */
-export function FollowScroller({ version, children }: { version: unknown; children: ReactNode }) {
-  const { scrollerRef, contentRef, following, follow, onScroll } = useFollowScroll(version);
-  return (
-    <div ref={scrollerRef} className="relative min-h-0 flex-1 overflow-y-auto p-4" onScroll={onScroll}>
-      <div ref={contentRef} className="space-y-3">
-        {children}
-      </div>
-      {!following && (
-        <Button className="sticky bottom-2 ml-auto mt-3 flex" size="sm" variant="secondary" onClick={follow}>
-          <ArrowDown aria-hidden />
-          Jump to latest
-        </Button>
+    <>
+      {problem && (
+        <p role="alert" className="mx-auto w-full max-w-[860px] px-7 pb-2 text-xs text-rose-ink">
+          {problem}
+        </p>
       )}
-    </div>
-  );
-}
-
-function Conversation({ projectId, job, ompReady }: { projectId: string; job: JobRow; ompReady: boolean }) {
-  const entries = useConversation(projectId, job.id);
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <FollowScroller version={entries}>
-        {job.state === "queued" && (
-          <p className="py-8 text-center text-sm text-muted-foreground">{ompReady ? "Starting omp…" : "Waiting for omp to be ready."}</p>
-        )}
-        {entries.map((entry, index) => (
-          <EntryView
-            key={index}
-            entry={entry}
-            answer={(request, option) => void call("job_answer_permission", { projectId, jobId: job.id, request, option })}
-          />
-        ))}
-        {job.state === "suspended" && (
-          <p className="text-sm text-muted-foreground">Weaver stopped; the job continues when its session is reloaded.</p>
-        )}
-      </FollowScroller>
-      <MessageBox projectId={projectId} job={job} />
-    </div>
+      <MessageComposer
+        text={text}
+        onTextChange={setText}
+        onSend={send}
+        placeholder="Steer the agent while it runs…"
+        disabled={!canSend}
+        sendDisabled={!canSend || text.trim() === ""}
+      />
+    </>
   );
 }
 
 const NOT_ASKED = () => {};
 
 /**
- * The read-only conversation of the sub-agent at `path` (of a job, or of General): the path from
- * the owner with the state, then what it received and did, and a disabled message box at the
- * bottom. No `Stop`, no permission card, no notes, no end line.
+ * The read-only conversation of the sub-agent at `path` (of a job, of an Ask more conversation or of
+ * General): what it received and did, and a disabled message box at the bottom. No `Stop`, no
+ * permission card, no notes, no end line. The Jobs view shows its path in its header band;
+ * `headerOf` (Chat) gives it a header of its own, with `back` before and `actions` after the path.
  */
 export function SubAgentConversationView({
   api,
@@ -473,27 +376,36 @@ export function SubAgentConversationView({
    */
   headerOf?: ViewId;
 }) {
-  const { entries, unavailable } = useSubAgentConversation(api, path);
+  const { entries, arrivals, unavailable } = useSubAgentConversation(api, path);
   const node = nodeAt(nodes, path);
-  const Title = headerOf ? "h1" : "h2";
+  const names = namesAlong(nodes, path);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className={cn(headerOf ? VIEW_HEADER_CLASS : "flex items-center gap-3 border-b px-4 py-3", "text-sm")}>
-        {back}
-        <Title id={headerOf && viewTitleId(headerOf)} className="min-w-0 truncate font-semibold">
-          {[ownerName, ...namesAlong(nodes, path)].join(" › ")}
-        </Title>
-        {node && <AgentState state={node.state} />}
-        {actions && <div className="ml-auto">{actions}</div>}
-      </header>
+      {headerOf && (
+        <header className={cn(VIEW_HEADER_CLASS, "text-sm")}>
+          {back}
+          <h1 id={viewTitleId(headerOf)} className="min-w-0 truncate font-semibold">
+            {[ownerName, ...names].join(" › ")}
+          </h1>
+          {node && <AgentState state={node.state} />}
+          {actions && <div className="ml-auto">{actions}</div>}
+        </header>
+      )}
       <FollowScroller version={entries}>
         {unavailable !== null ? (
           <p className="text-sm text-muted-foreground">Conversation not available: {unavailable.replace(/\.$/, "")}.</p>
         ) : (
-          entries.map((entry, index) => <EntryView key={index} entry={entry} answer={NOT_ASKED} />)
+          <ConversationEntries
+            entries={entries}
+            arrivals={arrivals}
+            working={node?.state === "working"}
+            agent={names[names.length - 1]}
+            latest
+            answer={NOT_ASKED}
+          />
         )}
       </FollowScroller>
-      <DisabledMessageBox />
+      <DisabledComposer />
     </div>
   );
 }
@@ -519,19 +431,12 @@ function AskListRow({
   const [confirming, setConfirming] = useState(false);
   const working = ask.status !== "idle";
   return (
-    <li className={`border-b ${selected ? "bg-accent" : ""}`}>
-      <div className="flex items-start gap-1">
-        <button type="button" aria-current={current} className="min-w-0 flex-1 px-3 py-2 text-left" onClick={onSelect}>
-          <div className="flex items-center gap-2">
-            <span className="truncate font-semibold">{ask.name}</span>
-            <span className="text-xs text-muted-foreground">ask</span>
-            {ask.status === "idle" ? <Badge variant="outline">idle</Badge> : <StateBadge state={ask.status} />}
-          </div>
-          <div className="text-xs text-muted-foreground">{startedText(ask.opened)}</div>
-        </button>
+    <li className={rowClass(selected)}>
+      <div className="flex items-start">
+        <RowButton name={ask.name} kind="ask" pill={<AskBadge status={ask.status} />} note={null} meta={startedText(ask.opened)} current={current} onSelect={onSelect} />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`Close ${ask.name}`} onClick={() => (working ? setConfirming(true) : asks?.close(ask.id))}>
+            <Button variant="ghost" size="icon" className="mr-1 mt-1.5 size-7" aria-label={`Close ${ask.name}`} onClick={() => (working ? setConfirming(true) : asks?.close(ask.id))}>
               <X aria-hidden />
             </Button>
           </TooltipTrigger>
@@ -558,12 +463,27 @@ interface Chosen {
   id: string;
 }
 
+/** An icon-only ghost button of the header band, with its tooltip. */
+function BandButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={label} onClick={onClick}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
- * The Jobs view: the project's jobs and Ask more conversations on the left, the selected one's
- * conversation, or its selected sub-agent's, on the right.
+ * The Jobs view: one header band over the list and the conversation; the project's jobs and Ask
+ * more conversations on the left, the selected one's conversation, or its selected sub-agent's, on
+ * the right. The list can be resized and hidden, and the project remembers both.
  */
 export function JobsView() {
-  const { projectId, openedJob } = useProject();
+  const { projectId, openedJob, openedJobRequest } = useProject();
   const { jobs, ompReady } = useJobs();
   const asksState = useOptionalAsks();
   const asks = asksState?.asks ?? NO_ASKS;
@@ -571,12 +491,17 @@ export function JobsView() {
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [agent, setAgent] = useState<{ owner: string; path: Step[] } | null>(null);
   const [focus, setFocus] = useState({ id: "", nonce: 0 });
+  const [filter, setFilter] = useState<JobFilter>("all");
+  const list = useJobsList(projectId);
+  const root = useRef<HTMLDivElement>(null);
+  const available = useElementWidth(root);
+  const listWidth = shownWidth(list.width, available);
   useEffect(() => {
     if (openedJob) {
       setChosen({ type: "job", id: openedJob });
       setAgent(null);
     }
-  }, [openedJob]);
+  }, [openedJob, openedJobRequest]);
   // A conversation just opened: it is the one shown, and its message box takes the focus.
   useEffect(() => {
     if (opened) {
@@ -586,6 +511,8 @@ export function JobsView() {
     }
   }, [opened]);
   const rows = useMemo(() => mergeRows(jobs, asks), [jobs, asks]);
+  const counts = useMemo(() => countRows(rows), [rows]);
+  const shown = useMemo(() => filterRows(rows, filter), [rows, filter]);
   const identity = (row: ListRow) => (row.type === "job" ? { type: row.type, id: row.job.id } : { type: row.type, id: row.ask.id });
   const selected = rows.find((row) => chosen && identity(row).type === chosen.type && identity(row).id === chosen.id) ?? rows[0] ?? null;
   const selectedKey = selected ? `${identity(selected).type}:${identity(selected).id}` : null;
@@ -611,55 +538,109 @@ export function JobsView() {
     setChosen(identity(row));
     setAgent(null);
   };
-  const panels = (
-    <div className="flex min-h-0 flex-1">
-      <nav aria-label="Jobs" className="w-[300px] shrink-0 overflow-y-auto border-r">
+  const ownerName = selected ? (selected.type === "job" ? selected.job.name : selected.ask.name) : "";
+
+  const listPane = (
+    <div className="relative flex shrink-0 flex-col border-r border-line-soft bg-lane" style={{ width: listWidth }}>
+      <div className="shrink-0 px-[18px] pb-3.5 pt-4">
+        <ToggleGroup
+          type="single"
+          aria-label="Filter"
+          value={filter}
+          onValueChange={(value) => {
+            if (value) setFilter(value as JobFilter);
+          }}
+          className="grid w-full grid-cols-3 gap-0.5 rounded-[10px] border-0 bg-line-soft p-[3px] shadow-none"
+        >
+          {JOB_FILTERS.map(({ id, label }) => (
+            <ToggleGroupItem
+              key={id}
+              value={id}
+              className="h-[30px] rounded-lg px-0 text-[12.5px] font-normal text-ink-2 hover:bg-transparent data-[state=on]:bg-surface data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-sm data-[state=on]:hover:bg-surface"
+            >
+              {`${label} ${counts[id]}`}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+      <nav aria-label="Jobs" className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No jobs yet</p>
+        ) : shown.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">No jobs here</p>
         ) : (
-          <ul className="pt-3">
-            {rows.map((row) => {
+          <ul className="space-y-1.5 px-2.5 pt-3">
+            {shown.map((row) => {
               const key = `${identity(row).type}:${identity(row).id}`;
               const here = key === selectedKey;
-              const list = here && nodes.length > 0 && (
+              const subAgents = here && nodes.length > 0 && (
                 <SubAgentList nodes={nodes} selected={agentPath} onSelect={(path) => setAgent({ owner: key, path })} />
               );
               return row.type === "job" ? (
                 <Row key={key} job={row.job} selected={here} current={here && !agentPath} onSelect={() => select(row)}>
-                  {list}
+                  {subAgents}
                 </Row>
               ) : (
                 <AskListRow key={key} ask={row.ask} selected={here} current={here && !agentPath} onSelect={() => select(row)}>
-                  {list}
+                  {subAgents}
                 </AskListRow>
               );
             })}
           </ul>
         )}
       </nav>
-      <section aria-label="Conversation" className="min-w-0 flex-1">
-        <SubAgentNavProvider value={nav}>
-          {selected &&
-            (agentPath && api ? (
-              <SubAgentConversationView
-                api={api}
-                ownerName={selected.type === "job" ? selected.job.name : selected.ask.name}
-                nodes={nodes}
-                path={agentPath}
-              />
-            ) : selected.type === "job" ? (
-              <Conversation key={selected.job.id} projectId={projectId} job={selected.job} ompReady={ompReady} />
-            ) : (
-              <AskConversation key={selected.ask.id} ask={selected.ask} focus={focus.id === selected.ask.id ? focus.nonce : 0} />
-            ))}
-        </SubAgentNavProvider>
-      </section>
+      <ListSeparator width={list.width} shown={listWidth} onResize={list.setWidth} />
     </div>
   );
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ViewHeader view="jobs" />
-      {panels}
+    <div ref={root} className="flex h-full min-h-0 flex-col">
+      <header className={cn(VIEW_HEADER_CLASS, "gap-0 px-0")}>
+        <div
+          className={cn("flex h-full shrink-0 items-center gap-3", list.hidden ? "px-7" : "border-r border-line-soft pl-7 pr-3")}
+          style={list.hidden ? undefined : { width: listWidth }}
+        >
+          <ViewTitle view="jobs" />
+          {list.hidden ? (
+            <BandButton label="Show jobs list" onClick={() => list.setHidden(false)}>
+              <PanelLeftOpen aria-hidden />
+            </BandButton>
+          ) : (
+            <span className="ml-auto">
+              <BandButton label="Hide jobs list" onClick={() => list.setHidden(true)}>
+                <PanelLeftClose aria-hidden />
+              </BandButton>
+            </span>
+          )}
+        </div>
+        <div className="flex h-full min-w-0 flex-1 items-center gap-3 px-7">
+          {selected &&
+            (agentPath ? (
+              <SubAgentPath ownerName={ownerName} nodes={nodes} path={agentPath} />
+            ) : selected.type === "job" ? (
+              <JobHeader projectId={projectId} job={selected.job} />
+            ) : (
+              <AskHeader ask={selected.ask} />
+            ))}
+        </div>
+      </header>
+      {list.loaded && (
+        <div className="flex min-h-0 flex-1">
+          {!list.hidden && listPane}
+          <section aria-label="Conversation" className="min-w-0 flex-1">
+            <SubAgentNavProvider value={nav}>
+              {selected &&
+                (agentPath && api ? (
+                  <SubAgentConversationView api={api} ownerName={ownerName} nodes={nodes} path={agentPath} />
+                ) : selected.type === "job" ? (
+                  <Conversation key={selected.job.id} projectId={projectId} job={selected.job} ompReady={ompReady} />
+                ) : (
+                  <AskConversation key={selected.ask.id} ask={selected.ask} focus={focus.id === selected.ask.id ? focus.nonce : 0} />
+                ))}
+            </SubAgentNavProvider>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

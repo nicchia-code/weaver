@@ -171,7 +171,7 @@ pub enum Entry {
     TurnFailed {
         reason: String,
     },
-    /// General: omp stopped (`omp stopped: <reason>.`); the next message starts it again.
+    /// General: omp stopped (`The agent stopped: <reason>.`); the next message starts it again.
     OmpStopped {
         reason: String,
         details: Option<String>,
@@ -186,11 +186,27 @@ pub struct Changed {
     #[ts(type = "number")]
     pub index: usize,
     pub entry: Entry,
+    /// The instant the entry arrived, in milliseconds since the Unix epoch.
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+/// The instant now, in milliseconds since the Unix epoch.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 #[derive(Debug, Default)]
 pub struct Conversation {
     entries: Vec<Entry>,
+    /// The instant each entry arrived, as `entries` is indexed.
+    arrived: Vec<i64>,
+    /// The instant the entries now being made were written, when a transcript says it.
+    clock: Option<i64>,
     seq: u64,
     dirty: BTreeSet<usize>,
     tools: HashMap<String, usize>,
@@ -345,14 +361,32 @@ impl Conversation {
         &self.entries
     }
 
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    pub fn arrivals(&self) -> &[i64] {
+        &self.arrived
+    }
+
     /// The number of batches taken so far.
     pub fn seq(&self) -> u64 {
         self.seq
     }
 
+    /// The instant a transcript record says it was written, for the entries it makes; `None` goes
+    /// back to the instant Weaver sees them.
+    pub fn set_clock(&mut self, at: Option<i64>) {
+        self.clock = at;
+    }
+
     fn push(&mut self, entry: Entry) -> usize {
+        let at = self.clock.unwrap_or_else(now_ms);
+        self.push_at(entry, at)
+    }
+
+    fn push_at(&mut self, entry: Entry, at: i64) -> usize {
         self.close_open();
         self.entries.push(entry);
+        self.arrived.push(at);
         let index = self.entries.len() - 1;
         self.dirty.insert(index);
         index
@@ -414,9 +448,10 @@ impl Conversation {
     }
 
     /// General: adds an entry a conversation already held (the messages of the developer and the
-    /// lines of Weaver that came before the kept session was reloaded).
-    pub fn append(&mut self, entry: &Entry) {
-        let index = self.push(entry.clone());
+    /// lines of Weaver that came before the kept session was reloaded), with the instant it
+    /// arrived.
+    pub fn append(&mut self, entry: &Entry, at: i64) {
+        let index = self.push_at(entry.clone(), at);
         if let Entry::Developer { message, .. } = entry {
             self.messages.insert(*message, index);
         }
@@ -428,6 +463,18 @@ impl Conversation {
             job: job.to_owned(),
             name: name.to_owned(),
         });
+    }
+
+    /// General: a job the Chat started in an earlier run of Weaver, known from its record, with
+    /// the instant it was created.
+    pub fn job_started_at(&mut self, job: &str, name: &str, at: i64) {
+        self.push_at(
+            Entry::JobStarted {
+                job: job.to_owned(),
+                name: name.to_owned(),
+            },
+            at,
+        );
     }
 
     /// General: the start of a job was refused.
@@ -900,6 +947,7 @@ impl Conversation {
                 self.entries.get(index).map(|entry| Changed {
                     index,
                     entry: entry.clone(),
+                    at: self.arrived.get(index).copied().unwrap_or_default(),
                 })
             })
             .collect()
@@ -1292,7 +1340,7 @@ mod tests {
         let mut c = Conversation::new();
         c.apply_update(&chunk("agent_message_chunk", "All done"));
         c.finish(EndLine::Failed {
-            reason: "omp exited with code 3".into(),
+            reason: "the agent exited with code 3".into(),
             details: Some("boom".into()),
         });
         assert_eq!(
@@ -1303,7 +1351,7 @@ mod tests {
             }
         );
         assert!(
-            matches!(&c.entries()[1], Entry::End(EndLine::Failed { reason, .. }) if reason == "omp exited with code 3")
+            matches!(&c.entries()[1], Entry::End(EndLine::Failed { reason, .. }) if reason == "the agent exited with code 3")
         );
     }
 

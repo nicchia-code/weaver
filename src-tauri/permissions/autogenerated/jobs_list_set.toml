@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jobs-list-set"
+description = "Enables the jobs_list_set command without any pre-configured scope."
+commands.allow = ["jobs_list_set"]
+
+[[permission]]
+identifier = "deny-jobs-list-set"
+description = "Denies the jobs_list_set command without any pre-configured scope."
+commands.deny = ["jobs_list_set"]

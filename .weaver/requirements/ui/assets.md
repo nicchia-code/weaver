@@ -11,6 +11,8 @@ description: "Use when building the Assets view or `@` asset tags."
   - Esc closes the list and leaves the text as it is. The list closes by itself when no asset matches, when the caret leaves the tag, or when the box loses the focus. With no asset in the project it never opens.
   - The box announces the list to assistive technologies as a combobox: `aria-expanded`, `aria-controls` and `aria-activedescendant` on the box, `listbox` and `option` roles on the list.
 - **Highlight:** while the developer writes, every recognised tag, `@` included, is drawn in the primary blue (`blue-600` light, `blue-500` dark) in the box; the rest of the text, the caret, the selection, wrapping and scrolling stay exactly as in a plain `Textarea`. A tag that names no asset stays in the normal text colour. The highlight follows every change of the text and of the assets.
+- **Caret on the drawn text:** in every box, the caret and the selection sit exactly on the characters drawn, on every line, also after a soft wrap and while the suggestion list is open; a click places the caret on the character under the pointer, and each typed character appears at the caret.
+- **Input methods:** in every box, Enter or Tab pressed to confirm a composition (accents, dead keys, an IME) only confirms it: it never sends the message, never picks a suggestion and never moves the focus.
 - What the conversation shows of a sent message is only the text the developer wrote, tags included as he typed them, with no highlight and nothing of what Weaver added for the agent.
 
 ## asset-view

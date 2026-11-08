@@ -15,6 +15,7 @@ mod model;
 mod project;
 mod proposal;
 mod question;
+mod request;
 mod task;
 
 /// Every command, by object in the order of the table of `requirements/cli#General`.
@@ -29,6 +30,7 @@ pub fn all() -> Vec<Command> {
     all.extend(announcement::commands());
     all.extend(job::commands());
     all.extend(question::commands());
+    all.extend(request::commands());
     all
 }
 

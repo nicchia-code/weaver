@@ -54,7 +54,7 @@ export function UpdateBanner() {
           {update.notes ? (
             <p className="max-h-32 overflow-auto whitespace-pre-wrap text-muted-foreground">{update.notes}</p>
           ) : null}
-          {failure ? <p className="text-red-600 dark:text-red-400">{failure}</p> : null}
+          {failure ? <p className="text-rose-ink">{failure}</p> : null}
         </div>
         <Button size="sm" aria-disabled={status.downloading} onClick={() => !status.downloading && install()}>
           {status.downloading ? "Downloading…" : "Install and restart"}

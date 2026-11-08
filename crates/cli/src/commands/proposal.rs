@@ -47,8 +47,8 @@ pub fn commands() -> Vec<Command> {
     vec![
         Command::new("proposal", "new", "Files a Proposal as a Draft.", new)
             .notes(&[
-                "`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, `request` is refused together with `reworks`, and `setup` and `import` are refused from the agent of Chat, which writes only a `change` or a `resolution`; a Proposal the agent of Chat files carries `chat: true` and is marked as written by Chat until it is handed over.",
-                "`request` and `reworks` bind only as Weaver allows for the caller: a setup or design job binds only the request its instruction names, and only with its first Proposal; a rework job only the Proposal its instruction names; the agent of Chat binds a request that is written, not sent, not consumed and not held by another Draft, with a `change`, and any rejected `change` or `resolution` (with or without Rework) that nothing replaced and no rework job works on, with a Proposal of the same kind; any other caller binds nothing. A binding that is not allowed leaves the Proposal unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.",
+                "`kind` is `change` (default), `setup`, `import` or `resolution`. `label` is one line of 1 to 30 characters. A `setup` is refused on a Model that has a Feature or an Actor, and `request` is refused together with `reworks`.",
+                "`request` and `reworks` bind only as Weaver allows for the caller: a setup or design job binds only the request its instruction names, and only with its first Proposal; a rework job only the Proposal its instruction names; any other caller binds nothing. A binding that is not allowed leaves the Proposal unbound, with a note saying why. `announcement` is the identity printed by `weaver announcement new`.",
             ])
             .input(vec![
                 req("title", line(), "The title."),
@@ -90,7 +90,7 @@ pub fn commands() -> Vec<Command> {
             .example("weaver proposal list"),
         Command::new("proposal", "edit", "Edits a Proposal: makes files editable, records Drift decisions and images.", edit)
             .notes(&[
-                "Every call, even without input, sends an Open Proposal back to Draft and says so. From the agent of Chat it also marks the Proposal as written by Chat (`chatWriting: true`) until it is handed over, a Proposal it did not create included.",
+                "Every call, even without input, sends an Open Proposal back to Draft and says so.",
                 "`edit` makes paths editable (`model/...`, `requirements/<area>/<fragment>.md`, `specs.yaml`, `tasks/<slug>.md`), copying the current content and recording `base` the first time, and prints the path to write for each. A new Task gets its identity here; Task paths are refused in `import` and `resolution`. `delete` is refused for a path the Proposal holds. `drifts` and `removeDrifts` apply only to a resolution; `option` and `note` go only with `fix-code`. `images` copies files into `.weaver/task-images/<task>/`. `rebase: true`, for any kind, attached to a Drift or not, drops broken `requires` and, in a resolution, the rows of Drifts no longer open, then records `base` again and sets `refining`; it prints what it dropped.",
             ])
             .arg(Arg::Card(CardKind::Proposal))
@@ -120,7 +120,7 @@ pub fn commands() -> Vec<Command> {
             .example(r#"weaver proposal edit p3 --input '{"edit":["model/checkout/order.md"]}'"#),
         Command::new("proposal", "move", "Hands a Proposal over, or decides it.", move_proposal)
             .notes(&[
-                "`open` hands the Proposal over, clears the mark of a Proposal written by Chat, and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: any caller can run them under the same conditions, and the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.",
+                "`open` hands the Proposal over and prints the warnings and the `show` text. `approved`, `rejected` and `discarded` are the developer's decisions: any caller can run them under the same conditions, and the agent runs them only when the developer explicitly asked for that decision in the conversation. `rejected` takes `feedback` and `rework`; `rework: true`, and approving a stale Proposal (of any kind), need Weaver to be running.",
             ])
             .arg(Arg::Card(CardKind::Proposal))
             .states(&["open", "approved", "rejected", "discarded"])
@@ -238,9 +238,7 @@ fn resolve_proposals(call: &Call, key: &str) -> Result<Vec<String>, Failure> {
 /// only a caller the app vouches for counts, and a job binds what its own instruction names.
 fn writer_of(caller: &Caller) -> Writer {
     match caller.who {
-        Who::Chat => Writer::Chat {
-            reworking: caller.agent.reworking_proposals.clone(),
-        },
+        Who::Chat | Who::Other => Writer::Other,
         Who::Job => {
             let record = caller.job_record.as_ref();
             let target = record.and_then(|record| record.target.clone());
@@ -259,7 +257,6 @@ fn writer_of(caller: &Caller) -> Writer {
                 },
             }
         }
-        Who::Other => Writer::Other,
     }
 }
 
@@ -280,7 +277,11 @@ fn new(call: &Call) -> Result<CommandReply, Failure> {
         requires: resolve_proposals(call, "requires")?,
         request: str_of(call.input, "request").map(str::to_owned),
         reworks,
-        job: call.caller.job.clone(),
+        job: call
+            .caller
+            .job
+            .clone()
+            .filter(|_| call.caller.who == Who::Job),
         writer: writer_of(call.caller),
     };
     let created = now()?;
@@ -762,7 +763,6 @@ fn edit(call: &Call) -> Result<CommandReply, Failure> {
         drifts: drift_decisions(call)?,
         remove_drifts,
         rebase: flag(call.input, "rebase"),
-        chat: call.caller.who == Who::Chat,
     };
     let folders = files::read_folders(call.root, call.image);
     let read = |path: &str| create::read_project_file(call.root, path);
@@ -1249,6 +1249,7 @@ mod tests {
         let dir = project();
         let caller = Caller {
             job: Some("jjjjjjjj".into()),
+            who: Who::Job,
             ..Caller::default()
         };
         let reply = call_with(
@@ -1326,14 +1327,6 @@ mod tests {
             job: Some(record.id.clone()),
             job_record: Some(record),
             who: Who::Job,
-            ..Caller::default()
-        }
-    }
-
-    fn chat_caller() -> Caller {
-        Caller {
-            general: Some("secret".into()),
-            who: Who::Chat,
             ..Caller::default()
         }
     }
@@ -1428,108 +1421,7 @@ mod tests {
             .card(CardKind::Proposal, reply.json["id"].as_str().unwrap())
             .unwrap();
         assert_eq!(card.str_key("request"), None);
-    }
-
-    #[test]
-    fn chat_files_a_draft_it_marks_binds_a_free_request_and_cannot_write_a_setup_or_an_import() {
-        let dir = project();
-        put(
-            dir.path(),
-            "requests/2026-11-02T07-00-00.md",
-            "# A request\n",
-        );
-        let reply = call_with(
-            "new",
-            dir.path(),
-            None,
-            None,
-            &chat_caller(),
-            json!({ "title": "From Chat", "request": "2026-11-02T07-00-00" }),
-        )
-        .unwrap();
-        assert!(reply.json.get("note").is_none(), "{}", reply.json);
-        let id = reply.json["id"].as_str().unwrap().to_owned();
-        let image = ProjectImage::load(dir.path());
-        let card = image.card(CardKind::Proposal, &id).unwrap();
-        assert_eq!(card.bool_key("chat"), Some(true));
-        assert_eq!(card.bool_key("chatWriting"), Some(true));
-        assert_eq!(card.str_key("request"), Some("2026-11-02T07-00-00"));
         assert_eq!(card.str_key("job"), None);
-
-        for kind in ["setup", "import"] {
-            let error = call_with(
-                "new",
-                dir.path(),
-                None,
-                None,
-                &chat_caller(),
-                json!({ "title": "Shop", "kind": kind }),
-            )
-            .unwrap_err();
-            assert_eq!(error.code, code::REFUSED);
-            assert!(
-                error
-                    .message
-                    .contains("the agent of Chat writes only a `change` or a `resolution`"),
-                "{}",
-                error.message
-            );
-        }
-    }
-
-    #[test]
-    fn chat_edit_marks_any_proposal_it_touches_and_the_hand_over_clears_the_mark() {
-        let dir = project();
-        ready(dir.path(), "pppppppp", "open");
-        let reply = call_with(
-            "edit",
-            dir.path(),
-            Some("pppppppp"),
-            None,
-            &chat_caller(),
-            json!({}),
-        )
-        .unwrap();
-        assert_eq!(reply.json["sentBackToDraft"], true);
-        let image = ProjectImage::load(dir.path());
-        let card = image.card(CardKind::Proposal, "pppppppp").unwrap();
-        assert_eq!(card.str_key("status"), Some("draft"));
-        assert_eq!(card.bool_key("chatWriting"), Some(true));
-        assert_eq!(card.bool_key("chat"), None, "only reopened, not created");
-
-        // Another caller's edit does not mark it.
-        ready(dir.path(), "qqqqqqqq", "open");
-        call_with(
-            "edit",
-            dir.path(),
-            Some("qqqqqqqq"),
-            None,
-            &Caller::default(),
-            json!({}),
-        )
-        .unwrap();
-        let image = ProjectImage::load(dir.path());
-        assert_eq!(
-            image
-                .card(CardKind::Proposal, "qqqqqqqq")
-                .unwrap()
-                .bool_key("chatWriting"),
-            None
-        );
-
-        let handed = call_with(
-            "move",
-            dir.path(),
-            Some("pppppppp"),
-            Some("open"),
-            &chat_caller(),
-            json!({}),
-        )
-        .unwrap();
-        assert_eq!(handed.json["status"], "open");
-        let image = ProjectImage::load(dir.path());
-        let card = image.card(CardKind::Proposal, "pppppppp").unwrap();
-        assert_eq!(card.bool_key("chatWriting"), None);
     }
 
     #[test]

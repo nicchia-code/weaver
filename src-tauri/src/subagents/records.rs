@@ -77,9 +77,22 @@ fn tool_of(block: &Value) -> Option<Tool> {
     })
 }
 
-/// Adds what `record` says to `conversation`. `from` is the name of who started the sub-agent: it
-/// labels the assignment.
+/// The instant a record says it was written (`timestamp`, RFC 3339), in milliseconds since the Unix epoch.
+fn instant_of(record: &Value) -> Option<i64> {
+    let text = nonempty(record, "timestamp")?;
+    chrono::DateTime::parse_from_rfc3339(text).ok().map(|at| at.timestamp_millis())
+}
+
+/// Adds what `record` says to `conversation`, the entries it makes arriving when the record says it
+/// was written. `from` is the name of who started the sub-agent: it labels the assignment.
 pub fn apply(conversation: &mut Conversation, from: &str, record: &Value) -> Applied {
+    conversation.set_clock(instant_of(record));
+    let applied = apply_record(conversation, from, record);
+    conversation.set_clock(None);
+    applied
+}
+
+fn apply_record(conversation: &mut Conversation, from: &str, record: &Value) -> Applied {
     let mut applied = Applied::default();
     match record.get("type").and_then(Value::as_str) {
         Some("session") => {
@@ -141,6 +154,29 @@ mod tests {
 
     use super::*;
     use crate::jobs::conversation::Entry;
+
+    #[test]
+    fn the_entries_of_a_record_arrive_when_the_record_says_and_unstamped_ones_when_weaver_sees_them() {
+        let mut c = Conversation::new();
+        let message = |at: Option<&str>, text: &str| {
+            let mut record = json!({ "type": "message", "message": { "role": "assistant", "content": [{ "type": "text", "text": text }] } });
+            if let Some(at) = at {
+                record["timestamp"] = json!(at);
+            }
+            record
+        };
+        apply(&mut c, "Run T1", &message(Some("2026-11-02T08:00:00.000Z"), "One"));
+        apply(&mut c, "Run T1", &json!({ "type": "message", "timestamp": "2026-11-02T08:00:04.000Z", "message": { "role": "assistant", "content": [{ "type": "toolCall", "id": "c1", "name": "read", "arguments": { "path": "a" } }] } }));
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        apply(&mut c, "Run T1", &message(None, "Two"));
+        let arrivals = c.arrivals();
+        assert_eq!(arrivals[0], 1_793_606_400_000);
+        assert_eq!(arrivals[1] - arrivals[0], 4000);
+        assert!(arrivals[2] >= before, "a record with no timestamp arrives now");
+    }
 
     #[test]
     fn records_become_the_entries_of_a_conversation() {

@@ -25,7 +25,7 @@
 //!
 //! It downloads the official installer to a temporary file and runs it, never piping it into a
 //! shell, so that a failed download counts as a failure. When that step ends with a code other than
-//! `0` it prints `The official installer failed (exit code <N>). Downloading omp from GitHub
+//! `0` it prints `The official installer failed (exit code <N>). Downloading the agent from GitHub
 //! instead…` and runs the GitHub download of [`super::github`] in the same shell. Then it writes
 //! the code of the last step that ran, else `0`, to the marker (`super::installer`) and deletes
 //! the temporary files.
@@ -61,7 +61,7 @@ const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TerminalError {
-    #[error("the path of omp is not absolute")]
+    #[error("the path of the agent is not absolute")]
     NotAbsolute,
     #[error("a path or value holds a line break or a quote that cannot be passed to a terminal")]
     UnsafePath,
@@ -255,7 +255,7 @@ fn posix_body(os: Os, task: Task) -> Result<String, TerminalError> {
              rm -f \"$t\"; \
              fi; \
              if [ \"$c\" -ne 0 ]; then \
-             printf '%s\\n' \"The official installer failed (exit code $c). Downloading omp from GitHub instead…\"; \
+             printf '%s\\n' \"The official installer failed (exit code $c). Downloading the agent from GitHub instead…\"; \
              {}; c=$?; \
              fi; \
              printf '%s\\n' \"$c\" > {}",
@@ -282,7 +282,7 @@ fn windows_body(os: Os, task: Task) -> Result<String, TerminalError> {
              if ($c -eq 0) {{ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $t; \
              $c = $LASTEXITCODE; if ($null -eq $c) {{ $c = 1 }} }}; \
              Remove-Item -LiteralPath $b, $t -ErrorAction SilentlyContinue; \
-             if ($c -ne 0) {{ Write-Host ('The official installer failed (exit code ' + $c + '). Downloading omp from GitHub instead…'); \
+             if ($c -ne 0) {{ Write-Host ('The official installer failed (exit code ' + $c + '). Downloading the agent from GitHub instead…'); \
              {}; $c = $global:OmpCode }}; \
              Set-Content -LiteralPath {} -Value $c -Encoding ASCII",
             github::definitions(Shell::PowerShell, Target::Install, &Config::default()),
@@ -641,7 +641,7 @@ mod tests {
             "rm -f \"$t\"",
             "> '/data/omp-install/ab12.code'",
             // The GitHub download only after a code other than 0, then the code of the last step.
-            "if [ \"$c\" -ne 0 ]; then printf '%s\\n' \"The official installer failed (exit code $c). Downloading omp from GitHub instead…\"; omp_github; c=$?; fi; printf '%s\\n' \"$c\" > '/data/omp-install/ab12.code'",
+            "if [ \"$c\" -ne 0 ]; then printf '%s\\n' \"The official installer failed (exit code $c). Downloading the agent from GitHub instead…\"; omp_github; c=$?; fi; printf '%s\\n' \"$c\" > '/data/omp-install/ab12.code'",
         ] {
             assert!(posix.terminal.contains(needle), "{needle}");
         }
@@ -673,7 +673,7 @@ mod tests {
             "$c = $LASTEXITCODE",
             "Remove-Item -LiteralPath $b, $t",
             "Set-Content -LiteralPath 'C:\\d\\omp-install\\ab12.code' -Value $c",
-            "if ($c -ne 0) { Write-Host ('The official installer failed (exit code ' + $c + '). Downloading omp from GitHub instead…'); Invoke-OmpGithub; $c = $global:OmpCode }; Set-Content",
+            "if ($c -ne 0) { Write-Host ('The official installer failed (exit code ' + $c + '). Downloading the agent from GitHub instead…'); Invoke-OmpGithub; $c = $global:OmpCode }; Set-Content",
         ] {
             assert!(windows.terminal.contains(needle), "{needle}");
         }

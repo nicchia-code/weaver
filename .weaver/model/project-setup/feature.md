@@ -12,6 +12,6 @@ Atomic commits, off by default and chosen for each working copy in Settings, mak
 
 omp is required: no job and no General conversation starts without it. Weaver finds it, offers to install it and to connect it to a provider through the system terminal, keeps it updated, and checks it again by itself until it answers.
 
-From every project window the developer can open Usage, which shows how much is left of the usage limits of the model providers omp is connected to and when each limit resets. Weaver asks omp for them only when Usage is opened, and never by calling a model.
+Every project window keeps in sight the usage limit of the model providers omp is connected to that is closest to being used up, and from there the developer opens Usage, which shows how much is left of every limit and when each one resets. Weaver asks omp for them when Usage is opened and by itself every five minutes while omp is ready and a window is on the screen, relying on omp's own record of the providers' answers, and never by calling a model.
 
 Behind a corporate proxy that inspects HTTPS traffic, omp fails to install or to reach its provider because it does not trust the proxy's certificate. System Certificates, off by default, makes every omp process Weaver starts trust the certificate authorities the developer's system trusts. Weaver turns it on by itself once when Zscaler is installed, and wherever it shows why omp failed it explains in plain words when a corporate proxy is the likely cause.

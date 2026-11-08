@@ -113,7 +113,7 @@ describe("Update skills in Settings", () => {
     update = () => Promise.reject({ code: "refused", message: "permission denied" });
     inProject(<UpdateSkills />);
     await user.click(screen.getByRole("button", { name: "Update skills" }));
-    expect(await screen.findByText("Could not update the agent files: permission denied.")).toHaveClass("text-red-600");
+    expect(await screen.findByText("Could not update the agent files: permission denied.")).toHaveClass("text-rose-ink");
   });
 });
 

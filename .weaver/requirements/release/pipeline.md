@@ -8,13 +8,20 @@ description: "Use when changing CI workflows, packaging, release artifacts, upda
 ### Repository
 
 - The code lives in the GitHub repository `nicchia-code/weaver`. Work lands on `dev`; `main` holds what is released. Both are protected: changes to `main` come from `dev` through a pull request whose `ci` checks passed.
-- The version lives in `src-tauri/tauri.conf.json` (`version`). `src-tauri/Cargo.toml`, `crates/core/Cargo.toml`, `crates/cli/Cargo.toml` and `ui/package.json` carry the same version; `ci` fails when they differ.
+- The version lives in `src-tauri/tauri.conf.json` (`version`). The Rust crates of the workspace (`src-tauri`, `crates/core`, `crates/cli`) take it from `[workspace.package]` of the root `Cargo.toml` through `version.workspace = true`, and `ui/package.json` carries the same version; `ci` fails when they differ. A change of version also updates `Cargo.lock`, which records it for every crate of the workspace, in the same commit.
 - Toolchains are pinned: Rust in `rust-toolchain.toml` (exact version, with `rustfmt` and `clippy`), Node in `.nvmrc` (exact version) and `ui/package.json` `engines`, pnpm through `packageManager`. Dependencies install from the committed lockfiles without updating them (`cargo --locked`, `pnpm install --frozen-lockfile`).
+
+### Dependencies
+
+- npm forced versions live in `pnpm-workspace.yaml` under `overrides:`, never in a `pnpm` field of a `package.json`, which the pinned pnpm ignores. They are recorded in `pnpm-lock.yaml`.
+- Current forced versions, for the end-to-end tests only: `glob` `>=14.0.2` (GHSA-3g3m-2fjr-6pw4) and `minimatch` `>=11.0.1` (GHSA-g3hv-75wg-m249), because Mocha and `readdir-glob` (through `webdriverio` → `archiver`) still ask for the vulnerable ranges. They are temporary: each is removed as soon as every package that brings it asks for a fixed version by itself.
+- The end-to-end tests use WebdriverIO 10.2.0 or later in the 10 line, for every `@wdio/*` package and `webdriverio`.
+- Accepted risk: `glib` 0.18 (GHSA-wrw7-89jp-8q8g, RUSTSEC-2024-0429), built only on Linux, comes from Tauri 2 and `drag` through GTK3 (`gtk` 0.18), whose bindings get no more releases. No Tauri 2 release allows `glib` 0.20 or later, and `glib` is never forced, which would break the Linux build. Weaver's own code never uses `glib`. The alert is dismissed on GitHub as `tolerable_risk`, with a comment saying why, and the risk stays accepted until Tauri moves to GTK4.
 
 ### App icon
 
-- Weaver has one app icon, the woven "W" logo: a cream rounded square holding a "W" woven from flat pastel ribbons (salmon pink, lavender, peach, sage green) that pass over and under horizontal ribbons. It is the icon of the bundles on every platform, of the macOS Dock, of the Windows and Linux taskbar, of the tray icon (`requirements/tech#window`), of the system notifications (`requirements/ui#notification`) and of the drag-out preview of assets (`requirements/tech#asset-view`). The interface itself never shows it: the welcome window keeps its lucide mark.
-- Its master is `src-tauri/icons/source.png`, 1024×1024 px with an alpha channel: the rounded square is 896×896 px, centred, and everything outside it is fully transparent (64 px per side), with no white left around the shape. There is no other master: no vector source is kept.
+- Weaver has one app icon, its logo (`requirements/ui#window`, **Logo**): a cream (`#FBF6EE`) rounded square crossed by a horizontal Sky thread and by four diagonal threads, Peach, Lavender, Rose and Sage, that weave a "W". It is the icon of the bundles on every platform, of the macOS Dock, of the Windows and Linux taskbar, of the tray icon (`requirements/tech#window`), of the system notifications (`requirements/ui#notification`) and of the drag-out preview of assets (`requirements/tech#asset-view`). The interface shows the same drawing.
+- Its master is the vector drawing `src-tauri/icons/source.svg`, a square canvas in which the rounded square takes 896/1024 of each side, centred, and everything outside it is fully transparent, with no white left around the shape. The interface uses the same SVG, never a raster copy; there is no other master and `source.png` is no longer kept.
 - Every file listed in `bundle.icon` of `src-tauri/tauri.conf.json` (`32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns`, `icon.ico`) and `src-tauri/icons/icon.png` is generated from the master by plain downscaling (`tauri icon`), with no separate drawing for small sizes. Outputs the app does not use (Windows Store, Android, iOS) are not kept in the repository.
 
 ### Workflow `ci`
@@ -60,6 +67,6 @@ description: "Use when changing CI workflows, packaging, release artifacts, upda
 ### Updates of Weaver
 
 - Weaver uses the Tauri updater plugin with endpoint `https://github.com/nicchia-code/weaver/releases/latest/download/latest.json`.
-- It checks at start and then at most once every 24 hours while running; the time of the last check is stored in the settings. A failed check is logged and retried at the next due time, never shown as an error.
+- It checks at start and then at most once every hour while running, a fixed interval with no setting; the time of the last check is stored in the settings. A failed check is logged and retried at the next due time, never shown as an error.
 - A found update shows its version and notes and is installed only when the developer chooses **Install and restart**; **Later** hides it until the next check. Install and restart goes through the same path as quitting Weaver, including its confirmation when jobs are working.
 - An update whose signature does not verify is refused and logged.

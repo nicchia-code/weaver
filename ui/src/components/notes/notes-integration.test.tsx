@@ -7,6 +7,7 @@ import { ProjectWindow } from "@/components/project-window";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const { backend } = vi.hoisted(() => ({ backend: { call: vi.fn(), on: vi.fn(), onDragDrop: vi.fn() } }));
+vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: null }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/backend", () => ({
   call: backend.call,

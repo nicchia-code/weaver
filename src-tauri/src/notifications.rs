@@ -162,10 +162,10 @@ impl Notifications {
     /// round. Shown when the project's window is in the background, never otherwise; it names the
     /// project and the Chat, nothing the Chat asked.
     pub fn chat_waiting(&self, project_id: &str) {
-        let project = self
-            .desktop
-            .project_root(project_id)
-            .map_or_else(|| project_id.to_owned(), |root| project_name(project_id, &root));
+        let project = self.desktop.project_root(project_id).map_or_else(
+            || project_id.to_owned(),
+            |root| project_name(project_id, &root),
+        );
         self.waiting(project_id, |book| book.chat_question(project_id, &project));
     }
 
@@ -207,11 +207,6 @@ impl ChatObserver for Notifications {
 
     /// The round the Chat waited for closed in the normal way (answers, Skip all).
     fn chat_round_closed(&self, project_id: &str) {
-        Notifications::chat_round_closed(self, project_id);
-    }
-
-    /// The developer cleared the conversation: whatever round it waited for is gone.
-    fn chat_cleared(&self, project_id: &str) {
         Notifications::chat_round_closed(self, project_id);
     }
 }
@@ -742,10 +737,9 @@ mod tests {
     #[test]
     fn the_chat_observer_shows_the_wait_and_withdraws_it_however_the_round_closes() {
         type Close = fn(&dyn ChatObserver, &str);
-        let closes: [(&str, Close); 3] = [
+        let closes: [(&str, Close); 2] = [
             ("ended without answers", |o, p| o.chat_round_ended(p)),
             ("closed in the normal way", |o, p| o.chat_round_closed(p)),
-            ("cleared", |o, p| o.chat_cleared(p)),
         ];
         for (how, close) in closes {
             let (service, fake) = service(true);

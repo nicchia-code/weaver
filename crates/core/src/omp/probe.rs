@@ -133,7 +133,7 @@ pub fn probe_found(omp: &Path, exec: &dyn Exec) -> ProbeResult {
     };
     match parse_models(&models_output.stdout) {
         None => ProbeResult::Missing {
-            reason: Some("omp answered with a list of models Weaver cannot read".to_owned()),
+            reason: Some("the agent answered with a list of models Weaver cannot read".to_owned()),
         },
         Some(models) if models.is_empty() => ProbeResult::NoProvider {
             omp: omp.to_path_buf(),
@@ -152,9 +152,9 @@ pub fn too_old_text(version: Option<&str>, reason: &str) -> String {
     let reason = reason.trim_end_matches('.');
     match version {
         Some(version) => format!(
-            "omp {version} is older than {MIN_OMP_VERSION} and could not be updated ({reason})."
+            "the agent {version} is older than {MIN_OMP_VERSION} and could not be updated ({reason})."
         ),
-        None => format!("omp is older than {MIN_OMP_VERSION} and could not be updated ({reason})."),
+        None => format!("the agent is older than {MIN_OMP_VERSION} and could not be updated ({reason})."),
     }
 }
 
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(
             probe(gone.to_str().unwrap(), &env, &fake),
             ProbeResult::Missing {
-                reason: Some(format!("omp not found at {}", gone.display()))
+                reason: Some(format!("the agent not found at {}", gone.display()))
             }
         );
         assert!(fake.calls.lock().unwrap().is_empty());
@@ -397,7 +397,7 @@ mod tests {
         assert_eq!(
             probe("", &env, &timed_out),
             ProbeResult::Missing {
-                reason: Some("omp did not answer within 15 s".into())
+                reason: Some("the agent did not answer within 15 s".into())
             }
         );
         let crashed = FakeOmp::new().on(
@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(
             probe("", &env, &crashed),
             ProbeResult::Missing {
-                reason: Some("omp exited with code 9".into())
+                reason: Some("the agent exited with code 9".into())
             }
         );
         let no_models = FakeOmp::new()
@@ -542,11 +542,11 @@ mod tests {
     fn the_text_for_an_omp_that_stays_too_old() {
         assert_eq!(
             too_old_text(Some("18.10.0"), "exit code 1"),
-            "omp 18.10.0 is older than 18.15.0 and could not be updated (exit code 1)."
+            "the agent 18.10.0 is older than 18.15.0 and could not be updated (exit code 1)."
         );
         assert_eq!(
             too_old_text(None, "timed out."),
-            "omp is older than 18.15.0 and could not be updated (timed out)."
+            "the agent is older than 18.15.0 and could not be updated (timed out)."
         );
     }
 
@@ -589,7 +589,7 @@ mod tests {
         let fake = FakeOmp::new()
             .on(&["update"], http())
             .on(&["auth-broker", "logout", "anthropic"], http());
-        let expected = "omp received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request, and turning on System Certificates in Weaver's settings may fix it";
+        let expected = "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request, and turning on System Certificates in Weaver's settings may fix it";
         assert_eq!(run_update(&omp, &fake), Err(expected.to_owned()));
         assert_eq!(
             logout(&omp, provider("anthropic").unwrap(), &fake),

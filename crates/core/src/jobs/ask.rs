@@ -198,15 +198,20 @@ This is an Ask more conversation: the developer is reading one thing in a projec
 - Read with the commands listed after that part whatever you need to know.
 - Answer the developer's message and explain.
 - Change a Task, a Drift or a Proposal only when the developer asks for it, and only with the `weaver` commands that allow it.
-- Never change the Model or the Requirements: they change only through a Proposal the developer approves, written by Weaver's design job from a design request that the developer writes with `+ Work Item` on the Board and sends.
+- Never change the Model or the Requirements: they change only through a Proposal the developer approves, written by Weaver's design job from a design request that the developer writes with `New Request` in the header of the Board (next to `Run all`) and sends.
 - Never write by hand in a file under `.weaver/`.
 - Start a job of Weaver with `weaver job new` only when the developer explicitly asks for that job in this conversation:
   - `weaver job new --input '{\"kind\":\"scan\"}'` scans the whole System;
   - `weaver job new --input '{\"kind\":\"run\",\"task\":\"<task>\"}'` runs one Task, and without `task` runs every runnable Task;
   - `weaver job new --input '{\"kind\":\"resolve\",\"drift\":\"<drift>\"}'` resolves one Drift;
   - `weaver job new --input '{\"kind\":\"design\",\"request\":\"<request>\"}'` sends a design request the developer already wrote and did not send.
-- Weaver applies its own refusals to the start of a job. When one is refused, tell the developer the reason from the output of the command.
 - Ask the developer only in your replies, in plain text, and wait for the answer. A form or a question tool is declined here.
+- Replies to the developer: the developer knows Weaver only through its app, so in your replies you speak only in the words of the app (Proposals, Tasks, Drifts, the Board, the Model, the Requirements, jobs and the controls of the app):
+  - On your own initiative never name what the app does not show: `weaver` commands, their options, their JSON input and output and their exit codes, files and folders under `.weaver/`, skills, instructions of Weaver, environment variables and omp.
+  - Name a card by its short number and title, as the Board shows it (for example `Proposal <short number> – <title>`), taking the short number from this text or from the read commands of `weaver`; use the permanent identity only for a closed card that has no short number. A design request stays with its permanent identity alone.
+  - When Weaver refuses something or fails, such as a refused start of a job, tell the developer the reason in your own words, in the terms of the app, without quoting the command or its output. Do not start the job in another way.
+  - When the developer has to do something, say where and what in the app (the Board, the details of a card, the Settings), never a command.
+  - Only when the developer explicitly asks about the internals of Weaver (a command, a file in the folder of Weaver, a skill) answer with those details.
 ";
 
 // ---------------------------------------------------------------------------------------------
@@ -652,6 +657,13 @@ mod tests {
         }
     }
 
+    /// The text without the reply rule, which is the only place of the fixed text that says `skills`.
+    fn without_replies_rule(text: &str) -> String {
+        let start = text.find("- Replies to the developer").expect("the reply rule");
+        let end = start + text[start..].find("\n\n").expect("the end of the fixed text");
+        format!("{}{}", &text[..start], &text[end..])
+    }
+
     #[test]
     fn every_text_starts_with_the_line_and_holds_the_fixed_rules() {
         let text = instruction(&Chosen::Task(task_bare()), None);
@@ -667,7 +679,22 @@ mod tests {
         ] {
             assert!(text.contains(rule), "missing: {rule}");
         }
-        assert!(!text.to_lowercase().contains("skill"));
+        assert!(!without_replies_rule(&text).to_lowercase().contains("skill"));
+        for rule in [
+            "Replies to the developer: the developer knows Weaver only through its app, so in your replies you speak only in the words of the app",
+            "On your own initiative never name what the app does not show: `weaver` commands, their options, their JSON input and output and their exit codes, files and folders under `.weaver/`, skills, instructions of Weaver, environment variables and omp.",
+            "Name a card by its short number and title, as the Board shows it (for example `Proposal <short number> – <title>`)",
+            "use the permanent identity only for a closed card that has no short number",
+            "tell the developer the reason in your own words, in the terms of the app, without quoting the command or its output",
+            "say where and what in the app (the Board, the details of a card, the Settings), never a command",
+            "Only when the developer explicitly asks about the internals of Weaver",
+        ] {
+            assert!(text.contains(rule), "missing: {rule}");
+        }
+        assert!(!text.contains("reason from the output"));
+        // The control of the Board that opens a request is named as the Board names it.
+        assert!(text.contains("with `New Request` in the header of the Board (next to `Run all`)"));
+        assert!(!text.to_lowercase().contains("work item"));
     }
 
     #[test]
@@ -1099,7 +1126,7 @@ mod tests {
             instruction(&Chosen::Task(task_bare()), None),
             instruction(&Chosen::Task(task_full()), None),
         ] {
-            assert!(!text.to_lowercase().contains("skill"));
+            assert!(!without_replies_rule(&text).to_lowercase().contains("skill"));
             assert!(!text.contains("weaver-req"));
         }
         let text = instruction(

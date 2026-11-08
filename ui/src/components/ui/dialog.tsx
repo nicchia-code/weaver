@@ -37,7 +37,7 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
           ref={panelRef}
           className={cn(
-            "relative flex max-h-[85vh] w-full max-w-[720px] flex-col gap-4 rounded-lg border bg-popover p-6 text-popover-foreground shadow-lg",
+            "relative flex max-h-[85vh] w-full max-w-[720px] flex-col gap-4 rounded-xl bg-popover p-6 text-popover-foreground shadow-pop",
             className,
           )}
           {...props}

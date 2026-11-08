@@ -1,13 +1,13 @@
 import { act as reactAct, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionInput } from "@/bindings/ActionInput";
 import type { QuestionRoundChanged } from "@/bindings/QuestionRoundChanged";
 import type { QuestionRoundView } from "@/bindings/QuestionRoundView";
 import type { QuestionView } from "@/bindings/QuestionView";
 import { AsksProvider } from "@/components/ask/use-asks";
-import { QuestionRoundLayer } from "@/components/questions/question-overlay";
+import { QuestionBar, QuestionRoundLayer } from "@/components/questions/question-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on } from "@/lib/backend";
 
@@ -120,6 +120,7 @@ function mount() {
     <TooltipProvider>
       <QuestionRoundLayer projectId={PROJECT}>
         <main>The project</main>
+        <QuestionBar />
       </QuestionRoundLayer>
     </TooltipProvider>,
   );
@@ -358,6 +359,75 @@ describe("QuestionOverlay", () => {
   });
 });
 
+describe("the bar of a reduced round", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => document.documentElement.style.removeProperty("--toast-bottom-extra"));
+
+  it("is one fixed-height line in the flow, Peach tinted with Peach ink and a 1 px Peach top border, never drawn over the view", async () => {
+    fakeBackend(round({ minimized: true }));
+    mount();
+    const bar = await screen.findByRole("region", { name: "Questions waiting" });
+    expect(bar).toHaveClass("bg-peach-tint", "text-peach-ink", "border-t", "border-peach", "shrink-0", "items-center");
+    expect(bar.className).not.toMatch(/\b(fixed|absolute|sticky|flex-wrap)\b|\bz-\d+|py-|min-h/);
+    expect(bar).toHaveStyle({ height: "44px" });
+    expect(bar).toHaveTextContent("The agent is waiting for your answers (question 1 of 2)Open questions");
+  });
+
+  it("cuts the text with an ellipsis and gives the full text in a tooltip, while `Open questions` stays whole at the right end", async () => {
+    fakeBackend(round({ minimized: true }));
+    mount();
+    const bar = await screen.findByRole("region", { name: "Questions waiting" });
+    const text = within(bar).getByText("The agent is waiting for your answers (question 1 of 2)");
+    expect(text).toHaveClass("truncate", "min-w-0", "flex-1");
+    expect(text).toHaveAttribute("title", "The agent is waiting for your answers (question 1 of 2)");
+    const open = within(bar).getByRole("button", { name: "Open questions" });
+    expect(open).toHaveClass("shrink-0");
+    expect(open).toBe(bar.lastElementChild);
+  });
+
+  it.each([
+    ["a round of Weaver for a Drift", { kind: "drift", drift: "D3", title: "A drift" }],
+    ["a round of Chat", { kind: "chat" }],
+  ] as const)("says `The agent` for %s too, and names the question the round was reduced on", async (_, origin) => {
+    fakeBackend(round({ minimized: true, position: { kind: "question", index: 1 }, origin }));
+    mount();
+    expect(await screen.findByText("The agent is waiting for your answers (question 2 of 2)")).toBeInTheDocument();
+  });
+
+  it("names the last question when the round was reduced on the summary", async () => {
+    fakeBackend(round({ minimized: true, position: { kind: "summary" } }));
+    mount();
+    expect(await screen.findByText("The agent is waiting for your answers (question 2 of 2)")).toBeInTheDocument();
+  });
+
+  it("lifts the toasts above itself while it shows and lets them down when it goes", async () => {
+    const backend = fakeBackend(round({ minimized: true }));
+    mount();
+    const root = document.documentElement;
+    await screen.findByRole("region", { name: "Questions waiting" });
+    expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe("52px");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open questions" }));
+    await screen.findByRole("dialog");
+    expect(backend.kinds().at(-1)).toBe("minimize");
+    expect(screen.queryByRole("region", { name: "Questions waiting" })).toBeNull();
+    expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe("");
+  });
+
+  it("is not in the overlay: the overlay shows nothing of a round that is reduced", async () => {
+    fakeBackend(round({ minimized: true }));
+    render(
+      <TooltipProvider>
+        <QuestionRoundLayer projectId={PROJECT}>
+          <main>The project</main>
+        </QuestionRoundLayer>
+      </TooltipProvider>,
+    );
+    await waitFor(() => expect(call).toHaveBeenCalledWith("question_round_get", { projectId: PROJECT }));
+    expect(screen.queryByRole("region", { name: "Questions waiting" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
 describe("Ask more on the question in view", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -383,6 +453,7 @@ describe("Ask more on the question in view", () => {
         <AsksProvider projectId={PROJECT}>
           <QuestionRoundLayer projectId={PROJECT}>
             <main>The project</main>
+            <QuestionBar />
           </QuestionRoundLayer>
         </AsksProvider>
       </TooltipProvider>,

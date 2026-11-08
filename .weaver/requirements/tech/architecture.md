@@ -1,5 +1,5 @@
 ---
-description: "Use when building the app structure, backend state, the project's file watching, IPC with the CLI or question rounds."
+description: "Use when building the app structure, backend state, the project's file watching, the requests behind the Board's drafts, IPC with the CLI or question rounds."
 ---
 # Architecture
 
@@ -47,8 +47,9 @@ description: "Use when building the app structure, backend state, the project's 
 - **Watched paths:**
   - the project root, non-recursively, only to see `.weaver` appear or vanish; a `.trama` folder appearing, changing or vanishing is ignored;
   - `.weaver/`, recursively, while it exists;
-  - no code, no skills folder, no `.omp/`; the File view watches its folders and files with its own watcher (`requirements/tech#file-view`).
-- **Ignored events:** temp files of atomic writes, and the local folders of `.weaver/` except `requests/`, where a deletion is `workspace.REQUEST_DELETED`, and `notes/`, whose events only reach the Notes view (`requirements/tech#notes-view`). Events under `assets/` only refresh the asset list (`requirements/tech#assets`). Neither ever touches the picture.
+  - git's HEAD file of the working copy, alone, only to read the branch again (`requirements/tech#window`); its events never touch the picture;
+  - no code, no other file of git, no skills folder, no `.omp/`; the File view watches its folders and files with its own watcher (`requirements/tech#file-view`).
+- **Ignored events:** temp files of atomic writes, and the local folders of `.weaver/` except `requests/`, where a deletion is `workspace.REQUEST_DELETED` and any change refreshes only the Board's drafts (`design-request`), and `notes/`, whose events only reach the Notes view (`requirements/tech#notes-view`). Events under `assets/` only refresh the asset list (`requirements/tech#assets`). Neither `assets/` nor `notes/` ever touches the picture.
 - **`.weaver` vanishes:** the recursive watch is dropped, then `PROJECT_FOLDER_REMOVED`.
 - **`.weaver` appears:** the watch is added and the picture fully rebuilt, then `PROJECT_FOLDER_APPEARED`.
 - A rescan or overflow event triggers a full rebuild.
@@ -65,6 +66,14 @@ description: "Use when building the app structure, backend state, the project's 
   - Only differing or missing files are written, atomically.
   - At most one check per project at a time; requests made meanwhile coalesce into one more run.
   - The check never delays the window.
+
+## design-request
+- **Drafts on the Board:** the Board snapshot's Backlog carries, after the open Proposals and Drifts, one card per request in Writing, oldest first by its id: its id, title (`requirements/data#design-request`), creation time, whether it is empty and whether it came back from a job that ended without a Proposal. Requests stay out of the core picture of the Model and the cards: the app adds the drafts when it builds the Board snapshot, from the request store, so that the UI never merges two lists.
+- **Ghost titles:** Weaver's own ghost of a setup or design job (`requirements/ui#work`) takes the title of the request the job received, read when the job is created and kept with the job in memory; it is never written in the job's record or the request file.
+- **Refresh:** the `board` slice is touched, with `project-changed`, when a request is created, sent (in the same picture as its job's first ghost, never one where both the draft and the ghost show), discarded, deleted, consumed or back in Writing (in the same picture in which its job's ghosts leave), and when a save changes its title or whether it is empty; a save that changes neither touches nothing.
+- **Return on opening:** a request whose job ended while the app was not running goes back to Writing in the project's mutation queue before the first Board snapshot of the window, so its draft card shows from the start.
+- **Leaving empty:** the UI asks the backend to discard the open request when it leaves the editor or the window closes with an empty text; the backend checks emptiness on the file under the project lock and discards nothing that is not empty or not in Writing.
+- **Job → request:** the job's row tells the UI, for a setup or design job, which request it received and whether that request is still Sent to it, so that `View request` shows only then (`requirements/ui#job`).
 
 ## question-round
 - **Transport:**
@@ -83,7 +92,7 @@ description: "Use when building the app structure, backend state, the project's 
     - the protocol version differs;
     - the job is unknown or ended, or the Chat identity is not the live one or has no turn in progress.
   - `interrupted`: exit 1, with a code and message and no answers. Returned when the round is interrupted, or when the connection drops after submission, detected by end-of-stream at once.
-  - `invalid-input`: exit 1, naming the question and field.
+  - `invalid-input`: exit 2, naming the question and field.
 
   These outcomes are never conflated.
 - **Abandoned:** the CLI closes the connection on SIGINT, SIGTERM or a closed stdout (Windows: Ctrl+C or pipe closure). End-of-stream on a queued or presented round is `agent.STOP_WAITING`.

@@ -3,8 +3,7 @@
 //!
 //! * `Backlog`: open Proposals and open Drifts in one creation order, oldest first. A resolution
 //!   gathers the Drifts it lists into one card; a Proposal attached to a Drift is never shown on
-//!   its own; a Draft is shown only when a refinement left it half-way, or when Chat is writing it
-//!   (`chatWriting: true`).
+//!   its own; a Draft is shown only when a refinement left it half-way.
 //! * `Active`: Tasks in To do and In progress, blocked ones included, oldest first.
 //! * Blocking is never stored: an open Drift that names a Task as its origin or concerns the
 //!   same thing blocks it ([`concerns`]); the origin of a Drift whose code is to be fixed waits
@@ -57,35 +56,26 @@ pub struct AgentFacts {
     pub merge_conflicts: bool,
     /// A `merge` job of the project has not ended.
     pub merge_job_unended: bool,
-    /// A turn of Chat is in progress.
-    pub chat_working: bool,
-    /// Identities of the rejected Proposals that the working rework jobs write again.
-    pub reworking_proposals: BTreeSet<String>,
 }
 
 impl AgentFacts {
-    /// Whether an agent still works on `card`: a job that is still working created, filed or wrote
-    /// it (its `job` key), or Chat, for a Proposal it created or is writing (`chat` or
-    /// `chatWriting`), while a turn of Chat is in progress.
+    /// Whether a working job still works on `card`: it created, filed or wrote it (its `job`
+    /// key).
     pub fn is_finishing(&self, card: &Card) -> bool {
         card.str_key("job")
             .is_some_and(|job| self.working_jobs.contains(job))
-            || (self.chat_working
-                && (card.bool_key("chat") == Some(true)
-                    || card.bool_key("chatWriting") == Some(true)))
     }
 
-    /// Whether a working job holds the Task (its `holder` key).
-    pub fn holds(&self, task: &Card) -> bool {
+    /// The working job that holds the Task (its `holder` key), if there is one.
+    pub fn holder<'a>(&self, task: &'a Card) -> Option<&'a str> {
         task.str_key("holder")
-            .is_some_and(|job| self.working_jobs.contains(job))
+            .filter(|job| self.working_jobs.contains(*job))
     }
-}
 
-/// A Draft the agent of Chat is writing: `chatWriting: true`. It has a card on the Board, and
-/// only Chat's turn can still be writing it.
-pub fn is_chat_draft(card: &Card) -> bool {
-    card.str_key("status") == Some("draft") && card.bool_key("chatWriting") == Some(true)
+    /// Whether a working job holds the Task.
+    pub fn holds(&self, task: &Card) -> bool {
+        self.holder(task).is_some()
+    }
 }
 
 /// How a Proposal in Backlog stands.
@@ -97,8 +87,6 @@ pub enum ProposalState {
     Refining,
     /// A Draft a refinement left half-way.
     Interrupted,
-    /// A Draft the agent of Chat is writing (`chatWriting: true`).
-    ChatDraft,
 }
 
 /// One Drift listed by a resolution, with the decision recorded for it.
@@ -180,7 +168,6 @@ fn proposal_state(card: &Card) -> Option<ProposalState> {
         "open" => Some(ProposalState::Open),
         "refining" => Some(ProposalState::Refining),
         "draft" if card.bool_key("refining") == Some(true) => Some(ProposalState::Interrupted),
-        "draft" if is_chat_draft(card) => Some(ProposalState::ChatDraft),
         _ => None,
     }
 }
@@ -628,13 +615,21 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_not_written_by_chat_has_a_card_only_when_a_refinement_left_it_half_way() {
+    fn a_draft_has_a_card_only_when_a_refinement_left_it_half_way() {
         let dir = project();
         let root = dir.path();
         proposal(root, "aaaaaaaa", 1, "draft", "");
         proposal(root, "bbbbbbbb", 2, "draft", "refining: true\n");
         proposal(root, "cccccccc", 3, "rejected", "");
         proposal(root, "dddddddd", 4, "discarded", "");
+        // A Draft of an earlier version that Chat was writing is an ordinary Draft.
+        proposal(
+            root,
+            "eeeeeeee",
+            5,
+            "draft",
+            "chat: true\nchatWriting: true\n",
+        );
         let board = board(&dir, &AgentFacts::default());
         assert_eq!(backlog_ids(&board), ["bbbbbbbb"]);
         assert!(matches!(
@@ -647,49 +642,26 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_the_chat_writes_has_a_card_in_its_place_and_is_finishing_during_a_turn() {
+    fn a_proposal_is_finishing_only_while_the_job_that_wrote_it_works() {
         let dir = project();
         let root = dir.path();
-        proposal(root, "aaaaaaaa", 1, "draft", "");
-        proposal(root, "bbbbbbbb", 3, "draft", "chatWriting: true\n");
-        proposal(root, "cccccccc", 2, "open", "");
-        let board = board(&dir, &AgentFacts::default());
-        assert_eq!(backlog_ids(&board), ["cccccccc", "bbbbbbbb"]);
-        assert!(matches!(
-            &board.backlog[1],
-            BacklogEntry::Proposal {
-                state: ProposalState::ChatDraft,
-                ..
-            }
-        ));
-
-        let image = ProjectImage::load(root);
-        let draft = image.card(CardKind::Proposal, "bbbbbbbb").unwrap();
-        let other = image.card(CardKind::Proposal, "aaaaaaaa").unwrap();
-        let turn = AgentFacts {
-            chat_working: true,
-            ..AgentFacts::default()
-        };
-        assert!(turn.is_finishing(draft));
-        assert!(!turn.is_finishing(other));
-        assert!(!AgentFacts::default().is_finishing(draft));
-    }
-
-    #[test]
-    fn a_proposal_the_chat_created_is_finishing_during_a_turn_also_once_handed_over() {
-        let dir = project();
-        let root = dir.path();
-        proposal(root, "aaaaaaaa", 1, "open", "chat: true\n");
-        proposal(root, "bbbbbbbb", 2, "open", "");
+        proposal(root, "aaaaaaaa", 1, "open", "job: jjjjjjjj\n");
+        proposal(
+            root,
+            "bbbbbbbb",
+            2,
+            "open",
+            "chat: true\nchatWriting: true\n",
+        );
         let image = ProjectImage::load(root);
         let made = image.card(CardKind::Proposal, "aaaaaaaa").unwrap();
         let other = image.card(CardKind::Proposal, "bbbbbbbb").unwrap();
-        let turn = AgentFacts {
-            chat_working: true,
+        let working = AgentFacts {
+            working_jobs: ["jjjjjjjj".to_owned()].into(),
             ..AgentFacts::default()
         };
-        assert!(turn.is_finishing(made));
-        assert!(!turn.is_finishing(other));
+        assert!(working.is_finishing(made));
+        assert!(!working.is_finishing(other));
         assert!(!AgentFacts::default().is_finishing(made));
     }
 

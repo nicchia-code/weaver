@@ -4,6 +4,8 @@ A free conversation with omp about one thing the developer is reading: a Proposa
 
 The developer's first message reaches the agent together with an instruction of Weaver that describes the chosen thing as the project's files say it at the moment of the request; the conversation shows only the developer's messages. The agent explains and answers; it changes a Task, a Drift or a Proposal only when the developer asks, and only with the commands of Weaver that allow it, never changes the Model or the Requirements, and starts a job of Weaver only on the developer's explicit request. As in a job, the developer can open and read the conversation of each of its sub-agents, read-only. Nothing of it is kept: it ends with the window.
 
+The agent speaks to the developer as in Chat: only in the words of the app, naming a card as the Board shows it, telling why Weaver refused something or failed in the app's own terms, pointing to the controls of the app when the developer has to act, and going into Weaver's commands, files, skills or instructions only when the developer explicitly asks about them.
+
 ## States
 
 ### Not opened (initial)

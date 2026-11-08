@@ -7,7 +7,7 @@
 //! the effects are carried out: bookkeeping here, I/O by the actor of the job ([`super::actor`]).
 //! Events to the UI and calls to the observers happen after the change, in order.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc as std_mpsc;
@@ -26,6 +26,8 @@ use weaver_core::project::board::AgentFacts;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
 use weaver_core::project::ids;
 use weaver_core::project::random::OsRandom;
+use weaver_core::project::requests::store::UNTITLED;
+use weaver_core::project::requests::RequestStore;
 
 use super::actor::{Cmd, Mode, Msg};
 use super::conversation::{Conversation, Delivery, EndLine, PermissionState};
@@ -77,6 +79,9 @@ pub(crate) struct Live {
     /// Where the job was created among the announcements, for Weaver's own ghost of a setup or an
     /// import: it sits where it would sit if it had been announced at creation.
     pub order: u64,
+    /// The title of the request a setup or design job received, as its draft card showed it when
+    /// the job was created: the title of Weaver's own ghost. Only in memory, never stored.
+    pub ghost_title: Option<String>,
     /// Its sub-agents, and the loop that reads their transcripts.
     pub agents: Agents,
     pub poller: Arc<Poller>,
@@ -98,7 +103,12 @@ impl Live {
         }
     }
 
-    fn row(&self) -> JobRow {
+    /// `sent` are the requests sent to a job now (`RequestStore::sent_now`).
+    fn row(&self, sent: &BTreeMap<String, String>) -> JobRow {
+        let request = self.request().map(str::to_owned);
+        let request_sent = request
+            .as_ref()
+            .is_some_and(|request| sent.get(request) == Some(&self.record.id));
         JobRow {
             id: self.record.id.clone(),
             kind: self.record.kind,
@@ -110,6 +120,16 @@ impl Live {
             ended: self.record.ended.clone(),
             note: self.record.latest_note().map(|note| note.text.clone()),
             target: self.record.target.clone(),
+            request,
+            request_sent,
+        }
+    }
+
+    /// The request a setup or design job received.
+    fn request(&self) -> Option<&str> {
+        match self.record.kind {
+            JobKind::Setup | JobKind::Design => self.record.target.as_deref(),
+            _ => None,
         }
     }
 }
@@ -251,11 +271,27 @@ impl Jobs {
 
     /// The Jobs list of a project, in the order the view shows it.
     pub fn snapshot(&self, project_id: &str) -> JobsSnapshot {
+        // The record of the requests is read before the lock is taken (no lock waits on the disk),
+        // and only when a job of the project has a request.
+        let root = self
+            .lock()
+            .jobs
+            .values()
+            .find(|l| l.project_id == project_id && l.request().is_some())
+            .map(|l| l.root.clone());
+        let sent = root
+            .map(|root| RequestStore::new(&root).sent_now())
+            .unwrap_or_default();
         let inner = self.lock();
-        self.snapshot_of(&inner, project_id)
+        self.snapshot_of(&inner, project_id, &sent)
     }
 
-    fn snapshot_of(&self, inner: &Inner, project_id: &str) -> JobsSnapshot {
+    fn snapshot_of(
+        &self,
+        inner: &Inner,
+        project_id: &str,
+        sent: &BTreeMap<String, String>,
+    ) -> JobsSnapshot {
         let mut working: Vec<&Live> = inner
             .jobs
             .values()
@@ -291,9 +327,11 @@ impl Jobs {
                 .then_with(|| b.record.id.cmp(&a.record.id))
         });
         finished.truncate(LISTED_FINISHED);
+        let listed: Vec<&Live> = working.into_iter().chain(finished).collect();
+        let rows = listed.into_iter().map(|live| live.row(sent)).collect();
         JobsSnapshot {
             project_id: project_id.to_owned(),
-            jobs: working.into_iter().chain(finished).map(Live::row).collect(),
+            jobs: rows,
             omp_ready: self.host.omp_is_ready(),
         }
     }
@@ -314,6 +352,7 @@ impl Jobs {
             job_id: job_id.to_owned(),
             seq: live.conversation.seq(),
             entries: live.conversation.entries().to_vec(),
+            arrivals: live.conversation.arrivals().to_vec(),
             notes: live.record.notes.clone(),
         })
     }
@@ -433,14 +472,6 @@ impl Jobs {
             .host
             .picture(project_id)
             .is_some_and(|(root, _)| weaver_core::solo_merge::in_progress(&root));
-        // Asked before the registry is locked: Chat holds its own lock when it answers.
-        let chat_working = self
-            .hooks
-            .general
-            .read()
-            .expect("hooks poisoned")
-            .as_ref()
-            .is_some_and(|general| general.chat_working(project_id));
         let inner = self.lock();
         let active = inner
             .jobs
@@ -449,7 +480,6 @@ impl Jobs {
         let mut facts = AgentFacts {
             done_since_last_scan: inner.done_since_scan.get(project_id).copied().unwrap_or(0),
             merge_in_progress: merging,
-            chat_working,
             ..AgentFacts::default()
         };
         for live in active {
@@ -462,18 +492,13 @@ impl Jobs {
                     .resolving_drifts
                     .extend(live.record.target.iter().cloned());
             }
-            if live.record.kind == JobKind::Rework {
-                facts
-                    .reworking_proposals
-                    .extend(live.record.target.iter().cloned());
-            }
         }
         facts
     }
 
     /// The cards the jobs of the project announced and that have not arrived, in announcement order,
-    /// and, for a setup or import job that has none on the Board, its own ghost, in the place it
-    /// would have if it had been announced when the job was created.
+    /// and, for a setup, design or import job that has none on the Board, its own ghost, in the
+    /// place it would have if it had been announced when the job was created.
     pub fn ghosts_of(&self, project_id: &str) -> Vec<Ghost> {
         let picture = self.host.picture(project_id).map(|(_, image)| image);
         let inner = self.lock();
@@ -557,6 +582,31 @@ impl Jobs {
         records
     }
 
+    /// The Chat of the project started this job, or sent the request that started it: kept in its
+    /// record, so that the Chat shows the job's line again after Weaver restarts.
+    pub fn mark_by_chat(&self, job_id: &str) {
+        let mut inner = self.lock();
+        if let Some(live) = inner.jobs.get_mut(job_id) {
+            if !live.record.by_chat {
+                live.record.by_chat = true;
+                self.persist(&live.record);
+            }
+        }
+    }
+
+    /// The jobs the Chat of the project started, oldest first (finished ones included).
+    pub fn chat_jobs(&self, project_id: &str) -> Vec<JobRecord> {
+        let inner = self.lock();
+        let mut records: Vec<JobRecord> = inner
+            .jobs
+            .values()
+            .filter(|l| l.project_id == project_id && l.record.by_chat)
+            .map(|l| l.record.clone())
+            .collect();
+        records.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.id.cmp(&b.id)));
+        records
+    }
+
     /// The identities of the jobs not finished in the project.
     pub fn active_ids(&self, project_id: &str) -> Vec<String> {
         self.lock()
@@ -601,6 +651,8 @@ impl Jobs {
         .map_err(|error| error.to_string())?;
         let created = now_instant(self.clock.as_ref()).map_err(|error| error.to_string())?;
 
+        // Read now, while the request is still as the developer sent it.
+        let ghost_title = request_title(new.plan.kind, &new.root, new.plan.target.as_deref());
         let id = {
             let mut inner = self.lock();
             let id = ids::draw_identity(&mut OsRandom, &|candidate| {
@@ -636,6 +688,7 @@ impl Jobs {
                 overlay: String::new(),
                 running: None,
                 running_incomplete: false,
+                by_chat: false,
             };
             self.persist(&record);
             inner.next_announcement += 1;
@@ -660,6 +713,7 @@ impl Jobs {
                     poller: Arc::new(Poller::default()),
                     announced: HashMap::new(),
                     order,
+                    ghost_title,
                 },
             );
             if new.plan.kind == JobKind::Scan {
@@ -897,7 +951,10 @@ impl Jobs {
                 return;
             };
             if let Err(error) = measure::append(&root, &line) {
-                log_warn!("the measure of job {} could not be written: {error}", record.id);
+                log_warn!(
+                    "the measure of job {} could not be written: {error}",
+                    record.id
+                );
             }
         });
     }
@@ -964,6 +1021,12 @@ impl Jobs {
         let snapshot = self.snapshot(project_id);
         self.host.emit_jobs(&snapshot);
         self.host.board_changed(project_id);
+    }
+
+    /// What the rows say about the requests changed (a request was sent, consumed, discarded or
+    /// gone): tells the UI the list again.
+    pub fn rows_changed(&self, project_id: &str) {
+        self.host.emit_jobs(&self.snapshot(project_id));
     }
 
     /// Runs `f` on the conversation of a job and emits what it changed.
@@ -1375,11 +1438,6 @@ impl Jobs {
             log_warn!("the job record {} is ignored: {reason}", path.display());
         }
         let project = root.to_string_lossy().into_owned();
-        let mut inner = self.lock();
-        inner
-            .done_since_scan
-            .entry(project_id.to_owned())
-            .or_insert(counter);
         let mut records: Vec<JobRecord> = registry
             .records
             .into_iter()
@@ -1387,6 +1445,17 @@ impl Jobs {
             .collect();
         // Creation order, so that the ghosts of the jobs keep it after a restart.
         records.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.id.cmp(&b.id)));
+        // The titles of the requests of setup and design jobs, read before the lock is taken: a
+        // request that is gone reads as `Untitled request` (the title is never stored).
+        let mut titles: HashMap<String, Option<String>> = records
+            .iter()
+            .map(|r| (r.id.clone(), request_title(r.kind, root, r.target.as_deref())))
+            .collect();
+        let mut inner = self.lock();
+        inner
+            .done_since_scan
+            .entry(project_id.to_owned())
+            .or_insert(counter);
         for mut record in records {
             if inner.jobs.contains_key(&record.id) {
                 continue;
@@ -1450,6 +1519,7 @@ impl Jobs {
                     poller: Arc::new(Poller::default()),
                     announced,
                     order,
+                    ghost_title: titles.remove(&record.id).flatten(),
                     record,
                 },
             );
@@ -1569,20 +1639,24 @@ fn ghost_kind(kind: &str) -> Option<GhostKind> {
     }
 }
 
-/// Weaver's own ghost of a setup or an import job (`requirements/ui#work`): a Proposal being
+/// Weaver's own ghost of a setup, design or import job (`requirements/ui#work`): a Proposal being
 /// prepared that the job has not announced. Its identity comes from the job and never equals an
-/// announcement's (those have no `:`); it is never stored.
+/// announcement's (those have no `:`); it is never stored. The title of a setup or design job is
+/// the one of the request it received, kept in memory when the job was created.
 fn weaver_ghost(live: &Live) -> Option<Ghost> {
     let title = match live.record.kind {
-        JobKind::Setup => names::SETUP,
-        JobKind::Import => names::IMPORT_GHOST_TITLE,
+        JobKind::Setup | JobKind::Design => live
+            .ghost_title
+            .clone()
+            .unwrap_or_else(|| UNTITLED.to_owned()),
+        JobKind::Import => names::IMPORT_GHOST_TITLE.to_owned(),
         _ => return None,
     };
     Some(Ghost {
         id: format!("job:{}", live.record.id),
         job_id: live.record.id.clone(),
         kind: GhostKind::Proposal,
-        title: title.to_owned(),
+        title,
         phase: if live.record.state == JobState::Waiting {
             GhostPhase::WaitingForAnswers
         } else {
@@ -1590,6 +1664,17 @@ fn weaver_ghost(live: &Live) -> Option<Ghost> {
         },
         note: live.record.latest_note().map(|note| note.text.clone()),
     })
+}
+
+/// The title of the request a setup or design job received, as its draft card shows it; `None`
+/// for any other job.
+fn request_title(kind: JobKind, root: &Path, request: Option<&str>) -> Option<String> {
+    match (kind, request) {
+        (JobKind::Setup | JobKind::Design, Some(request)) => {
+            Some(RequestStore::new(root).display_title(request))
+        }
+        _ => None,
+    }
 }
 
 /// Whether the card filed with an announcement is on the Board of the picture: a Task or a Drift

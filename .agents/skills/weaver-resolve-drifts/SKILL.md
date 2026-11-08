@@ -1,6 +1,6 @@
 ---
 name: weaver-resolve-drifts
-description: Use when the instruction asks to resolve a Drift of a project with a `.weaver/` folder, to rework a rejected resolution, or when a skill sends you here to prepare the question of a Drift. Asks the developer one question per Drift, then opens the resolution Proposal from the answer.
+description: Use only when the instruction of a Weaver job asks to resolve a Drift of a project with a `.weaver/` folder, to rework a rejected resolution, or to prepare the question of a Drift (also when a skill sends you here for it). Asks the developer one question per Drift, then opens the resolution Proposal from the answer. Never in a conversation that is not a job (Chat, Ask more).
 ---
 
 # Weaver: resolve Drifts
@@ -17,6 +17,7 @@ Announce a Proposal as soon as you know you will write it: `weaver announcement 
 
 ## Hard rules
 
+- This skill runs only when the instruction of a Weaver job names it. Without that instruction (Chat, Ask more, or any other conversation that is not a job) do not follow it, announce nothing, ask no round and open no Proposal. In Chat a Proposal starts as a design request sent with `weaver request new`.
 - NEVER edit `.weaver/model/` or `.weaver/requirements/` directly, nor the generated `weaver-req-*` skills. Every change goes through a Proposal.
 - Agents may approve, reject or discard a Proposal, decide a Drift or delete a Task in To do (`weaver task delete`) only when the developer explicitly asks for that decision in the conversation. Without that request, do not decide and do not ask the developer about it: stop and tell them the decision is theirs, on the Board. A request to prepare a resolution does not by itself authorise any of them.
 - NEVER change the code of the project, and never create Tasks: approving the resolution creates the Task of each Drift to be fixed in the code.

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · Requirements</title>
+<script src="7e332823-f25f-43c2-8401-f19efb04aee0"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F6F5F1; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; font-size: 14px">
+  <div style="flex: 1 1 248px; max-width: 100%; display: flex">
+    <dc-import name="Sidebar" active="req" hint-size="248px,960px"></dc-import>
+  </div>
+
+  <main style="flex: 999 1 560px; min-width: 0; margin: 8px; background: #FFFFFF; border-radius: 14px; box-shadow: 0 0 0 1px #E7E5DF, 0 1px 3px rgba(24,24,27,0.04); display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 28px; border-bottom: 1px solid #EFEDE7">
+      <div style="display: flex; flex-direction: column; gap: 3px; flex: 1 1 240px">
+        <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em">Requirements</h1>
+        <p style="margin: 0; font-size: 13px; color: #6B6B73">What the app must do, in plain words. Agents build from this.</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #E0DDD5; flex: 0 1 260px; min-width: 180px">
+        <svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" stroke="#6B6B73" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"></circle><path d="M10.2 10.2l3.3 3.3"></path></svg>
+        <label for="reqsearch" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search requirements</label>
+        <input id="reqsearch" type="search" placeholder="Search requirements" style="flex: 1; min-width: 0; border: 0; outline: none; font: inherit; font-size: 13px; background: transparent; color: #18181B">
+      </div>
+      <a href="Chat.dc.html" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 9px; background: #18181B; color: #FFFFFF; font-size: 13px; font-weight: 500; text-decoration: none">
+        <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 4.3a1.5 1.5 0 0 1 1.5-1.5h7.4a1.5 1.5 0 0 1 1.5 1.5v5.2a1.5 1.5 0 0 1-1.5 1.5H7.2l-3 2.4V11h0a1.5 1.5 0 0 1-1.4-1.5z"></path></svg>
+        Ask for a change
+      </a>
+    </header>
+
+    <div style="flex: 1; display: flex; flex-wrap: wrap">
+      <nav aria-label="Sections" style="flex: 1 1 220px; max-width: 100%; padding: 24px 16px 24px 28px; display: flex; flex-direction: column; gap: 18px; font-size: 13px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6B73; padding: 0 10px 6px">Data</span>
+          <a href="#stored" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: #F6F5F1; color: #18181B; font-weight: 500; text-decoration: none"><span style="width: 6px; height: 6px; border-radius: 2px; background: #EDB08F"></span><span style="flex: 1">Stored information</span><span style="color: #6B6B73; font-weight: 400">3</span></a>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6B73; padding: 0 10px 6px">Quality</span>
+          <a href="#perf" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; color: #52525B; text-decoration: none"><span style="width: 6px; height: 6px; border-radius: 2px; background: #96BBE0"></span><span style="flex: 1">Performance and reliability</span><span style="color: #6B6B73">1</span></a>
+          <a href="#privacy" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; color: #52525B; text-decoration: none"><span style="width: 6px; height: 6px; border-radius: 2px; background: #96BBE0"></span><span style="flex: 1">Privacy, security, accessibility</span></a>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6B73; padding: 0 10px 6px">Technical</span>
+          <a href="#stack" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; color: #52525B; text-decoration: none"><span style="width: 6px; height: 6px; border-radius: 2px; background: #A996D6"></span><span style="flex: 1">Stack</span><span style="font-size: 11px; color: #5B4A99; background: #EFEAF8; border-radius: 999px; padding: 1px 7px">changed</span></a>
+        </div>
+      </nav>
+
+      <div style="flex: 999 1 480px; min-width: 0; padding: 28px 40px 48px 24px; display: flex; flex-direction: column; gap: 40px; max-width: 900px; box-sizing: border-box">
+
+        <section id="stored" style="display: flex; flex-direction: column; gap: 18px">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em">Stored information</h2>
+            <span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #52525B; background: #F6F5F1; border-radius: 6px; padding: 2px 7px">data/stored.md</span>
+            <span style="flex: 1"></span>
+            <a href="#" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: #52525B; text-decoration: none; padding: 6px 8px; border-radius: 8px">
+              <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V13H3V4.5h3.5"></path></svg>Open in editor
+            </a>
+          </div>
+
+          <div style="display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px #E7E5DF">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 16px 18px; border-bottom: 1px solid #F1EFEA">
+              <span style="flex: 0 0 140px; font-family: 'Geist Mono', monospace; font-size: 12.5px; font-weight: 500; color: #9A4A22; padding-top: 2px">General</span>
+              <ul style="flex: 1 1 320px; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.6; color: #27272A">
+                <li>Daily counters of submitted documents per guest session, per network address and per account, per calendar day; counters older than 2 days are deleted.</li>
+              </ul>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 16px 18px; border-bottom: 1px solid #F1EFEA">
+              <span style="flex: 0 0 140px; font-family: 'Geist Mono', monospace; font-size: 12.5px; font-weight: 500; color: #9A4A22; padding-top: 2px">session</span>
+              <ul style="flex: 1 1 320px; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.6; color: #27272A">
+                <li>Guest session: a random identifier, creation time.</li>
+                <li>Account: provider (Google or Microsoft), the provider's subject identifier, email, display name, creation time, time of the last sign-in.</li>
+              </ul>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 16px 18px">
+              <span style="flex: 0 0 140px; font-family: 'Geist Mono', monospace; font-size: 12.5px; font-weight: 500; color: #9A4A22; padding-top: 2px">document</span>
+              <ul style="flex: 1 1 320px; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.6; color: #27272A">
+                <li>Owner (a guest session or an account), title, level (mild, medium, strong), state, creation time, time of the last change, start time of the current processing, reason of the last failure.</li>
+                <li>Pages, in order, with their kind of file and size, until the document reaches Review.</li>
+                <li>The content read from the pages, until the document reaches Review.</li>
+                <li>The simplified blocks in order, each with its kind and text, and for a figure its image and caption.</li>
+                <li>The PDF is never stored: it is built at each download.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="perf" style="display: flex; flex-direction: column; gap: 18px">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em">Performance and reliability</h2>
+            <span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #52525B; background: #F6F5F1; border-radius: 6px; padding: 2px 7px">quality/accessibility.md</span>
+          </div>
+          <div style="display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px #E7E5DF">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 16px 18px">
+              <span style="flex: 0 0 140px; font-family: 'Geist Mono', monospace; font-size: 12.5px; font-weight: 500; color: #2E5F8F; padding-top: 2px">document/ Processing</span>
+              <ul style="flex: 1 1 320px; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.6; color: #27272A">
+                <li>A document of 5 pages is normally ready for review within 2 minutes.</li>
+                <li>Work in progress is never lost on a restart of the app or the worker: a job taken by a worker that stopped is taken again.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1080}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

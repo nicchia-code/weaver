@@ -240,6 +240,14 @@ pub trait Shell: Send + Sync + 'static {
     /// The recent projects changed (an opening, a removal, `Clear Recent`): the File menu's
     /// `Open Recent` and the welcome window, when it is open, follow the new list.
     fn recent_changed(&self) {}
+    /// A project window just opened (its entry is in the registry): its branch and user name are
+    /// read, git's HEAD file is watched and every window's list of projects is told.
+    fn project_opened(&self, _project_id: &str, _root: &Path) {}
+    /// A project window got the focus: its branch and user name are read again.
+    fn project_focused(&self, _project_id: &str) {}
+    /// A project window is gone (its entry left the registry): what was kept for it goes and every
+    /// window's list of projects is told.
+    fn project_closed(&self, _project_id: &str) {}
     /// Writes the size and position of the open windows now.
     fn save_window_state(&self);
     /// A batch of file changes of a project, before its picture is rebuilt (the request editor
@@ -440,6 +448,32 @@ impl WindowManager {
         self.registry().projects().to_vec()
     }
 
+    /// The projects whose window is open, the most recently used first, each with how many of its
+    /// jobs work (running, or waiting for the developer).
+    pub fn open_in_focus_order(&self) -> Vec<(OpenProject, usize)> {
+        let jobs = self.jobs();
+        let (open, order) = {
+            let registry = self.registry();
+            let order: Vec<String> = registry.focus_order().map(str::to_owned).collect();
+            (registry.projects().to_vec(), order)
+        };
+        let rank = |project: &OpenProject| {
+            order
+                .iter()
+                .position(|label| *label == label_of(&project.id))
+                .unwrap_or(usize::MAX)
+        };
+        let mut open = open;
+        // Stable: projects the focus never saw keep their opening order, after the others.
+        open.sort_by_key(rank);
+        open.into_iter()
+            .map(|project| {
+                let working = jobs.working_jobs(&project.id);
+                (project, working)
+            })
+            .collect()
+    }
+
     /// How many jobs work, in every project (what a quit confirms).
     pub fn working_jobs(&self) -> usize {
         let jobs = self.jobs();
@@ -455,6 +489,7 @@ impl WindowManager {
         self.registry().focused(label);
         if let Some(project_id) = crate::pictures::project_of_label(label) {
             self.project().window_focused(project_id);
+            self.shell.project_focused(project_id);
         }
     }
 
@@ -531,6 +566,7 @@ impl WindowManager {
         });
         // The assets are listed from the start, whether or not the Assets view is ever shown.
         self.shell.assets_changed(id, canonical);
+        self.shell.project_opened(id, canonical);
 
         let path_text = canonical.to_string_lossy().into_owned();
         match now_instant(self.clock.as_ref()) {
@@ -886,6 +922,7 @@ impl WindowManager {
             .remove(project_id);
         self.pictures.close(project_id);
         self.registry().remove(project_id);
+        self.shell.project_closed(project_id);
     }
 
     /// The project leaves the session: it will not reopen at the next start.

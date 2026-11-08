@@ -35,7 +35,7 @@ pub trait Host: Send + Sync + 'static {
     fn omp_is_ready(&self) -> bool;
     /// The `PATH` of a process that runs omp.
     fn child_path(&self, omp: &Path) -> OsString;
-    /// `omp.MISSING`: a job could not start omp.
+    /// `omp.MISSING`: a job could not start the agent.
     fn report_omp_missing(&self, reason: Option<String>);
     /// The agent lock of the File view: the actors tell it what the agent's tools change. Hosts
     /// of tests that do not look at it have none.
@@ -46,6 +46,12 @@ pub trait Host: Send + Sync + 'static {
     /// or a request are recognised against them at the moment it is sent. Hosts of tests that do
     /// not look at assets have none.
     fn asset_names(&self, _project_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+    /// The jobs the Chat of a project started, or whose request it sent, oldest first: identity,
+    /// name and the instant each was created (milliseconds since the Unix epoch). Hosts of tests
+    /// that do not look at them have none.
+    fn chat_jobs(&self, _project_id: &str) -> Vec<(String, String, i64)> {
         Vec::new()
     }
     /// The environment Weaver itself runs in, to be inherited by omp (minus `WEAVER_*`).
@@ -161,10 +167,25 @@ impl Host for TauriHost {
             .collect()
     }
 
+    fn chat_jobs(&self, project_id: &str) -> Vec<(String, String, i64)> {
+        let Some(jobs) = self.app.try_state::<Arc<super::Jobs>>() else {
+            return Vec::new();
+        };
+        jobs.chat_jobs(project_id)
+            .into_iter()
+            .map(|record| {
+                let at = weaver_core::project::clock::parse_instant(&record.created).unwrap_or(0);
+                (record.id, record.name, at)
+            })
+            .collect()
+    }
+
     fn emit_jobs(&self, snapshot: &JobsSnapshot) {
         let _ = self
             .app
             .emit(crate::events::EventName::JobsChanged.as_str(), snapshot);
+        // The project switchers show how many jobs work in each project.
+        crate::windows::switcher::schedule(&self.app);
     }
 
     fn emit_entries(&self, event: &EntriesEvent) {

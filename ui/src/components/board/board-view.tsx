@@ -1,17 +1,18 @@
-import { Play, Plus, ScanSearch, TriangleAlert, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Ellipsis, Play, Plus, ScanSearch, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 
 import type { BoardCard } from "@/bindings/BoardCard";
 import type { Ghost } from "@/bindings/Ghost";
 import { BoardUiContext, useBoardActions, type BoardUi } from "@/components/board/board-ui";
 import { useBoard } from "@/components/board/board-state";
-import { rendererFor } from "@/components/board/card-registry";
+import { cardIdOf, rendererFor } from "@/components/board/card-registry";
 import { Column } from "@/components/board/column";
 import "@/components/board/default-cards";
 import { GhostCard } from "@/components/board/ghost-card";
 import { CardId } from "@/components/card-id";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { GuardedButton } from "@/components/guarded-button";
+import { useProject, useReveal } from "@/components/project-context";
 import { MergeBanner } from "@/components/merge/merge-banner";
 import { MergeButton } from "@/components/merge/merge-button";
 import { useMerge } from "@/components/merge/use-merge";
@@ -20,6 +21,7 @@ import { useViewShown } from "@/components/view-shown";
 import { ViewHeader } from "@/components/view-header";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type ColumnName = "backlog" | "active";
 
@@ -38,9 +40,9 @@ function ghostColumn(ghost: Ghost): ColumnName {
 
 function CardList({ cards }: { cards: readonly BoardCard[] }) {
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-3">
       {cards.map((card) => (
-        <li key={card.head.id}>
+        <li key={cardIdOf(card)}>
           <CardOf card={card} />
         </li>
       ))}
@@ -57,7 +59,7 @@ function CardOf({ card }: { card: BoardCard }) {
 function GhostList({ ghosts }: { ghosts: readonly Ghost[] }) {
   if (ghosts.length === 0) return null;
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-3">
       {ghosts.map((ghost) => (
         <li key={ghost.id}>
           <GhostCard ghost={ghost} />
@@ -80,7 +82,8 @@ function CardDetails({ card, focusTarget, onClose }: DetailsProps) {
   const last = useRef<BoardCard | null>(null);
   if (card) last.current = card;
   const shown = card ?? last.current;
-  if (!shown) return null;
+  // A request being written has no details dialog: its card opens the request editor.
+  if (!shown || shown.kind === "request") return null;
   const renderer = rendererFor(shown);
   const { Details, Footer } = renderer;
   return (
@@ -99,31 +102,58 @@ function CardDetails({ card, focusTarget, onClose }: DetailsProps) {
       footer={Footer ? <Footer card={shown} /> : undefined}
       returnFocus={focusTarget}
     >
-      <Details card={shown} />
+      {Details ? <Details card={shown} /> : null}
     </FormDialog>
   );
 }
 
-/** `Run all` and the other controls of the Board that start work of the agent. */
-function BoardFooterButtons({ runAllReasons }: { runAllReasons: readonly string[] }) {
-  const actions = useBoardActions();
+/** The three threads of the redesign, woven: the drawing of an empty Backlog. Decorative. */
+function Weave() {
   return (
-    <GuardedButton className="w-full" tooltip="Run all the Tasks in To do" reasons={runAllReasons} onClick={() => actions.runAll?.()}>
-      <Play aria-hidden />
-      Run all
-    </GuardedButton>
+    <svg width="88" height="56" viewBox="0 0 88 56" fill="none" aria-hidden="true" data-weave>
+      <path d="M4 14c20 0 20 28 40 28s20-28 40-28" className="stroke-rose" strokeWidth="3" strokeLinecap="round" opacity="0.7" />
+      <path d="M4 42c20 0 20-28 40-28s20 28 40 28" className="stroke-lavender" strokeWidth="3" strokeLinecap="round" opacity="0.7" />
+      <path d="M4 28h80" className="stroke-sky" strokeWidth="3" strokeLinecap="round" strokeDasharray="1 9" opacity="0.9" />
+    </svg>
+  );
+}
+
+/** An empty Backlog: the weave, what lands here, and the two ways to put something in it. */
+function EmptyBacklog() {
+  const actions = useBoardActions();
+  const { showView } = useProject();
+  return (
+    <div className="flex min-h-[22rem] flex-col items-center justify-center gap-3.5 px-5 py-12 text-center">
+      <Weave />
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-semibold">Nothing to decide</p>
+        <p className="max-w-[260px] text-[13px] leading-normal text-muted-foreground">New requests and Proposals from Chat land here for your go-ahead.</p>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button variant="secondary" onClick={() => actions.newRequest?.()}>
+          <Plus aria-hidden />
+          Request
+        </Button>
+        <Button variant="ghost" onClick={() => showView("general")}>
+          Ask in Chat
+        </Button>
+      </div>
+    </div>
   );
 }
 
 /**
- * The Board of the project window: `Scan System` in the header, the notices, and the two columns
- * `Backlog` and `Active`. What each column holds, in which order, what is blocked and why a
- * control is disabled all come from the backend's snapshot; this view groups and sorts nothing.
+ * The Board of the project window: the header (the count of what is active and done, `Merge`, the
+ * `More actions` menu with `Scan System…`, `New Request` and `Run all`), the notices, and the two lanes `Backlog` and `Active`. What each
+ * column holds, in which order, what is blocked and why a control is disabled all come from the
+ * backend's snapshot; this view groups and sorts nothing.
  */
 export function BoardView() {
   const { snapshot, loadError, notices, closeNotice, reload } = useBoard();
   const actions = useBoardActions();
   const merge = useMerge();
+  const mergeInProgress = Boolean(merge?.merge?.inProgress);
+  const scanReasonId = useId();
   const shown = useViewShown();
   const [opened, setOpened] = useState<OpenCard | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -143,10 +173,12 @@ export function BoardView() {
 
   const cards = useMemo(() => {
     const all = new Map<string, BoardCard>();
-    for (const card of [...(snapshot?.backlog ?? []), ...(snapshot?.active ?? [])]) all.set(card.head.id, card);
+    for (const card of [...(snapshot?.backlog ?? []), ...(snapshot?.active ?? [])]) {
+      if (card.kind !== "request") all.set(card.head.id, card);
+    }
     return all;
   }, [snapshot]);
-  const gatheredCards = useMemo(() => new Map((snapshot?.gathered ?? []).map((card) => [card.head.id, card] as const)), [snapshot]);
+  const gatheredCards = useMemo(() => new Map((snapshot?.gathered ?? []).map((card) => [cardIdOf(card), card] as const)), [snapshot]);
   const openCard = opened ? (cards.get(opened.id) ?? (opened.gathered ? gatheredCards.get(opened.id) : undefined) ?? null) : null;
 
   // The card left the Board (decided, done, deleted, gathered into a resolution): the dialog
@@ -161,14 +193,18 @@ export function BoardView() {
 
   const openDetails = useCallback(
     (id: string) => {
-      const column: ColumnName = snapshot?.backlog.some((card) => card.head.id === id) ? "backlog" : "active";
-      const gathered = !snapshot?.backlog.some((card) => card.head.id === id) && !snapshot?.active.some((card) => card.head.id === id);
+      const column: ColumnName = snapshot?.backlog.some((card) => cardIdOf(card) === id) ? "backlog" : "active";
+      const gathered = !snapshot?.backlog.some((card) => cardIdOf(card) === id) && !snapshot?.active.some((card) => cardIdOf(card) === id);
       focusTarget.current = null;
       setOpened({ id, column, gathered });
     },
     [snapshot],
   );
   const ui = useMemo<BoardUi>(() => ({ openDetails }), [openDetails]);
+
+  // The palette: a card to show in its details dialog, or `Scan System` to confirm.
+  useReveal("card", (target) => openDetails(target.id), snapshot !== null);
+  useReveal("scan", () => setScanning(true), snapshot !== null);
 
   if (!snapshot) {
     return (
@@ -194,23 +230,62 @@ export function BoardView() {
 
   const ghostsOf = (column: ColumnName) => snapshot.ghosts.filter((ghost) => ghostColumn(ghost) === column);
   const visibleWarnings = snapshot.warnings.filter((text) => !closedWarnings.has(text));
+  // The Tasks in To do that are not blocked: what `Run all` would start.
+  const ready = snapshot.active.filter((card) => card.kind === "task" && !card.doing && card.blockedBy.length === 0 && card.waitingFor.length === 0).length;
+  const subtitle = [
+    snapshot.active.length > 0 ? `${snapshot.active.length} active` : null,
+    snapshot.doneSinceLastScan > 0 ? `${snapshot.doneSinceLastScan} done since last scan` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
   return (
     <BoardUiContext.Provider value={ui}>
       <div className="flex h-full min-h-0 flex-col">
-        <ViewHeader view="board">
+        <ViewHeader view="board" subtitle={subtitle}>
           <MergeButton />
-          <GuardedButton variant="outline" size="sm" reasons={[merge?.merge?.inProgress && "A merge is in progress"]} onClick={() => setScanning(true)}>
-            <ScanSearch aria-hidden />
-            Scan System
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <GuardedButton variant="secondary" size="icon" label="More actions">
+                <Ellipsis aria-hidden />
+              </GuardedButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={mergeInProgress}
+                aria-describedby={mergeInProgress ? scanReasonId : undefined}
+                onSelect={() => setScanning(true)}
+              >
+                <ScanSearch aria-hidden />
+                <span className="flex flex-col">
+                  <span>Scan System…</span>
+                  {mergeInProgress ? (
+                    <span id={scanReasonId} aria-hidden className="text-xs text-muted-foreground">
+                      A merge is in progress
+                    </span>
+                  ) : null}
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <GuardedButton variant="secondary" tooltip="Write a request in Markdown and send it to an agent" onClick={() => actions.newRequest?.()}>
+            <Plus aria-hidden />
+            New Request
           </GuardedButton>
-          {snapshot.doneSinceLastScan > 0 ? (
-            <span className="text-muted-foreground">· {snapshot.doneSinceLastScan} done since last scan</span>
-          ) : null}
+          <GuardedButton
+            aria-label={ready > 0 ? `Run all, ${ready} ready` : "Run all"}
+            tooltip="Run all the Tasks in To do"
+            reasons={snapshot.runAllReasons}
+            onClick={() => actions.runAll?.()}
+          >
+            <Play aria-hidden />
+            Run all
+            {ready > 0 ? <span className="text-xs font-normal opacity-70">{ready} ready</span> : null}
+          </GuardedButton>
         </ViewHeader>
         <MergeBanner />
         <NoticeStack notices={notices} onClose={closeNotice} />
         {visibleWarnings.length > 0 ? (
-          <div className="flex flex-col gap-2 px-4 pt-4">
+          <div className="flex flex-col gap-2 px-6 pt-4">
             {visibleWarnings.map((text) => (
               <Alert key={text} variant="warning">
                 <TriangleAlert aria-hidden />
@@ -228,34 +303,24 @@ export function BoardView() {
             ))}
           </div>
         ) : null}
-        <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 p-4">
+        <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 p-6">
           <Column
             ref={backlogRef}
             title="Backlog"
+            tone="lavender"
             count={snapshot.backlog.length}
-            emptyText="Nothing to decide"
+            empty={<EmptyBacklog />}
             cards={<CardList cards={snapshot.backlog} />}
             ghosts={<GhostList ghosts={ghostsOf("backlog")} />}
-            footer={
-              <GuardedButton
-                variant="outline"
-                className="w-full border-dashed"
-                tooltip="Write a work item in Markdown and send it to an agent"
-                onClick={() => actions.newRequest?.()}
-              >
-                <Plus aria-hidden />
-                Work Item
-              </GuardedButton>
-            }
           />
           <Column
             ref={activeRef}
             title="Active"
+            tone="sky"
             count={snapshot.active.length}
-            emptyText="Nothing active"
+            empty={<p className="py-4 text-center text-muted-foreground">Nothing active</p>}
             cards={<CardList cards={snapshot.active} />}
             ghosts={<GhostList ghosts={ghostsOf("active")} />}
-            footer={<BoardFooterButtons runAllReasons={snapshot.runAllReasons} />}
           />
         </div>
         <CardDetails

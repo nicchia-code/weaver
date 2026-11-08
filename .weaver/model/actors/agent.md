@@ -1,6 +1,6 @@
 # Agent
 
-The coding agent, omp, working inside a job or in General that Weaver started. It reaches Weaver only through the `weaver` command line, which knows the job or the General it belongs to; what it reports there are the facts below. Only an agent of a job Weaver started can hold a Task or announce a card, and only an agent of a job or of General can ask a question round; a command run outside them is refused for those. The agent reads, analyses and writes the developer's code; Weaver only reads and writes the files the developer opens and changes in the File view.
+The coding agent, omp, working inside a job or in General that Weaver started. It reaches Weaver only through the `weaver` command line, which knows the job or the General it belongs to; what it reports there are the facts below. Only an agent of a job Weaver started can hold a Task, announce a card or write a Proposal, only an agent of a job or of General can ask a question round, and only the agent of General can send a design request; a command run outside them is refused for those. The agent reads, analyses and writes the developer's code; Weaver only reads and writes the files the developer opens and changes in the File view.
 
 ## Events
 
@@ -45,3 +45,6 @@ The agent rewrites the text of a History entry or adds Tasks to it.
 
 ### START_JOB
 The agent in General or in an Ask more conversation asks Weaver to start a job (design, scan, Run or Resolve) because the developer explicitly asked it to.
+
+### SEND_REQUEST
+The agent of General writes a design request with what it agreed on with the developer and sends it, because the developer explicitly asked for a Proposal; a design job then writes the Proposal, as if the developer had written and sent the request himself.

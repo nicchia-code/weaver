@@ -33,7 +33,7 @@ describe("ConfirmDialog", () => {
     const dialog = await screen.findByRole("alertdialog", { name: "Delete T4 for good?" });
     expect(dialog).toHaveAccessibleDescription("The Task is removed.");
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Delete" }).className).toContain("bg-destructive");
+    expect(screen.getByRole("button", { name: "Delete" }).className).toContain("text-destructive");
   });
 
   it("changes nothing when cancelled and gives the focus back to what opened it", async () => {

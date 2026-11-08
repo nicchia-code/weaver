@@ -44,7 +44,7 @@ function TabItem({ tab, active }: { tab: TabModel; active: boolean }) {
             {tab.modified && <span role="img" aria-label="Unsaved changes" className="size-2 shrink-0 rounded-full bg-foreground" />}
             {tab.locked && <Lock role="img" aria-label="The agent is editing this file" className="size-3.5 shrink-0" />}
             {needsAttention(tab) && (
-              <TriangleAlert role="img" aria-label="Needs your attention" className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <TriangleAlert role="img" aria-label="Needs your attention" className="size-3.5 shrink-0 text-peach-ink" />
             )}
           </button>
         </TooltipTrigger>

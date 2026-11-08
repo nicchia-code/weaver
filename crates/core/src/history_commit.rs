@@ -37,9 +37,6 @@ use crate::solo_mode::{self, block_lines_of_source, git_failure, reason_of, Call
 /// The longest first line of a commit message, in characters.
 pub const MESSAGE_LINE_MAX: usize = 72;
 
-/// The trailer of the commits made outside Solo mode.
-pub const TRAILER: &str = "Co-authored-by: Weaver <weaver@users.noreply.github.com>";
-
 /// The reason of a commit not made because the final checks of the Run failed.
 pub const REASON_CHECKS_FAILED: &str = "the checks of the Run failed";
 /// The reason of a merge, a rebase or a cherry-pick in progress.
@@ -515,10 +512,6 @@ fn try_commit(git: &Git, root: &Path, pending: &Pending) -> Result<Outcome, Stri
     }
 
     let mut message = pending.message.trim_end().to_owned();
-    if !solo {
-        message.push_str("\n\n");
-        message.push_str(TRAILER);
-    }
     message.push('\n');
     git.exec_with_input(
         &folder,
@@ -768,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_tracked_file_is_committed_as_a_removal_with_the_entry_and_a_trailer() {
+    fn a_removed_tracked_file_is_committed_as_a_removal_with_the_entry_and_the_agents_message() {
         if !available() {
             return;
         }
@@ -797,10 +790,8 @@ mod tests {
         let status = git(&top, &["status", "--porcelain"]);
         assert!(status.contains(" M src/keep.rs") && status.contains("?? src/unrelated.rs"), "{status}");
         let message = git(&top, &["log", "-1", "--format=%B"]);
-        assert_eq!(
-            message.trim_end(),
-            "Add the cart\n\nCo-authored-by: Weaver <weaver@users.noreply.github.com>"
-        );
+        assert_eq!(message.trim_end(), "Add the cart");
+        assert!(!message.contains("Co-authored-by"), "{message}");
         // Author and committer come from git's configuration.
         assert_eq!(
             git(&top, &["log", "-1", "--format=%an <%ae> / %cn <%ce>"]).trim(),
@@ -863,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn with_solo_mode_on_no_file_of_weaver_goes_in_and_there_is_no_trailer() {
+    fn with_solo_mode_on_no_file_of_weaver_goes_in_and_the_message_is_the_agents_alone() {
         if !available() {
             return;
         }
@@ -885,7 +876,13 @@ mod tests {
         };
         committed(commit(&git_runner, &root, &work));
         assert_eq!(last_files(&top), ["A src/a.rs"]);
-        assert_eq!(git(&top, &["log", "-1", "--format=%B"]).trim_end(), "Add the cart");
+        let message = git(&top, &["log", "-1", "--format=%B"]);
+        assert_eq!(message.trim_end(), "Add the cart");
+        assert!(!message.contains("Co-authored-by"), "{message}");
+        assert_eq!(
+            git(&top, &["log", "-1", "--format=%an <%ae> / %cn <%ce>"]).trim(),
+            "Dev Eloper <dev@example.com> / Dev Eloper <dev@example.com>"
+        );
     }
 
     #[test]

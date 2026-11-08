@@ -3,21 +3,23 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Coloured variants use the palette at 600 (light) / 400 (dark) for the text, on the theme's
-// background with a coloured border: the meaning is in the text and icon the badge carries too.
+// Coloured variants are the ink of a thread on its tint (`requirements/ui#General`): the meaning is
+// in the text and icon the badge carries too. Badges are fully rounded; `outline` is the plain
+// outline badge (a label, `technical`): text only, no colour.
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
+  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "border-transparent bg-primary text-primary-foreground",
         secondary: "border-transparent bg-secondary text-secondary-foreground",
-        outline: "text-foreground",
-        success: "border-green-600 text-green-600 dark:border-green-400 dark:text-green-400",
-        warning: "border-amber-600 text-amber-600 dark:border-amber-400 dark:text-amber-400",
-        error: "border-red-600 text-red-600 dark:border-red-400 dark:text-red-400",
-        info: "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400",
-        muted: "border-transparent bg-muted text-muted-foreground",
+        outline: "border-input text-foreground",
+        success: "border-transparent bg-sage-tint text-sage-ink",
+        warning: "border-transparent bg-peach-tint text-peach-ink",
+        error: "border-transparent bg-rose-tint text-rose-ink",
+        info: "border-transparent bg-sky-tint text-sky-ink",
+        lavender: "border-transparent bg-lavender-tint text-lavender-ink",
+        muted: "border-transparent bg-muted text-ink-2",
       },
     },
     defaultVariants: { variant: "default" },

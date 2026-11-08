@@ -30,14 +30,10 @@ pub trait GeneralAuthority: Send + Sync {
     /// `root`.
     fn accepts_ask(&self, root: &Path, token: &str) -> bool;
 
-    /// Whether a turn of the General of the project is in progress (its Machine is in Working):
-    /// the Draft Proposals it writes are still being finished.
-    fn chat_working(&self, project_id: &str) -> bool;
-
-    /// `agent.START_JOB`: the agent of the General or of the Ask more conversation `token` asked
-    /// for a job of `kind` (the app
-    /// already accepted `token`). `outcome` is the jobs that started, as `(identity, name)`, or the
-    /// reason none did. Called right after the start, on the thread of the command.
+    /// `agent.START_JOB` or `agent.SEND_REQUEST`: the agent of the General or of the Ask more
+    /// conversation `token` asked for a job of `kind` (`design` or `setup` when it sent a request;
+    /// the app already accepted `token`). `outcome` is the jobs that started, as `(identity, name)`,
+    /// or the reason none did. Called right after the start, on the thread of the command.
     fn job_requested(
         &self,
         root: &Path,
@@ -287,6 +283,11 @@ fn job_show(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
 fn job_new(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
     let kind = text(call, "kind");
     let result = start_jobs(jobs, call, kind);
+    if call.caller.general.is_some() {
+        for id in result.iter().flatten() {
+            jobs.mark_by_chat(id);
+        }
+    }
     let general = jobs.hooks.general.read().expect("hooks poisoned").clone();
     let token = call
         .caller

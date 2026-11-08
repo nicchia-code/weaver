@@ -8,7 +8,7 @@ import { systemCertificatesLine } from "@/lib/system-certificates";
 
 /** The text of the notice and of the system notification (`requirements/ui#system-certificates`). */
 export const TURN_ON_TEXT =
-  "Weaver turned on System Certificates because Zscaler is installed: omp and the agent's commands now trust the certificates your system trusts.";
+  "Weaver turned on System Certificates because Zscaler is installed: the agent and its commands now trust the certificates your system trusts.";
 
 function CloseButton({ onClick }: { onClick: () => void }) {
   return (

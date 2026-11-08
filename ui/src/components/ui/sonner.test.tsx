@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster, TOAST_DURATION_MS, VISIBLE_TOASTS } from "@/components/ui/sonner";
+import { Toaster, TOAST_BOTTOM_EXTRA, TOAST_DURATION_MS, VISIBLE_TOASTS } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 function mount() {
@@ -66,12 +66,12 @@ describe("Toaster", () => {
     expect((await toastOf("An info")).querySelector("[data-icon]")).toBeNull();
     const warning = await toastOf("A warning");
     expect(warning.querySelector("[data-icon] svg.lucide-triangle-alert")).not.toBeNull();
-    expect(warning.className).toMatch(/border-amber-600/);
-    expect(warning.className).toMatch(/dark:!border-amber-400/);
+    expect(warning.className).toMatch(/!border-peach/);
+    expect(warning.className).toMatch(/\[&_\[data-icon\]\]:text-peach-ink/);
     const error = await toastOf("An error");
     expect(error.querySelector("[data-icon] svg.lucide-circle-x")).not.toBeNull();
-    expect(error.className).toMatch(/border-red-600/);
-    expect(error.className).toMatch(/dark:!border-red-400/);
+    expect(error.className).toMatch(/!border-rose/);
+    expect(error.className).toMatch(/\[&_\[data-icon\]\]:text-rose-ink/);
   });
 
   it("is placed at the bottom right, and Alt+T focuses the toasts", async () => {
@@ -85,6 +85,18 @@ describe("Toaster", () => {
     expect(list).toHaveAttribute("data-x-position", "right");
     await userEvent.setup().keyboard("{Alt>}t{/Alt}");
     expect(document.activeElement === document.querySelector("section ol") || document.querySelector("section ol")?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("sits 24 px above the bottom, plus what a bar at the bottom of the window takes while one shows", async () => {
+    mount();
+    act(() => {
+      toast.error("An error");
+    });
+    await toastOf("An error");
+    const list = document.querySelector<HTMLElement>("[data-sonner-toaster]")!;
+    expect(list.style.getPropertyValue("--offset-bottom")).toBe(`calc(24px + var(${TOAST_BOTTOM_EXTRA}, 0px))`);
+    expect(list.style.getPropertyValue("--offset-right")).toBe("24px");
+    expect(list.style.getPropertyValue("--mobile-offset-bottom")).toBe(`calc(16px + var(${TOAST_BOTTOM_EXTRA}, 0px))`);
   });
 
   it("keeps the toast when Esc is pressed", async () => {

@@ -34,12 +34,13 @@ pub struct GeneralState {
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSnapshot {
     pub state: GeneralState,
-    /// The Draft Proposals the agent of Chat created that `Clear` discards (`chat: true`, not
-    /// refined): the Clear dialog says how many.
-    pub chat_drafts: u32,
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
 }
 
 /// A batch of changes of the conversation. `reset` says it was rebuilt (a session reloaded, or
@@ -113,6 +114,10 @@ pub struct AskSnapshot {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived, in milliseconds since the Unix epoch, as `entries` is
+    /// indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
 }
 
 /// A batch of changes of an Ask more conversation (`reset`: the UI fetches the snapshot again).

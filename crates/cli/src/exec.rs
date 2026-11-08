@@ -84,6 +84,7 @@ pub fn access_failure(command: &Command) -> Failure {
         Access::General => {
             "the agent of the General or of an Ask more conversation that Weaver started for this project"
         }
+        Access::Chat => "the agent of Chat",
         _ => "the agent of a job that Weaver started",
     };
     Failure::new(
@@ -93,6 +94,29 @@ pub fn access_failure(command: &Command) -> Failure {
             command.name()
         ),
     )
+}
+
+/// `proposal new`, `proposal edit` and `proposal move <id> open` are refused (exit 1, nothing
+/// written) whenever `WEAVER_GENERAL` is set, without asking the app: Chat does not write
+/// Proposals (`requirements/cli#agent`).
+pub fn refuse_chat_writing(
+    command: &Command,
+    state: Option<&str>,
+    general: Option<&str>,
+) -> Result<(), Failure> {
+    let writes = command.object == "proposal"
+        && match command.verb {
+            "new" | "edit" => true,
+            "move" => state == Some("open"),
+            _ => false,
+        };
+    if writes && general.is_some() {
+        return Err(Failure::refused(format!(
+            "Chat does not write Proposals, so `weaver {}` is refused. Send a request with `weaver request new` instead. Nothing was written.",
+            command.name()
+        )));
+    }
+    Ok(())
 }
 
 /// `.weaver/` must exist in the project folder.
@@ -208,6 +232,7 @@ pub fn execute(
     }
     check_words(command, request.card.as_deref(), request.state.as_deref())?;
     check_input(command, &request.input)?;
+    refuse_chat_writing(command, request.state.as_deref(), caller.general.as_deref())?;
 
     let allowed = match command.access {
         Access::Anyone => true,
@@ -235,6 +260,10 @@ pub fn execute(
                     .as_deref()
                     .is_some_and(|token| authority.accepts_ask(root, token))
         }
+        Access::Chat => caller
+            .general
+            .as_deref()
+            .is_some_and(|token| authority.accepts_general(root, token)),
     };
     if !allowed {
         return Err(access_failure(command));
@@ -503,6 +532,59 @@ mod tests {
     }
 
     #[test]
+    fn chat_may_not_write_a_proposal_whatever_the_app_would_say() {
+        let dir = project();
+        let chat = Caller {
+            general: Some("any identity".into()),
+            ..Caller::default()
+        };
+        let refused = [
+            ("new", None, None, json!({ "title": "Idea" })),
+            ("edit", Some("aaaaaaaa"), None, json!({})),
+            ("move", Some("aaaaaaaa"), Some("open"), json!({})),
+        ];
+        for (verb, card, state, input) in refused {
+            let error = execute(
+                &request("proposal", verb, dir.path(), card, state, input),
+                &chat,
+                &Vouches,
+            )
+            .unwrap_err();
+            assert_eq!(error.code, code::REFUSED, "{verb}");
+            assert_eq!(error.exit_code(), 1);
+            assert!(
+                error.message.contains("Chat does not write Proposals"),
+                "{verb}"
+            );
+            assert!(error.message.contains("weaver request new"), "{verb}");
+        }
+        assert!(!dir.path().join(".weaver/proposals").exists());
+        // The decision commands are not refused for Chat: they go on to find the card.
+        for state in ["approved", "rejected", "discarded"] {
+            let error = execute(
+                &request(
+                    "proposal",
+                    "move",
+                    dir.path(),
+                    Some("aaaaaaaa"),
+                    Some(state),
+                    json!({}),
+                ),
+                &chat,
+                &Vouches,
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("no Proposal has an identity starting with"),
+                "{state}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
     fn the_handler_sees_a_job_the_chat_or_another_caller_as_the_app_vouches_for_them() {
         let dir = project();
         let who = |caller: Caller| {
@@ -539,6 +621,117 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reply.exit, 0);
+    }
+
+    /// An authority that vouches for a job, an Ask more conversation and a Chat token alike.
+    struct VouchesAll;
+
+    impl Authority for VouchesAll {
+        fn accepts_job(&self, _root: &Path, job: &str) -> bool {
+            job == "jjjjjjjj"
+        }
+
+        fn accepts_general(&self, _root: &Path, token: &str) -> bool {
+            token == "chat"
+        }
+
+        fn accepts_ask(&self, _root: &Path, token: &str) -> bool {
+            token == "ask"
+        }
+
+        fn run(&self, _call: &Call) -> Option<Result<CommandReply, Failure>> {
+            Some(Ok(CommandReply {
+                markdown: String::new(),
+                json: json!({ "reached": true }),
+                exit: 0,
+                note: None,
+            }))
+        }
+    }
+
+    #[test]
+    fn only_the_chat_the_app_vouches_for_may_send_a_request() {
+        let dir = project();
+        let send = |caller: Caller| {
+            execute(
+                &request(
+                    "request",
+                    "new",
+                    dir.path(),
+                    None,
+                    None,
+                    json!({ "text": "# Idea" }),
+                ),
+                &caller,
+                &VouchesAll,
+            )
+        };
+        let reply = send(Caller {
+            general: Some("chat".into()),
+            ..Caller::default()
+        })
+        .unwrap();
+        assert_eq!(reply.json, json!({ "reached": true }));
+        let refused = [
+            // An identity the app does not recognise counts as none.
+            Caller {
+                general: Some("forged".into()),
+                ..Caller::default()
+            },
+            // Ask more, a job and anybody else are refused, whatever the app vouches for.
+            Caller {
+                ask: Some("ask".into()),
+                ..Caller::default()
+            },
+            Caller {
+                job: Some("jjjjjjjj".into()),
+                ..Caller::default()
+            },
+            Caller::default(),
+        ];
+        for caller in refused {
+            let error = send(caller.clone()).unwrap_err();
+            assert_eq!(error.code, code::FORBIDDEN, "{caller:?}");
+            assert_eq!(error.exit_code(), 1);
+            assert!(error
+                .message
+                .contains("Only the agent of Chat can run `weaver request new`"));
+            assert!(error.message.contains("Nothing was written."));
+        }
+        // Nothing was written, and no app vouching for nobody changes that.
+        let alone = execute(
+            &request(
+                "request",
+                "new",
+                dir.path(),
+                None,
+                None,
+                json!({ "text": "# Idea" }),
+            ),
+            &Caller {
+                general: Some("chat".into()),
+                ..Caller::default()
+            },
+            &NoJobs,
+        )
+        .unwrap_err();
+        assert_eq!(alone.code, code::FORBIDDEN);
+        assert!(!dir.path().join(".weaver/requests").exists());
+        // The text is checked before anything else: blank is wrong usage.
+        let blank = execute(
+            &request(
+                "request",
+                "new",
+                dir.path(),
+                None,
+                None,
+                json!({ "text": "  " }),
+            ),
+            &Caller::default(),
+            &VouchesAll,
+        )
+        .unwrap_err();
+        assert_eq!(blank.exit_code(), 2);
     }
 
     #[test]

@@ -55,6 +55,7 @@ export const COMMANDS = [
   ["job", "list", []],
   ["job", "edit", []],
   ["question", "new", []],
+  ["request", "new", []],
 ];
 const OBJECTS = [...new Set(COMMANDS.map(([object]) => object))];
 
@@ -456,6 +457,25 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
     assert.deepEqual(snapshot(root), before);
   });
 
+  test("request new is for the agent of Chat only: any other caller exit 1, Chat with no app exit 1 (Weaver not running), blank text exit 2", async () => {
+    const root = await newProject(environment);
+    const before = snapshot(root);
+    const input = '{"text":"# Cart\\n\\nAdd a cart."}';
+    const without = await exec(["request", "new", "--root", root, "--input", input], { cwd: root });
+    assert.equal(without.status, 1);
+    assert.match(without.stderr, /Only the agent of Chat can run `weaver request new`/);
+    const asAgentOfAJob = await run(["request", "new", "--root", root, "--input", input], { ...asJob(), cwd: root });
+    assert.equal(asAgentOfAJob.status, 1, "a job is not Chat");
+    assert.match(asAgentOfAJob.stderr, /Only the agent of Chat/);
+    const chat = await run(["request", "new", "--root", root, "--input", input], { ...asGeneral(), cwd: root });
+    assert.equal(chat.status, 1);
+    assert.match(chat.stderr, /Weaver is not running/);
+    const blank = await run(["request", "new", "--root", root, "--input", '{"text":"  "}'], { ...asGeneral(), cwd: root });
+    assert.equal(blank.status, 2);
+    assert.match(blank.stderr, /text/);
+    assert.deepEqual(snapshot(root), before);
+  });
+
   const QUESTION = JSON.stringify({
     questions: [
       { id: "a", question: "Which one?", options: [{ label: "x", description: "first" }, { label: "y", description: "second" }], recommended: 0, multi: false },
@@ -517,27 +537,39 @@ describe("who may run what (requirements/cli#agent)", { skip: SKIP }, () => {
     }
   });
 
-  test("proposal new from a WEAVER_GENERAL or a WEAVER_JOB no app vouches for files a plain Draft: no Chat mark", async () => {
-    for (const [who, options] of [["the Chat", asGeneral()], ["a job", asJob()]]) {
-      const root = await newProject(environment);
-      const result = await run(["proposal", "new", "--root", root, "--json", "--input", '{"title":"Cancel an order"}'], { ...options, cwd: root });
-      assert.equal(result.status, 0, `${who}: ${result.stdout}${result.stderr}`);
-      const body = parseJson(result.stdout);
-      const folder = readdirSync(path.join(root, ".weaver", "proposals")).find((name) => name.startsWith(body.id));
-      const text = readFileSync(path.join(root, ".weaver", "proposals", folder, "proposal.md"), "utf8");
-      assert.doesNotMatch(text, /^chat(Writing)?:/m, `${who}: an unrecognised identity counts as none`);
+  test("proposal new, edit and move open are refused whenever WEAVER_GENERAL is set, without asking the app", async () => {
+    const root = await newProject(environment);
+    for (const [words, input] of [
+      [["proposal", "new"], '{"title":"Cancel an order"}'],
+      [["proposal", "edit", "aaaaaaaa"], "{}"],
+      [["proposal", "move", "aaaaaaaa", "open"], "{}"],
+    ]) {
+      const result = await run([...words, "--root", root, "--json", "--input", input], { ...asGeneral(), cwd: root });
+      assert.equal(result.status, 1, `${words.join(" ")}: ${result.stdout}${result.stderr}`);
+      assert.match(parseJson(result.stdout)?.error?.message ?? "", /Chat does not write Proposals.*weaver request new/s);
     }
+    assert.equal(existsSync(path.join(root, ".weaver", "proposals")), false, "nothing was written");
   });
 
-  test("proposal new --help, edit --help and move --help say what the Chat marks and binds", async () => {
+  test("proposal new from a WEAVER_JOB no app vouches for files a plain Draft", async () => {
+    const root = await newProject(environment);
+    const result = await run(["proposal", "new", "--root", root, "--json", "--input", '{"title":"Cancel an order"}'], { ...asJob(), cwd: root });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    const body = parseJson(result.stdout);
+    const folder = readdirSync(path.join(root, ".weaver", "proposals")).find((name) => name.startsWith(body.id));
+    const text = readFileSync(path.join(root, ".weaver", "proposals", folder, "proposal.md"), "utf8");
+    assert.doesNotMatch(text, /^(chat(Writing)?|job|request):/m, "an unrecognised identity counts as none");
+  });
+
+  test("the help of the proposal commands says what the caller binds and never talks about Chat", async () => {
+    for (const verb of ["new", "show", "list", "edit", "move"]) {
+      const help = await exec(["proposal", verb, "--help"], { cwd: emptyFolder() });
+      assert.equal(help.status, 0, help.stderr);
+      assert.doesNotMatch(help.stdout, /Chat/, `proposal ${verb}`);
+    }
     const created = await exec(["proposal", "new", "--help"], { cwd: emptyFolder() });
-    assert.equal(created.status, 0, created.stderr);
-    assert.match(created.stdout, /refused from the agent of Chat/);
     assert.match(created.stdout, /any other caller binds nothing/);
-    const edited = await exec(["proposal", "edit", "--help"], { cwd: emptyFolder() });
-    assert.match(edited.stdout, /marks the Proposal as written by Chat/);
     const moved = await exec(["proposal", "move", "--help"], { cwd: emptyFolder() });
-    assert.match(moved.stdout, /clears the mark of a Proposal written by Chat/);
     assert.match(moved.stdout, /any caller can run them under the same conditions/);
   });
 

@@ -8,7 +8,8 @@ import type { ResolvedTheme } from "@/components/theme-provider";
 /**
  * The colours of the editor in each theme. Every text colour has at least 4.5:1 against the editor
  * background and against the selection (`requirements/quality#General`, WCAG 2.2 AA); a test checks
- * the pairs. Tailwind 800 on light, 400 on dark, so the syntax colours match the rest of the UI.
+ * the pairs. The background is Surface and the text Ink; the syntax colours are the inks of the five
+ * threads (`requirements/ui#General`), the lighter ones on dark, so they match the rest of the UI.
  */
 export interface EditorPalette {
   background: string;
@@ -28,31 +29,31 @@ export interface EditorPalette {
 export const PALETTES: Record<ResolvedTheme, EditorPalette> = {
   light: {
     background: "#ffffff",
-    selection: "#dbeafe",
+    selection: "#d6e5f5",
     foreground: "#18181b",
     punctuation: "#3f3f46",
     comment: "#52525b",
-    keyword: "#6b21a8",
-    string: "#166534",
-    number: "#1e40af",
-    definition: "#155e75",
-    type: "#92400e",
-    link: "#1e40af",
-    invalid: "#b91c1c",
+    keyword: "#5b4a99",
+    string: "#3f6b3c",
+    number: "#2e5f8f",
+    definition: "#2e5f8f",
+    type: "#9a4a22",
+    link: "#2e5f8f",
+    invalid: "#9b3b57",
   },
   dark: {
-    background: "#09090b",
-    selection: "#172554",
-    foreground: "#fafafa",
-    punctuation: "#d4d4d8",
-    comment: "#a1a1aa",
-    keyword: "#c084fc",
-    string: "#4ade80",
-    number: "#60a5fa",
-    definition: "#22d3ee",
-    type: "#fbbf24",
-    link: "#60a5fa",
-    invalid: "#f87171",
+    background: "#1f1f1d",
+    selection: "#223a52",
+    foreground: "#f4f4f2",
+    punctuation: "#b6b6b0",
+    comment: "#a8a8a2",
+    keyword: "#c0b2e8",
+    string: "#a8d2a5",
+    number: "#9dc4ea",
+    definition: "#9dc4ea",
+    type: "#f2b998",
+    link: "#9dc4ea",
+    invalid: "#eeaebf",
   },
 };
 
@@ -85,7 +86,7 @@ export function editorTheme(theme: ResolvedTheme): Extension {
       {
         "&": { color: palette.foreground, backgroundColor: palette.background, height: "100%" },
         ".cm-scroller": {
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
           fontSize: "13px",
           lineHeight: "1.5",
         },

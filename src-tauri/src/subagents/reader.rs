@@ -80,7 +80,7 @@ fn resolve(
             Some(main) => main,
             None => {
                 let main = subagents::find_main_file(&location.root, &location.session)
-                    .ok_or("the session file of omp was not found")?;
+                    .ok_or("the session file of the agent was not found")?;
                 *found_main = Some(main.clone());
                 main
             }

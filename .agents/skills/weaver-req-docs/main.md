@@ -3,7 +3,8 @@
 ## General
 
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0: a short header naming the format, then `## [Unreleased]` on top and one `## [<version>] - <YYYY-MM-DD>` section per released version, newest first, each with the groups `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security` that have entries.
-- Every change a user of the app can see adds at least one line under `## [Unreleased]`, in the same change as the code: what changed for the user, in one sentence, without Task or Proposal ids. Changes visible only to contributors (tests, CI, refactoring) add none.
+- Every change a user of the app can see adds at least one line under `## [Unreleased]`, in the same change as the code: what changed for the user, in one sentence, without Task or Proposal ids. Changes visible only to contributors (tests, CI, refactoring) add none, except security alerts on dependencies.
+- Every security alert on a dependency that is closed or accepted as a risk adds a line under `## [Unreleased]`, `Security`, even when the dependency is used only by the tests or the CI: which dependency was fixed, or which is a known risk and where.
 - When a version is released, the lines under `## [Unreleased]` move to that version's section.
 - `README.md` keeps its sections for installing and for contributors; user-facing behaviour that someone needs to get Weaver working goes in its own section after `## Install`.
 
@@ -55,7 +56,9 @@
 - `README.md` has a section `## Atomic commits`, right after `## Solo mode`, saying:
   - what it does: after each History entry the agent writes, or each update that adds Tasks to one, Weaver commits the code of that entry, one commit per entry, with an English message written by the agent;
   - that it is off by default, belongs to the working copy and is turned on in Settings → Project only;
-  - what goes into a commit: the files the agent names, what the developer already staged, and, outside Solo mode, the History entry and its Tasks' removed files; with Solo mode on, none of Weaver's files and no co-author trailer;
+  - what goes into a commit: the files the agent names, what the developer already staged, and, outside Solo mode, the History entry and its Tasks' removed files; with Solo mode on, none of Weaver's files;
+  - that the message is the one the agent wrote, with or without Solo mode, and that the author is the developer, as git is configured;
   - that hooks and signing run as configured, that Weaver never amends, pushes or fetches, and that a commit is skipped, with a notice on the Board, when the Run's checks failed or git cannot commit;
   - that it needs git.
 - `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing Atomic commits.
+- `CHANGELOG.md` adds under `## [Unreleased]`, `Changed`, one line saying that the commits of Atomic commits no longer name Weaver as co-author: their message is the agent's alone.

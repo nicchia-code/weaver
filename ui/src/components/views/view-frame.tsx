@@ -16,7 +16,7 @@ import { useViews } from "@/components/views/views-state";
  * banner, the focus bar, and a message while the snapshot is loading or could not be read. Esc
  * clears the view's focus, and with it the overlay that focus drew.
  */
-export function ViewFrame({ view, toolbar, children }: { view: ViewName; toolbar?: ReactNode; children: ReactNode }) {
+export function ViewFrame({ view, subtitle, toolbar, children }: { view: ViewName; subtitle?: ReactNode; toolbar?: ReactNode; children: ReactNode }) {
   const { snapshot, loadError, reload, notices, closeNotice, focus, clearFocus } = useViews();
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -27,7 +27,9 @@ export function ViewFrame({ view, toolbar, children }: { view: ViewName; toolbar
 
   return (
     <div className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
-      <ViewHeader view={view}>{toolbar}</ViewHeader>
+      <ViewHeader view={view} subtitle={subtitle}>
+        {toolbar}
+      </ViewHeader>
       <NoticeStack notices={notices} onClose={closeNotice} />
       {snapshot ? <ErrorBanner errors={snapshot.data.errors} /> : null}
       <FocusBar view={view} />

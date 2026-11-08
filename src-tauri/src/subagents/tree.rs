@@ -259,6 +259,7 @@ impl Agents {
             path: path.to_vec(),
             seq: node.conversation.seq(),
             entries: node.conversation.entries().to_vec(),
+            arrivals: node.conversation.arrivals().to_vec(),
             unavailable: node.error.clone(),
         })
     }

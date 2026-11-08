@@ -37,7 +37,7 @@
   - off: `commit` checked for shape only, no git started, `status` `off`;
   - the paths: outside the project, ignored, missing and untracked refused all together with nothing written; a removed tracked file committed as a removal; a project in a subfolder;
   - the commit of a new entry and of an edit adding Tasks (a new commit, the earlier one unchanged); an edit adding no Task making none; the entry file and the removed Task files in the commit outside Solo mode, none of Weaver's files in either Solo mode mode; the developer's staged files included;
-  - the message with and without the `Co-authored-by` trailer, the author from git's configuration;
+  - the message exactly the agent's, with Solo mode off and on, with no `Co-authored-by` line, the author and committer from git's configuration;
   - each reason of **No commit** in order, nothing to commit giving `none`, a failing pre-commit hook, the time limit (injected), the entry written in every case;
   - two entries written at once by two jobs committed one after the other;
   - turning it on refused outside a repository and without git; `commits/commits.json` and its `.gitignore`; an unreadable file counting as off;

@@ -27,7 +27,7 @@ export function useBoardUi(): BoardUi {
  * enabled and without effect, as the control's conditions do not depend on it.
  */
 export interface BoardActions {
-  /** `+ Work Item`: opens a new design request. */
+  /** `New Request`: opens a new design request. */
   newRequest?: () => void;
   /** `Run all`. */
   runAll?: () => void;

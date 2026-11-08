@@ -9,6 +9,7 @@ use weaver_core::jobs::machine::RESUME_PROMPT;
 use weaver_core::jobs::subagents::SubAgentState;
 use weaver_core::jobs::{FiledCard, JobState, JobStore};
 use weaver_core::project::image::ProjectImage;
+use weaver_core::project::requests::{LocalTime, RequestStore};
 use weaver_core::settings::Permissions;
 
 use super::conversation::{Delivery, EndLine, Entry, PermissionState};
@@ -276,7 +277,7 @@ async fn omp_exiting_without_a_word_is_the_exit_code() {
     state_of(&host, &project, &id, JobState::Failed).await;
     assert_eq!(
         row(&host, &project.id, &id).unwrap().reason.as_deref(),
-        Some("omp exited with code 7")
+        Some("the agent exited with code 7")
     );
 }
 
@@ -1199,7 +1200,7 @@ async fn weavers_own_ghost_waits_for_the_answers_and_keeps_the_place_of_its_job_
             .collect::<Vec<_>>(),
         [
             (format!("job:{import}"), "Import from Code"),
-            (format!("job:{setup}"), "Setup")
+            (format!("job:{setup}"), "Untitled request")
         ]
     );
     assert!(ghosts.iter().all(|g| g.phase == GhostPhase::Preparing));
@@ -1228,6 +1229,199 @@ async fn weavers_own_ghost_waits_for_the_answers_and_keeps_the_place_of_its_job_
     let task_run = run_task(&jobs, &project, "aaaaaaaa").unwrap();
     assert!(ghost_ids(&jobs, &project).is_empty(), "{task_run}");
     jobs.stop(&project.id, &task_run).unwrap();
+}
+
+#[tokio::test]
+async fn weavers_own_ghost_of_a_design_carries_the_title_of_its_request_and_leaves_with_its_ghosts()
+{
+    use crate::agent_work::{GhostKind, GhostPhase};
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "wait_steer": 1 }]] }));
+    let store = RequestStore::new(&project.root);
+    let request = store
+        .create(&LocalTime::parse("2026-11-02T07:00:00").unwrap())
+        .unwrap();
+    store
+        .save(&request, "Intro\n\n# Checkout redesign\n\nThe cart.")
+        .unwrap();
+    let image = ProjectImage::load(&project.root);
+    let id = jobs
+        .start_design(&ctx(&project, &image), &request, Vec::new())
+        .unwrap();
+    let own = format!("job:{id}");
+
+    // From the creation: the title of the request as its draft card showed it, Preparing.
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(
+        (
+            ghosts[0].id.as_str(),
+            ghosts[0].job_id.as_str(),
+            ghosts[0].kind,
+            ghosts[0].title.as_str(),
+            ghosts[0].phase
+        ),
+        (
+            own.as_str(),
+            id.as_str(),
+            GhostKind::Proposal,
+            "Checkout redesign",
+            GhostPhase::Preparing
+        )
+    );
+    assert_eq!(
+        row(&host, &project.id, &id).unwrap().name,
+        "Design",
+        "the name of the job does not change"
+    );
+
+    // The title is kept in memory only: neither the record nor the request file carry it.
+    jobs.flush();
+    let record = std::fs::read_to_string(JobStore::new(&host.dirs).file(&id)).unwrap();
+    assert!(!record.contains("Checkout redesign"), "{record}");
+    assert_eq!(
+        store.read(&request).unwrap(),
+        "Intro\n\n# Checkout redesign\n\nThe cart."
+    );
+
+    // An announced ghost replaces it in the same list.
+    state_of(&host, &project, &id, JobState::Running).await;
+    let announced = jobs.announce(&id, "proposal", "Checkout").unwrap();
+    assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&announced));
+    jobs.stop(&project.id, &id).unwrap();
+    state_of(&host, &project, &id, JobState::Stopped).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+}
+
+#[tokio::test]
+async fn the_title_of_the_ghost_outlives_the_request_file_in_memory_but_not_a_restart() {
+    let (host, first, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "hold": true }]] }));
+    let store = RequestStore::new(&project.root);
+    let request = store
+        .create(&LocalTime::parse("2026-11-02T07:00:00").unwrap())
+        .unwrap();
+    store.save(&request, "# Checkout redesign").unwrap();
+    let image = ProjectImage::load(&project.root);
+    let id = first
+        .start_design(&ctx(&project, &image), &request, Vec::new())
+        .unwrap();
+    state_of(&host, &project, &id, JobState::Running).await;
+    store.record_sent(&request, &id).unwrap();
+
+    // The Proposal is handed over while its job goes on: the request is consumed and its file gone.
+    store.consume(&request).unwrap();
+    let own = first.ghosts_of(&project.id);
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0].title, "Checkout redesign", "kept in memory with the job");
+    let row = first
+        .snapshot(&project.id)
+        .jobs
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap();
+    assert!(!row.request_sent);
+
+    // The title is never stored: after a restart a request that is gone reads as untitled.
+    first.window_closed(&project.id).await;
+    let second = Jobs::new(host.clone());
+    host.script(json!({ "replay": [], "prompts": [[{ "hold": true }]] }));
+    second.window_opened(&project.id, &project.root);
+    until("the job to be resumed", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Running)
+    })
+    .await;
+    let ghosts = second.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(ghosts[0].title, "Untitled request");
+    second.stop(&project.id, &id).unwrap();
+    until("the job to be stopped", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Stopped)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_design_of_a_request_with_no_title_has_a_ghost_called_untitled_request() {
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "wait_steer": 1 }]] }));
+    let store = RequestStore::new(&project.root);
+    let request = store
+        .create(&LocalTime::parse("2026-11-02T07:00:00").unwrap())
+        .unwrap();
+    let image = ProjectImage::load(&project.root);
+    let id = jobs
+        .start_design(&ctx(&project, &image), &request, Vec::new())
+        .unwrap();
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(ghosts[0].title, "Untitled request");
+    jobs.stop(&project.id, &id).unwrap();
+    state_of(&host, &project, &id, JobState::Stopped).await;
+}
+
+#[tokio::test]
+async fn the_row_of_a_setup_or_design_job_says_which_request_it_received_and_whether_it_is_still_sent_to_it(
+) {
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "wait_steer": 1 }]] }));
+    let store = RequestStore::new(&project.root);
+    let request = store
+        .create(&LocalTime::parse("2026-11-02T07:00:00").unwrap())
+        .unwrap();
+    store.save(&request, "# Carts").unwrap();
+    let image = ProjectImage::load(&project.root);
+    let id = jobs
+        .start_design(&ctx(&project, &image), &request, Vec::new())
+        .unwrap();
+    let scan = jobs.start_scan(&ctx(&project, &image)).unwrap();
+    let rows = |jobs: &Jobs| {
+        let rows = jobs.snapshot(&project.id).jobs;
+        let find = |job: &str| rows.iter().find(|r| r.id == job).cloned().unwrap();
+        (find(&id), find(&scan))
+    };
+    let state = project.root.join(".weaver/requests/.state.json");
+
+    // Created, not recorded as sent yet: it knows the request, not that it is sent to it.
+    let (design, other) = rows(&jobs);
+    assert_eq!(design.request.as_deref(), Some(request.as_str()));
+    assert!(!design.request_sent);
+    assert_eq!((other.request, other.request_sent), (None, false));
+
+    store.record_sent(&request, &id).unwrap();
+    assert!(rows(&jobs).0.request_sent);
+
+    // Sent again to another job: only that one has it now.
+    std::fs::write(
+        &state,
+        format!(r#"{{"sent":{{"{request}":"zzzzzzzz"}},"consumed":[]}}"#),
+    )
+    .unwrap();
+    let (design, _) = rows(&jobs);
+    assert_eq!(design.request.as_deref(), Some(request.as_str()));
+    assert!(!design.request_sent);
+
+    // Back to this job, then the request is deleted from outside.
+    std::fs::write(
+        &state,
+        format!(r#"{{"sent":{{"{request}":"{id}"}},"consumed":[]}}"#),
+    )
+    .unwrap();
+    assert!(rows(&jobs).0.request_sent);
+    std::fs::remove_file(project.root.join(format!(".weaver/requests/{request}.md"))).unwrap();
+    assert!(!rows(&jobs).0.request_sent, "its file is gone");
+
+    // Consumed: the id moves to the consumed ones.
+    std::fs::write(&state, format!(r#"{{"sent":{{}},"consumed":["{request}"]}}"#)).unwrap();
+    assert!(!rows(&jobs).0.request_sent);
+
+    jobs.stop(&project.id, &id).unwrap();
+    jobs.stop(&project.id, &scan).unwrap();
 }
 
 #[tokio::test]
@@ -1431,9 +1625,6 @@ async fn the_general_starts_a_job_with_the_developers_refusals() {
         }
         fn accepts_ask(&self, _root: &std::path::Path, token: &str) -> bool {
             token == "ask-token"
-        }
-        fn chat_working(&self, _project_id: &str) -> bool {
-            false
         }
         fn job_requested(
             &self,

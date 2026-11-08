@@ -7,6 +7,12 @@ export function startedText(iso: string, now: Date = new Date()): string {
   return `${at.getDate()} ${month} ${time}`;
 }
 
+/** `Started today at HH:MM`, else `Started D MMM at HH:MM`, in local time. */
+export function startedLine(iso: string, now: Date = new Date()): string {
+  const text = startedText(iso, now);
+  return `Started ${text.length > 5 ? text.slice(0, -6) : "today"} at ${text.slice(-5)}`;
+}
+
 /** `45s`, `4m 05s`, `1h 12m`. */
 export function runningText(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));

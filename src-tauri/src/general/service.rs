@@ -31,7 +31,6 @@ use weaver_core::jobs::machine::{MessageId, PermissionEnd, RequestId};
 use weaver_core::paths::project_hash_of_canonical;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
 use weaver_core::project::ids;
-use weaver_core::project::proposal::transitions::chat_drafts_to_clear;
 use weaver_core::project::random::OsRandom;
 
 use super::actor::{self, Cmd, Msg};
@@ -40,7 +39,7 @@ use super::wire::{
     GeneralSnapshot, GeneralState,
 };
 use crate::jobs::authority::GeneralAuthority;
-use crate::jobs::conversation::{Conversation, Delivery, PermissionState};
+use crate::jobs::conversation::{Conversation, Delivery, Entry, PermissionState};
 use crate::jobs::host::Host;
 use crate::subagents::poller::{Access, Poller};
 use crate::subagents::reader::{Done, Location};
@@ -108,10 +107,6 @@ pub trait ChatObserver: Send + Sync {
     /// The round the agent of the Chat waited for was closed in the normal way (answered, or
     /// skipped by the developer): the Chat goes on in the same turn.
     fn chat_round_closed(&self, _project_id: &str) {}
-
-    /// `general-chat.CLEARED`: the developer cleared the conversation of the Chat of the project,
-    /// after its turn, if there was one, stopped.
-    fn chat_cleared(&self, _project_id: &str) {}
 }
 
 /// What the thread of the observers is told.
@@ -119,7 +114,6 @@ enum Notice {
     Waiting(String),
     RoundEnded(String),
     RoundClosed(String),
-    Cleared(String),
     Flush(std_mpsc::Sender<()>),
 }
 
@@ -313,7 +307,6 @@ impl General {
                             Notice::Waiting(project) => observer.chat_waiting(project),
                             Notice::RoundEnded(project) => observer.chat_round_ended(project),
                             Notice::RoundClosed(project) => observer.chat_round_closed(project),
-                            Notice::Cleared(project) => observer.chat_cleared(project),
                             Notice::Flush(_) => {}
                         }
                     }
@@ -347,7 +340,7 @@ impl General {
         &self.host
     }
 
-    /// Who wants to know the Events of the Chat (`general-chat.WAITING`, `general-chat.CLEARED`...).
+    /// Who wants to know the Events of the Chat (`general-chat.WAITING`...).
     pub fn observe(&self, observer: Arc<dyn ChatObserver>) {
         self.observers
             .write()
@@ -376,27 +369,16 @@ impl General {
     // Queries
     // -----------------------------------------------------------------------------------------
 
-    /// The conversation and the state of the project's General, and how many Drafts Clear discards.
+    /// The conversation and the state of the project's General.
     pub fn snapshot(&self, project_id: &str) -> Result<GeneralSnapshot, String> {
-        let chat_drafts = self.chat_drafts(project_id);
         let inner = self.lock();
         let slot = inner.get(project_id).ok_or_else(not_open)?;
         Ok(GeneralSnapshot {
             state: slot.state(project_id),
-            chat_drafts,
             seq: slot.conversation.seq(),
             entries: slot.conversation.entries().to_vec(),
+            arrivals: slot.conversation.arrivals().to_vec(),
         })
-    }
-
-    /// The Drafts Clear discards: the very set `chat_drafts_to_clear` picks, so the count the
-    /// dialog states is what Clear then discards.
-    fn chat_drafts(&self, project_id: &str) -> u32 {
-        let Some((_, image)) = self.host.picture(project_id) else {
-            return 0;
-        };
-        let count = chat_drafts_to_clear(&image).len();
-        u32::try_from(count).unwrap_or(u32::MAX)
     }
 
     /// The kept session of the project, if any.
@@ -588,6 +570,18 @@ impl General {
         Ok(())
     }
 
+    /// `developer.CHANGE_SETTINGS` for the analysis model, in whichever window it was made: the
+    /// omp of every Chat that runs with no turn in progress ends, keeping its conversation, and
+    /// the next message starts it again with the new model.
+    pub fn analysis_model_changed(&self) {
+        let mut inner = self.lock();
+        for (key, slot) in inner.iter_mut() {
+            if slot.ask.is_none() && slot.ready {
+                self.apply(key, slot, machine::Event::ModelChanged);
+            }
+        }
+    }
+
     /// `developer.STOP_AGENT`.
     pub fn stop(&self, key: &str) -> Result<(), String> {
         self.with_slot(key, |this, slot| {
@@ -736,11 +730,6 @@ impl General {
                     slot.exit_details = None;
                     slot.reset = true;
                     let _ = self.writer.send(Write::Delete(key.to_owned()));
-                    // `general-chat.CLEARED` follows once the turn stopped: see
-                    // `ClearDiscardsChatDrafts`.
-                    if slot.ask.is_none() {
-                        self.notify_cleared(slot.project(key), slot.done.clone());
-                    }
                 }
                 Effect::Waiting => self.notify(Notice::Waiting(slot.project(key).to_owned())),
                 Effect::EndRound => self.notify(Notice::RoundEnded(slot.project(key).to_owned())),
@@ -754,19 +743,6 @@ impl General {
                 }
             }
         }
-    }
-
-    /// `general-chat.CLEARED`, once the actors that ran stopped: after the turn that was in
-    /// progress, if any.
-    fn notify_cleared(&self, project: &str, stopped: Vec<watch::Receiver<bool>>) {
-        let notices = self.notices.clone();
-        let project = project.to_owned();
-        tauri::async_runtime::spawn(async move {
-            for mut actor in stopped {
-                let _ = actor.wait_for(|done| *done).await;
-            }
-            let _ = notices.send(Notice::Cleared(project));
-        });
     }
 
     /// Starts the actor of a new omp.
@@ -841,13 +817,8 @@ impl General {
         }
         let state = slot.state(key);
         if slot.last_state.as_ref() != Some(&state) {
-            // The Draft cards of Chat disable `Discard` during a turn: the Board is sent again.
-            let turn_changed = slot.last_state.as_ref().is_some_and(|last| last.working) != state.working;
             slot.last_state = Some(state.clone());
             self.events.state(&state);
-            if turn_changed {
-                self.host.board_changed(&project);
-            }
         }
     }
 
@@ -985,8 +956,31 @@ impl General {
             if let Some(notice) = &notice {
                 merged.notice(notice);
             }
-            for entry in slot.conversation.entries() {
-                merged.append(entry);
+            // The jobs the Chat started in an earlier run come back as their `Started` lines, from
+            // their records, so that the Proposals they handed over show below them again.
+            if slot.ask.is_none() {
+                let known: Vec<String> = slot
+                    .conversation
+                    .entries()
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        Entry::JobStarted { job, .. } => Some(job.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                for (job, name, at) in self.host.chat_jobs(key) {
+                    if !known.contains(&job) {
+                        merged.job_started_at(&job, &name, at);
+                    }
+                }
+            }
+            for (entry, at) in slot
+                .conversation
+                .entries()
+                .iter()
+                .zip(slot.conversation.arrivals())
+            {
+                merged.append(entry, *at);
             }
             // The merged conversation is new as a whole: the UI fetches it.
             merged.mark_sent();
@@ -1100,6 +1094,7 @@ impl General {
             row: slot.row(id).ok_or_else(not_open)?,
             seq: slot.conversation.seq(),
             entries: slot.conversation.entries().to_vec(),
+            arrivals: slot.conversation.arrivals().to_vec(),
         })
     }
 
@@ -1223,12 +1218,6 @@ impl Access for GeneralAccess {
 }
 
 impl GeneralAuthority for General {
-    fn chat_working(&self, project_id: &str) -> bool {
-        self.lock()
-            .get(project_id)
-            .is_some_and(|slot| slot.machine.turn_in_progress())
-    }
-
     fn accepts(&self, root: &Path, token: &str) -> bool {
         let project_id = project_hash_of_canonical(root);
         self.lock().get(&project_id).is_some_and(|slot| {
@@ -1327,25 +1316,3 @@ impl General {
             .is_some_and(|slot| slot.machine.turn_in_progress())
     }
 }
-
-/// Discards the Drafts the Chat created when it is cleared (`general-chat.CLEARED`, after its turn
-/// stopped), as a discard of the developer would: in the project's mutation queue, off the lock
-/// of the service. Stop, omp exiting, the window closing and Weaver quitting discard nothing.
-pub struct ClearDiscardsChatDrafts(pub Arc<dyn Host>);
-
-impl ChatObserver for ClearDiscardsChatDrafts {
-    fn chat_cleared(&self, project_id: &str) {
-        let host = self.0.clone();
-        let project = project_id.to_owned();
-        tauri::async_runtime::spawn(async move {
-            let change = Box::new(|root: &Path| {
-                weaver_core::project::proposal::transitions::clear_chat_drafts(root)
-                    .map_err(|error| error.to_string())
-            });
-            if let Err(message) = host.mutate(&project, change).await {
-                log_warn!("the Drafts of the Chat of {project} could not be discarded: {message}");
-            }
-        });
-    }
-}
-

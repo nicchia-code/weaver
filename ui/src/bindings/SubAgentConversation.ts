@@ -8,6 +8,11 @@ import type { Step } from "./Step";
  */
 export type SubAgentConversation = { projectId: string, owner: Owner, path: Array<Step>, seq: number, entries: Array<Entry>, 
 /**
+ * The instant each entry arrived (the instant its transcript record was written), in
+ * milliseconds since the Unix epoch, as `entries` is indexed.
+ */
+arrivals: Array<number>, 
+/**
  * Why the transcript cannot be read (`Conversation not available: <reason>.`).
  */
 unavailable: string | null, };

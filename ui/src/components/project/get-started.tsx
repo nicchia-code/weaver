@@ -17,7 +17,7 @@ export function initialiseFailure(reason: string): string {
 /** The relative paths of agent files, in monospace; the list scrolls past 8 lines. */
 function PathList({ paths, label }: { paths: readonly string[]; label: string }) {
   return (
-    <ul aria-label={label} className="max-h-[12rem] overflow-auto rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs leading-6">
+    <ul aria-label={label} className="max-h-[12rem] overflow-auto rounded-lg bg-muted shadow-ring px-3 py-2 font-mono text-xs leading-6">
       {paths.map((path) => (
         <li key={path} className="break-all">
           {path}

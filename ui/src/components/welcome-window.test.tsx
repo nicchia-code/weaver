@@ -86,6 +86,19 @@ describe("welcome window", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Weaver" })).toBeInTheDocument();
   });
 
+  it("shows the logo above the app name, decorative, on a Surface panel over Paper", async () => {
+    const { container } = render_();
+    const heading = await screen.findByRole("heading", { level: 1, name: "Weaver" });
+    const logo = container.querySelector("svg[viewBox='0 0 30 30']")!;
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(logo.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No lucide mark stands in for the logo.
+    expect(container.querySelector(".lucide-blocks")).toBeNull();
+    const panel = heading.closest("main")!.parentElement!;
+    expect(panel).toHaveClass("bg-surface", "rounded-xl");
+    expect(panel.parentElement).toHaveClass("bg-paper", "p-2");
+  });
+
   it("shows the System Certificates notice and the failure banner without Open Settings", async () => {
     answers.system_certificates_status = () => ({
       revision: 2,
@@ -219,7 +232,7 @@ describe("welcome window", () => {
     expect(await screen.findByText("gone could not open: the folder does not exist")).toBeInTheDocument();
   });
 
-  it("shows the status of omp", async () => {
+  it("shows the status of the agent without naming omp", async () => {
     answers.omp_status = () => ({
       revision: 1,
       state: "missing",
@@ -238,10 +251,12 @@ describe("welcome window", () => {
       installerFailure: null,
     });
     render_();
-    expect(await screen.findByRole("button", { name: "Install omp" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Install the agent" })).toBeInTheDocument();
+    expect(screen.getByText("The agent is not installed.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\bomp\b/);
   });
 
-  it("shows the System Certificates switch under the omp status box", async () => {
+  it("shows the System Certificates switch under the status box", async () => {
     render_();
     expect(await screen.findByRole("switch", { name: "System Certificates" })).not.toBeChecked();
   });

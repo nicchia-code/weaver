@@ -89,7 +89,8 @@ pub enum Event {
     PermissionRequested(RequestId),
     /// `developer.ANSWER_PERMISSION`.
     PermissionAnswered(RequestId),
-    /// `agent.START_JOB`: a job was started (or refused) on the developer's request.
+    /// `agent.START_JOB` or `agent.SEND_REQUEST`: a job was started (or refused) on the developer's
+    /// explicit request, the request of Chat included; either stays in the same state.
     StartJob,
     /// `omp.TURN_ENDED`.
     TurnEnded,
@@ -110,6 +111,8 @@ pub enum Event {
     StopAgent,
     /// `window.CLOSED`.
     WindowClosed,
+    /// `developer.CHANGE_SETTINGS` for the analysis model.
+    ModelChanged,
 }
 
 /// What the app must do.
@@ -150,7 +153,7 @@ pub enum Effect {
 pub const NOT_DELIVERED_STOPPED: &str = "the agent was stopped";
 pub const NOT_DELIVERED_CLEARED: &str = "the conversation was cleared";
 pub const NOT_DELIVERED_CLOSED: &str = "Weaver stopped before it was delivered";
-pub const NOT_DELIVERED_EXITED: &str = "omp stopped";
+pub const NOT_DELIVERED_EXITED: &str = "the agent stopped";
 pub const NOT_DELIVERED_FAILED: &str = "the turn failed";
 
 /// The Machine `general-chat`, one per project.
@@ -247,6 +250,7 @@ impl GeneralMachine {
             Event::Exited(reason) => self.exited(reason),
             Event::StopAgent => self.stop(),
             Event::WindowClosed => self.window_closed(),
+            Event::ModelChanged => self.model_changed(),
         }
     }
 
@@ -500,6 +504,19 @@ impl GeneralMachine {
         effects
     }
 
+    /// `developer.CHANGE_SETTINGS` for the analysis model: while no turn is in progress and omp
+    /// runs, omp ends and the conversation stays; the next message starts it again with the new
+    /// model. A turn, a load and a cancelled turn that has not answered are left alone.
+    fn model_changed(&mut self) -> Vec<Effect> {
+        if self.state != State::Idle || self.omp != Omp::Open || self.cancelling {
+            return Vec::new();
+        }
+        self.omp = Omp::Off;
+        vec![Effect::ShutDown {
+            turn_running: false,
+        }]
+    }
+
     fn window_closed(&mut self) -> Vec<Effect> {
         let mut effects = self.round_ends_without_answers();
         effects.extend(self.close_permissions(PermissionEnd::Cancelled));
@@ -600,7 +617,8 @@ pub fn clean_language(language: Option<&str>) -> Option<&str> {
 
 /// The sentence the fixed text adds to the one of the context sharing: with no skill loaded there
 /// is no section to read, and the agent passes on what it already read all the same.
-const NO_SKILL_SENTENCE: &str = "With no skill loaded, pass each sub-agent what you have already read that concerns its part.";
+const NO_SKILL_SENTENCE: &str =
+    "With no skill loaded, pass each sub-agent what you have already read that concerns its part.";
 
 /// The instruction of Chat's agent, appended to omp's system prompt (`requirements/rules#general-chat`):
 /// the fixed text, then the lines the Settings of this start add, in this order: the sub-agent
@@ -616,7 +634,9 @@ pub fn instruction(max_agents: u32, language: Option<&str>) -> String {
     text.push_str(NO_SKILL_SENTENCE);
     text.push('\n');
     if let Some(language) = clean_language(language) {
-        text.push_str(&format!("Write the texts for the developer in {language}.\n"));
+        text.push_str(&format!(
+            "Write the texts for the developer in {language}.\n"
+        ));
     }
     text
 }
@@ -629,7 +649,7 @@ This is Chat, the brainstorming conversation of a developer with the agent about
 - Read freely whatever is needed to reason: the project's files, the `weaver` commands that only read, and the Requirement skills `weaver-req-*`.
 - Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.
 - Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.
-- On an explicit order to write an ordinary change Proposal, load `weaver-design` and follow its section for Chat. On an explicit order to resolve open Drifts with a resolution, load `weaver-resolve-drifts` and follow its section for Chat. Write no setup or import Proposal. Never load or follow another skill of Weaver's jobs (`weaver-setup`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-conflicts`), except to read the writing rules named in the next point.
+- On an explicit order to write a Proposal, write none: write a design request with what the developer and the agent agreed on and send it with `weaver request new`, as its `--help` says, so that the design job (a setup job when the Model is empty) explores, asks its question rounds and hands the Proposal over. The request is self-contained, since the job sees only the request and not the conversation: an H1 with a short title, then what to add or change, every decision agreed and the alternatives discussed, with the developer's choice for each, and permanent identities only, never short numbers. On an explicit order to resolve open Drifts, start one Resolve job per Drift with `weaver job new`. Never write or change a Proposal (`weaver proposal new`, `weaver proposal edit` and `weaver proposal move <id> open` are refused here), and never load or follow a skill of Weaver's jobs (`weaver-setup`, `weaver-design`, `weaver-import`, `weaver-scan`, `weaver-compare`, `weaver-implement`, `weaver-resolve-drifts`, `weaver-resolve-conflicts`), except to read the writing rules named in the next point. Tell the developer which job the request started and do not wait for it to end; when Weaver refuses it, tell the reason as the last point of this list says and do not write the Proposal in another way.
 - On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says, writing the Task self-contained as `weaver-design` says for Tasks and the Drift as `weaver-compare` says for a Drift.
 - Take a decision of the developer (approving, rejecting or discarding a Proposal, deciding a Drift, deleting a Task in To do) only when the developer explicitly asks for that decision in this conversation.
 - Ask the developer in the reply, in plain text, and wait for the answer. Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.
@@ -639,8 +659,14 @@ This is Chat, the brainstorming conversation of a developer with the agent about
   - `weaver job new --input '{\"kind\":\"run\",\"task\":\"<task>\"}'` runs one Task, and without `task` runs every runnable Task;
   - `weaver job new --input '{\"kind\":\"resolve\",\"drift\":\"<drift>\"}'` resolves one Drift;
   - `weaver job new --input '{\"kind\":\"design\",\"request\":\"<request>\"}'` sends a design request the developer already wrote and did not send.
-- Weaver applies its own refusals to the start of a job. When one is refused, tell the developer the reason from the output of the command. Do not start the job in another way.
+- Weaver applies its own refusals to the start of a job. When one is refused, tell the developer the reason as the last point of this list says. Do not start the job in another way.
 - A job started this way works on its own, with its own conversation in the Jobs view. Tell the developer which job was started, and do not wait for it to end.
+- The developer knows Weaver only through its app, so in the replies speak only in the words of the app: Proposals, Tasks, Drifts, the Board, the Model, the Requirements, jobs and the controls of the app.
+  - On your own initiative never name what the app does not show: the `weaver` commands, their options, their JSON input and output and their exit codes, the files and folders under `.weaver/`, skills, Weaver's instructions, environment variables and omp.
+  - Name a card as the Board shows it, by its short number and title (`Proposal <short number> – <title>`), taking the short number from the `weaver` commands that read; use the permanent identity only for a closed card, which has no short number. The design request keeps using permanent identities only, as the point on writing a Proposal says.
+  - When Weaver refuses something or fails, tell the reason in your own words and in the terms of the app, without quoting the command or its output.
+  - When the developer has to do something, say where and what in the app (the Board, the Proposal's card in Chat, Settings), never a command.
+  - Only when the developer explicitly asks about the internals of Weaver (a command, a file, a skill) answer with those details.
 ";
 
 // ---------------------------------------------------------------------------------------------
@@ -884,20 +910,20 @@ mod tests {
         let mut machine = working();
         machine.handle(Event::SendMessage(3));
         assert_eq!(
-            machine.handle(Event::Exited("omp exited with code 3".into())),
+            machine.handle(Event::Exited("the agent exited with code 3".into())),
             [
                 NotDelivered(3, NOT_DELIVERED_EXITED.into()),
-                Stopped("omp exited with code 3".into())
+                Stopped("the agent exited with code 3".into())
             ]
         );
         assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Off));
         assert_eq!(machine.handle(Event::SendMessage(4)), [StartOmp]);
         // omp that never opened its session: the same.
         assert_eq!(
-            machine.handle(Event::Exited("could not start omp".into())),
+            machine.handle(Event::Exited("could not start the agent".into())),
             [
                 NotDelivered(4, NOT_DELIVERED_EXITED.into()),
-                Stopped("could not start omp".into())
+                Stopped("could not start the agent".into())
             ]
         );
         // An exit while idle shows its reason too.
@@ -963,6 +989,38 @@ mod tests {
         );
         assert_eq!((machine.state(), machine.omp()), (State::Idle, Omp::Off));
         assert_eq!(machine.handle(Event::SendMessage(2)), [StartOmp]);
+    }
+
+    #[test]
+    fn changing_the_analysis_model_ends_an_idle_omp_and_keeps_the_conversation() {
+        let mut idle = idle_open();
+        assert_eq!(
+            idle.handle(Event::ModelChanged),
+            [ShutDown {
+                turn_running: false
+            }]
+        );
+        assert_eq!((idle.state(), idle.omp()), (State::Idle, Omp::Off));
+        // The next message starts omp again.
+        assert_eq!(idle.handle(Event::SendMessage(1)), [StartOmp]);
+        // Nothing runs: nothing to end.
+        let mut off = GeneralMachine::new();
+        assert!(off.handle(Event::ModelChanged).is_empty());
+    }
+
+    #[test]
+    fn changing_the_analysis_model_never_touches_a_turn_a_load_or_a_cancelled_turn() {
+        let mut working = working();
+        assert!(working.handle(Event::ModelChanged).is_empty());
+        assert_eq!((working.state(), working.omp()), (State::Working, Omp::Open));
+        let mut cancelled = working;
+        cancelled.handle(Event::StopAgent);
+        assert!(cancelled.handle(Event::ModelChanged).is_empty());
+        assert_eq!(cancelled.omp(), Omp::Open);
+        let mut loading = GeneralMachine::new();
+        loading.handle(Event::WindowOpened { omp_ready: true });
+        assert!(loading.handle(Event::ModelChanged).is_empty());
+        assert_eq!((loading.state(), loading.omp()), (State::Loading, Omp::Starting));
     }
 
     #[test]
@@ -1272,7 +1330,7 @@ mod tests {
 
     #[test]
     fn a_failed_start_or_an_exit_while_loading_goes_idle_and_the_next_message_starts_omp_again() {
-        for reason in ["could not start omp", "omp exited with code 1"] {
+        for reason in ["could not start the agent", "the agent exited with code 1"] {
             let mut machine = reloading();
             machine.handle(Event::SendMessage(1));
             assert_eq!(
@@ -1379,18 +1437,19 @@ mod tests {
             !plain.contains("+ Work Item") && !plain.contains("no Proposal is written here"),
             "the sentence that forbids Proposals is gone"
         );
-        // The ten points of `requirements/rules#general-chat`, in order.
+        // The eleven points of `requirements/rules#general-chat`, in order.
         let points = [
             "the brainstorming conversation of a developer with the agent about the project and about Weaver",
             "Read freely whatever is needed",
             "Write nothing, neither in Weaver nor in the project's files, unless the developer explicitly orders it. A wish, a problem or an idea is not an order. When the reasoning reaches something worth writing down, say so in one line and wait.",
             "Never edit a file under `.weaver/` by hand: only the `weaver` commands change them.",
-            "load `weaver-design` and follow its section for Chat",
+            "On an explicit order to write a Proposal, write none: write a design request with what the developer and the agent agreed on and send it with `weaver request new`, as its `--help` says",
             "On an explicit order to file a single Task or Drift, run `weaver task new` or `weaver drift new` as their `--help` says",
             "Take a decision of the developer",
             "Use `weaver question new`, run with bash `timeout: 0`, only when the developer asked to be asked with a round. A form or omp's question tool is declined here.",
             "Chat is not a job: the commands that belong to a job (`weaver task move`, `weaver announcement new`, `weaver job edit`) are refused here.",
             "Start a job of Weaver with `weaver job new` only when the developer explicitly asks",
+            "The developer knows Weaver only through its app, so in the replies speak only in the words of the app",
         ];
         let mut from = 0;
         for point in points {
@@ -1399,19 +1458,53 @@ mod tests {
                 .unwrap_or_else(|| panic!("{point:?} is missing or out of order in {plain}"));
             from += at + point.len();
         }
-        // Point 5 names both skills and the ones that stay out.
-        assert!(plain.contains("load `weaver-resolve-drifts` and follow its section for Chat"));
-        assert!(plain.contains("Write no setup or import Proposal."));
+        // Point 5 sends a self-contained request and starts a Resolve job per Drift, never writes a
+        // Proposal and names every skill of the jobs as out of reach.
+        assert!(plain.contains("an H1 with a short title"));
+        assert!(plain.contains("permanent identities only, never short numbers"));
+        assert!(plain.contains("start one Resolve job per Drift with `weaver job new`"));
+        assert!(plain.contains("Never write or change a Proposal (`weaver proposal new`, `weaver proposal edit` and `weaver proposal move <id> open` are refused here)"));
+        assert!(plain.contains("do not write the Proposal in another way"));
+        // Point 11 keeps the developer in the words of the app; the refusals of points 5 and 10 send
+        // to it instead of quoting the output of the command.
+        assert!(!plain.contains("from the output of the command"));
+        assert_eq!(
+            plain
+                .matches("tell the developer the reason as the last point of this list says")
+                .count()
+                + plain
+                    .matches("tell the reason as the last point of this list says")
+                    .count(),
+            2
+        );
+        for part in [
+            "Proposals, Tasks, Drifts, the Board, the Model, the Requirements, jobs and the controls of the app",
+            "On your own initiative never name what the app does not show: the `weaver` commands, their options, their JSON input and output and their exit codes, the files and folders under `.weaver/`, skills, Weaver's instructions, environment variables and omp.",
+            "Name a card as the Board shows it, by its short number and title (`Proposal <short number> – <title>`)",
+            "use the permanent identity only for a closed card, which has no short number",
+            "The design request keeps using permanent identities only",
+            "tell the reason in your own words and in the terms of the app, without quoting the command or its output",
+            "say where and what in the app (the Board, the Proposal's card in Chat, Settings), never a command",
+            "Only when the developer explicitly asks about the internals of Weaver (a command, a file, a skill) answer with those details.",
+        ] {
+            assert!(plain.contains(part), "{part:?}");
+        }
         for skill in [
             "weaver-setup",
+            "weaver-design",
             "weaver-import",
             "weaver-scan",
             "weaver-compare",
             "weaver-implement",
+            "weaver-resolve-drifts",
             "weaver-resolve-conflicts",
         ] {
             assert!(plain.contains(&format!("`{skill}`")), "{skill}");
         }
+        assert!(
+            !plain.contains("section for Chat"),
+            "no skill is followed for Proposals"
+        );
 
         // After the fixed text, the lines of the Settings, in order, with the language only when set.
         let lines = "Run at most 4 sub-agents at once.\n\
@@ -1429,8 +1522,9 @@ mod tests {
             plain,
             "a language with a control character adds nothing"
         );
-        assert!(instruction(4, Some(" Italian "))
-            .ends_with(&format!("{lines}Write the texts for the developer in Italian.\n")));
+        assert!(instruction(4, Some(" Italian ")).ends_with(&format!(
+            "{lines}Write the texts for the developer in Italian.\n"
+        )));
         assert!(instruction(7, None).ends_with(&format!(
             "\nRun at most 7 sub-agents at once.\n{}",
             lines.split_once('\n').unwrap().1

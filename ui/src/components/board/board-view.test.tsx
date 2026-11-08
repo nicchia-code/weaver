@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BoardCard } from "@/bindings/BoardCard";
@@ -26,12 +26,12 @@ function head(id: string, shortNumber: string | null, title: string, extra: { bo
   return { id, shortNumber, title, body: extra.body ?? "", created: "2026-11-02T07:00:00.000Z", agentFinishing: extra.agentFinishing ?? false };
 }
 
-function task(id: string, shortNumber: string, title: string, patch: Partial<Extract<BoardCard, { kind: "task" }>> = {}): BoardCard {
+function task(id: string, shortNumber: string, title: string, patch: Partial<Extract<BoardCard, { kind: "task" }>> = {}): Extract<BoardCard, { kind: "task" }> {
   return {
     kind: "task",
     head: head(id, shortNumber, title),
     doing: false,
-    heldByAgent: false,
+    heldBy: null,
     technical: false,
     refs: [],
     label: null,
@@ -97,10 +97,10 @@ async function publish(next: BoardSnapshot) {
   });
 }
 
-async function show(actions: BoardActions = {}, openJob = vi.fn()) {
+async function show(actions: BoardActions = {}, openJob = vi.fn(), showView = vi.fn()) {
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob, openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView, openJob, openedJob: null, openedJobRequest: 0 }}>
         <BoardActionsContext.Provider value={actions}>
           <BoardProvider projectId={PROJECT}>
             <BoardView />
@@ -110,7 +110,7 @@ async function show(actions: BoardActions = {}, openJob = vi.fn()) {
     </TooltipProvider>,
   );
   await screen.findByRole("region", { name: "Backlog" });
-  return { openJob };
+  return { openJob, showView };
 }
 
 const backlog = () => screen.getByRole("region", { name: "Backlog" });
@@ -168,20 +168,6 @@ describe("columns", () => {
     const titles = within(active()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(titles).toEqual(["Second", "First"]);
   });
-
-  it("shows a Draft Chat writes as a card in Backlog, in the backend's order, counted with the others", async () => {
-    const chatDraft: BoardCard = { kind: "proposal", head: head("cccccccc", "P2", "Chat idea"), standing: "chat-draft", proposalKind: "change", view: proposalView() };
-    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart"), chatDraft, drift("dddddddd", "D1", "Cart total")] }));
-    await show();
-    expect(backlog().querySelector("h2")).toHaveTextContent("Backlog3");
-    const titles = within(backlog()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(titles).toEqual(["Add a cart", "Chat idea", "Cart total"]);
-    const shown = within(backlog().querySelector<HTMLElement>('[data-card-id="cccccccc"]')!);
-    expect(shown.getByText("draft")).toBeInTheDocument();
-    expect(shown.getByText("Chat")).toBeInTheDocument();
-    expect(shown.getByRole("button", { name: "Open Chat" })).toBeInTheDocument();
-    expect(shown.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
-  });
 });
 
 describe("ghosts", () => {
@@ -228,11 +214,13 @@ describe("ghosts", () => {
 });
 
 describe("Run all", () => {
+  const runAllButton = () => screen.getByRole("button", { name: /^Run all/ });
+
   it("lists every reason it is disabled, in the order of the control, and ignores a click", async () => {
     const runAll = vi.fn();
     install(board(1, { runAllReasons: ["Drifts are being resolved", "A run is in progress", "No Task is in To do"] }));
     await show({ runAll });
-    const button = within(active()).getByRole("button", { name: "Run all" });
+    const button = runAllButton();
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(reasonsOf(button)).toEqual(["Drifts are being resolved", "A run is in progress", "No Task is in To do"]);
     await userEvent.setup().click(button);
@@ -244,11 +232,11 @@ describe("Run all", () => {
     install(board(1, { runAllReasons: ["All the Tasks in To do are blocked"] }));
     await show({ runAll });
     const user = userEvent.setup();
-    const button = within(active()).getByRole("button", { name: "Run all" });
+    const button = runAllButton();
     expect(reasonsOf(button)).toEqual(["All the Tasks in To do are blocked"]);
     button.focus();
     await publish(board(2, { runAllReasons: [] }));
-    const same = within(active()).getByRole("button", { name: "Run all" });
+    const same = runAllButton();
     expect(same).toBe(button);
     expect(same).toHaveFocus();
     expect(same).not.toHaveAttribute("aria-disabled");
@@ -256,56 +244,194 @@ describe("Run all", () => {
     expect(runAll).toHaveBeenCalledTimes(1);
   });
 
-  it("is a primary button in Active and `+ Work Item` an always enabled one in Backlog", async () => {
+  it("is a primary button in the header, the last after New Request, with the tooltip `Run all the Tasks in To do`", async () => {
+    const user = userEvent.setup();
+    install(board(1, { runAllReasons: [] }));
+    await show();
+    const header = screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+    const buttons = within(header).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual(["", "New Request", "Run all"]);
+    expect(buttons[2]).toHaveClass("bg-primary");
+    expect(buttons[0]).not.toHaveClass("bg-primary");
+    expect(buttons[1]).not.toHaveClass("bg-primary");
+    await user.hover(buttons[2]!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Run all the Tasks in To do");
+  });
+
+  it("counts inside the button the Tasks in To do that are not blocked, and hides the count at 0", async () => {
+    install(
+      board(1, {
+        runAllReasons: [],
+        active: [
+          task("aaaaaaaa", "T1", "Ready one"),
+          task("bbbbbbbb", "T2", "Ready two"),
+          task("cccccccc", "T3", "Blocked", { blockedBy: [{ id: "dddddddd", shortNumber: "D1", title: "A drift" }] }),
+          task("eeeeeeee", "T4", "Waiting", { waitingFor: [{ id: "ffffffff", shortNumber: "T9", title: "A fix" }] }),
+          task("gggggggg", "T5", "In progress", { doing: true }),
+        ],
+      }),
+    );
+    await show();
+    expect(runAllButton()).toHaveTextContent("Run all2 ready");
+    expect(runAllButton()).toHaveAccessibleName("Run all, 2 ready");
+    await publish(board(2, { runAllReasons: [], active: [task("gggggggg", "T5", "In progress", { doing: true })] }));
+    expect(runAllButton()).toHaveTextContent(/^Run all$/);
+    expect(runAllButton()).toHaveAccessibleName("Run all");
+  });
+
+  it("has no footer in either column: no `Run all` below Active and no `Request` below Backlog", async () => {
+    install(board(1, { runAllReasons: [], backlog: [proposal("pppppppp", "P1", "Add a cart")], active: [task("aaaaaaaa", "T1", "Ready")] }));
+    await show();
+    expect(within(active()).queryByRole("button", { name: /^Run all/ })).not.toBeInTheDocument();
+    expect(within(backlog()).queryByRole("button", { name: "Request" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the lanes", () => {
+  it("are lanes with a dot, the title and the number of real cards in their heading, and no Done column", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")], active: [task("tttttttt", "T1", "Write the cart")], ghosts: [ghost("g1", "task", "Coming")] }));
+    await show();
+    expect(screen.getAllByRole("region").map((region) => region.querySelector("h2")?.textContent)).toEqual(["Backlog1", "Active1"]);
+    expect(backlog()).toHaveClass("bg-lane", "rounded-[14px]");
+    expect(active()).toHaveClass("bg-lane", "rounded-[14px]");
+    expect(backlog().querySelector("h2")?.previousElementSibling).toHaveClass("size-2", "bg-lavender");
+    expect(active().querySelector("h2")?.previousElementSibling).toHaveClass("size-2", "bg-sky");
+    expect(screen.queryByRole("region", { name: "Done" })).not.toBeInTheDocument();
+  });
+
+  it("holds no control in either column heading", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")], active: [task("aaaaaaaa", "T1", "Ready")] }));
+    await show();
+    for (const column of [backlog(), active()]) {
+      const heading = column.querySelector("h2")!.parentElement!;
+      expect(within(heading).queryByRole("button")).not.toBeInTheDocument();
+      expect(heading.textContent).toMatch(/^(Backlog1|Active1)$/);
+    }
+  });
+
+  it("shows in an empty Backlog the weave, what lands there, `Request` and `Ask in Chat`, also above ghosts", async () => {
+    const user = userEvent.setup();
     const newRequest = vi.fn();
+    install(board(1, { ghosts: [ghost("g1", "drift", "Coming drift", { phase: "preparing" })] }));
+    const { showView } = await show({ newRequest });
+    expect(backlog().querySelector("svg[data-weave]")).toHaveAttribute("aria-hidden", "true");
+    expect(within(backlog()).getByText("Nothing to decide")).toHaveClass("text-sm", "font-semibold");
+    expect(within(backlog()).getByText("New requests and Proposals from Chat land here for your go-ahead.")).toHaveClass("text-muted-foreground");
+    const empty = within(backlog()).getByText("Nothing to decide");
+    const ghostButton = within(backlog()).getByRole("button", { name: /Drift being prepared/ });
+    expect(empty.compareDocumentPosition(ghostButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const item = within(backlog()).getByRole("button", { name: "Request" });
+    expect(item).toHaveClass("border");
+    await user.click(item);
+    expect(newRequest).toHaveBeenCalledTimes(1);
+    await user.click(within(backlog()).getByRole("button", { name: "Ask in Chat" }));
+    expect(showView).toHaveBeenCalledWith("general");
+  });
+
+  it("shows no empty Backlog text once a card is there", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")] }));
+    await show();
+    expect(within(backlog()).queryByText("Nothing to decide")).not.toBeInTheDocument();
+    expect(within(backlog()).queryByRole("button", { name: "Ask in Chat" })).not.toBeInTheDocument();
+  });
+});
+
+describe("New Request", () => {
+  it("is a secondary button with a Plus icon and its tooltip, always enabled, right before Run all, and opens a new request", async () => {
+    const user = userEvent.setup();
+    const newRequest = vi.fn();
+    install(board(1, { runAllReasons: ["No Task is in To do"] }));
     await show({ newRequest });
-    const add = within(backlog()).getByRole("button", { name: "Work Item" });
-    expect(add).not.toHaveAttribute("aria-disabled");
-    await userEvent.setup().click(add);
+    const header = screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+    const button = within(header).getByRole("button", { name: "New Request" });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveClass("border-input");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.nextElementSibling).toBe(within(header).getByRole("button", { name: /^Run all/ }));
+    await user.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Write a request in Markdown and send it to an agent");
+    await user.click(button);
     expect(newRequest).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("Scan System", () => {
+  const header = () => screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+  const openMenu = async (user: UserEvent) => {
+    await user.click(within(header()).getByRole("button", { name: "More actions" }));
+    return screen.findByRole("menuitem", { name: "Scan System…" });
+  };
+
+  it("is no button of the header: only the item of the `More actions` menu", async () => {
+    await show();
+    expect(within(header()).queryByRole("button", { name: /Scan System/ })).not.toBeInTheDocument();
+    const more = within(header()).getByRole("button", { name: "More actions" });
+    expect(more).toHaveClass("border-input", "size-9");
+    expect(more.textContent).toBe("");
+    expect(more).not.toHaveAttribute("aria-disabled");
+    const user = userEvent.setup();
+    await user.hover(more);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("More actions");
+    const item = await openMenu(user);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+    expect(item.querySelector("svg")).not.toBeNull();
+    expect(item).not.toHaveAttribute("aria-disabled");
+  });
+
   it("confirms first, and cancelling leaves the count and the work untouched", async () => {
     const scanSystem = vi.fn();
     install(board(1, { doneSinceLastScan: 3 }));
     await show({ scanSystem });
-    expect(screen.getByText("· 3 done since last scan")).toBeInTheDocument();
+    expect(screen.getByText("3 done since last scan")).toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Scan System" }));
+    await user.click(await openMenu(user));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Compare the whole System with the code?")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(scanSystem).not.toHaveBeenCalled();
-    expect(screen.getByText("· 3 done since last scan")).toBeInTheDocument();
+    expect(screen.getByText("3 done since last scan")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Scan System" }));
+    await user.click(await openMenu(user));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Scan System" }));
     expect(scanSystem).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the count at 0", async () => {
-    await show();
-    expect(screen.queryByText(/done since last scan/)).not.toBeInTheDocument();
   });
 });
 
 describe("the view header", () => {
-  it("holds the title `Board` on the left and Scan System with the count on the right, in one row", async () => {
-    install(board(1, { doneSinceLastScan: 3 }));
+  const subtitle = (header: HTMLElement) => header.querySelector("p")?.textContent ?? null;
+  const header = () => screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
+
+  it("holds the title `Board` on the left, the subtitle in Muted under it, and More actions, New Request and Run all on the right, in one row", async () => {
+    install(board(1, { doneSinceLastScan: 18, active: [task("tttttttt", "T1", "Write the cart")] }));
     await show();
-    const header = screen.getByRole("heading", { level: 1, name: "Board" }).closest("header")!;
-    expect(within(header).getByRole("button", { name: "Scan System" })).toBeInTheDocument();
-    expect(within(header).getByText("· 3 done since last scan")).toBeInTheDocument();
+    expect(subtitle(header())).toBe("1 active · 18 done since last scan");
+    expect(header().querySelector("p")).toHaveClass("text-muted-foreground");
+    expect(within(header()).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "New Request", expect.stringMatching(/^Run all/)]);
     expect(document.querySelectorAll("header")).toHaveLength(1);
+  });
+
+  it("leaves out each part of the subtitle when it is 0, and the subtitle with them", async () => {
+    install(board(1, { doneSinceLastScan: 2 }));
+    await show();
+    expect(subtitle(header())).toBe("2 done since last scan");
+    await publish(board(2, { active: [task("tttttttt", "T1", "Write the cart")] }));
+    expect(subtitle(header())).toBe("1 active");
+    await publish(board(3));
+    expect(subtitle(header())).toBeNull();
+  });
+
+  it("counts in `active` the real cards of Active, never ghosts", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second", { doing: true })], ghosts: [ghost("g1", "task", "Coming")] }));
+    await show();
+    expect(subtitle(header())).toBe("2 active");
   });
 
   it("shows while the Board loads", async () => {
     vi.mocked(call).mockImplementation((() => new Promise(() => {})) as unknown as typeof call);
     render(
       <TooltipProvider>
-        <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+        <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
           <BoardActionsContext.Provider value={{}}>
             <BoardProvider projectId={PROJECT}>
               <BoardView />

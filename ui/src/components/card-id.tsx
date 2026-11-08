@@ -16,7 +16,8 @@ export function idName(shortNumber: string | null | undefined, permanentId: stri
 
 /**
  * The id of a card: its short number when it has one, otherwise its permanent id, never both, in
- * monospace. The accessible name and the tooltip say which of the two it is.
+ * monospace on a Paper tag (6 px radius). The accessible name and the tooltip say which of the two
+ * it is.
  */
 export function CardId({ shortNumber, permanentId, className }: CardIdProps) {
   const shown = shortNumber || permanentId;
@@ -24,7 +25,7 @@ export function CardId({ shortNumber, permanentId, className }: CardIdProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span role="img" aria-label={name} className={cn("inline-block font-mono text-xs", className)}>
+        <span role="img" aria-label={name} className={cn("inline-block rounded-sm bg-paper px-1.5 py-0.5 font-mono text-xs", className)}>
           <span aria-hidden>{shown}</span>
         </span>
       </TooltipTrigger>

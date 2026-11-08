@@ -118,7 +118,7 @@ describe("Import from Code panel", () => {
     const onStarted = vi.fn();
     vi.mocked(call).mockImplementation(((name: string, args: { path: string }) => {
       if (name === "project_folder") return Promise.resolve(FOLDERS[args.path] ?? []);
-      if (name === "import_code") return Promise.reject({ code: "refused", message: "Could not start the import: omp is not ready." });
+      if (name === "import_code") return Promise.reject({ code: "refused", message: "Could not start the import: the agent is not ready." });
       return Promise.reject(new Error("unexpected"));
     }) as unknown as typeof call);
     renderPanel({ onStarted });
@@ -126,7 +126,7 @@ describe("Import from Code panel", () => {
     await user.tab();
     await user.keyboard(" ");
     await user.click(screen.getByRole("button", { name: "Start import" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start the import: omp is not ready.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start the import: the agent is not ready.");
     expect(onStarted).not.toHaveBeenCalled();
     expect(screen.getByText("1 excluded")).toBeInTheDocument();
   });

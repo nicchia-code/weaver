@@ -13,7 +13,11 @@ description: "Use when building or changing question rounds or system notificati
 - **Footer:** `Back`, `Skip all`, `Skip`, `Next` (`Review` on the last). `Next`/`Review` disabled, tooltip `Choose an option or write an answer.`, until a choice or non-blank text exists. `Ctrl/Cmd+Enter` = `Next`/`Review`/`Send to agent`.
 - **Skip all:** AlertDialog `Skip all unanswered questions?` / `The agent will use its recommendation for each of them.`, `Skip all` and `Go back`, focus on `Go back`. Never kept with the round.
 - **Summary:** each answer (labels and text), `Skipped`, or `Missing` (warning colour, `TriangleAlert`), with `Edit` (`Pencil`) going to that question. `Send to agent` (primary) disabled while any is missing, with `Answer or skip <n> more question(s) to send.`
-- **Minimized:** a warning-colour bar pinned at the window bottom: `The agent is waiting for your answers (question <n> of <N>)` + `Open questions`.
+- **Minimized:** a bar at the bottom of the work surface (`requirements/ui#window`), in every view, Chat and Ask more conversations included, next to their own `Answer` and `Back to questions`: `The agent is waiting for your answers (question <n> of <N>)` + `Open questions`.
+  - It takes its own place in the layout, below the selected view, and is never drawn over it: the view gets shorter by the bar's height, so nothing of it is covered, neither a message box nor the end of a list, a Board column, an editor or a sheet. The sidebar is untouched.
+  - Full width of the work surface, inside its inset and rounded corners; Peach tint background, text and icons in Peach ink, a 1 px Peach top border.
+  - One line at a fixed height, whatever the window width: the text is cut with `…`, with its full text in the tooltip; `Open questions` stays whole at the right end.
+  - While it shows, toasts sit above it (`requirements/ui#General`).
 
 ## notification
 | Kind | Title | Message |

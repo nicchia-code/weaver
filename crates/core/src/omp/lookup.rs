@@ -111,11 +111,11 @@ pub struct NotFound {
 }
 
 impl NotFound {
-    /// `omp not found at <path>` when a path was set, `None` when omp is simply not installed.
+    /// `the agent not found at <path>` when a path was set, `None` when omp is simply not installed.
     pub fn reason(&self) -> Option<String> {
         self.configured
             .as_ref()
-            .map(|path| format!("omp not found at {path}"))
+            .map(|path| format!("the agent not found at {path}"))
     }
 }
 
@@ -202,7 +202,7 @@ mod tests {
         let error = find_omp(&format!("  {}  ", missing.display()), &env).unwrap_err();
         assert_eq!(
             error.reason(),
-            Some(format!("omp not found at {}", missing.display()))
+            Some(format!("the agent not found at {}", missing.display()))
         );
         // Set and present: it wins over PATH.
         let chosen = file(&root.path().join("chosen"), "omp");

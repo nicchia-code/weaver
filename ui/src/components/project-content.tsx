@@ -5,6 +5,8 @@ import { AssetsProvider } from "@/components/assets/use-assets";
 import { BoardProvider, useBoard } from "@/components/board/board-state";
 import { BoardView } from "@/components/board/board-view";
 import { FilesView } from "@/components/files/files-view";
+import { CommandPalette } from "@/components/command-palette";
+import { ChatDraftProvider } from "@/components/general/chat-draft";
 import { GeneralView } from "@/components/general/general-view";
 import { useChatWaiting } from "@/components/general/use-general";
 import { HistoryView } from "@/components/history/history-view";
@@ -16,7 +18,7 @@ import { NotesView } from "@/components/notes/notes-view";
 import { NotesProvider } from "@/components/notes/use-notes";
 import { ConnectedSettingsView } from "@/components/omp-status";
 import { ProjectWindow } from "@/components/project-window";
-import { QuestionRoundLayer } from "@/components/questions/question-overlay";
+import { QuestionBar, QuestionRoundLayer } from "@/components/questions/question-overlay";
 import { RequestsBoardActions, RequestsLayer } from "@/components/requests/requests-layer";
 import { AtomicCommitsSetting } from "@/components/project/atomic-commits";
 import { SetupLayer } from "@/components/project/empty-model";
@@ -31,10 +33,9 @@ import { ViewsProvider } from "@/components/views/views-state";
 
 function ProjectShell({ projectId }: { projectId: string }) {
   const { snapshot } = useBoard();
-  const { waiting } = useJobs();
+  const { waiting, running } = useJobs();
   const chatWaiting = useChatWaiting(projectId);
-  // The Draft cards of Chat are not real cards of Backlog: the Board marks them `chat-draft`.
-  const backlog = snapshot?.backlog.filter((card) => !((card.kind === "proposal" || card.kind === "resolution") && card.standing === "chat-draft")).length ?? 0;
+  const backlog = snapshot?.backlog.length ?? 0;
   return (
     <ProjectWindow
       projectId={projectId}
@@ -108,18 +109,23 @@ function ProjectShell({ projectId }: { projectId: string }) {
           <SkillsBanner />
         </>
       }
-      // The sidebar shows the real cards of Backlog (ghosts and the Draft cards of Chat never count),
-      // the jobs waiting for the developer (never Chat) and whether Chat waits for the answers of
-      // its round; the backend counts them.
-      counts={{ backlog, jobsWaiting: waiting, chatWaiting }}
+      // The bar of a minimized question round: at the bottom of the work surface, below the view.
+      footer={<QuestionBar />}
+      // The sidebar shows the real cards of Backlog, drafts of requests included (ghosts never count,
+      // they are not in `backlog`), the jobs waiting for the developer (never Chat) and whether Chat
+      // waits for the answers of its round; the backend counts them.
+      counts={{ backlog, jobsWaiting: waiting, jobsRunning: running, chatWaiting }}
       // What Requirements and Specs share, and the cards' `View requirements`; `Run`, `Run all` and
       // `Scan System` start jobs.
       around={(children) => (
         <ViewsProvider projectId={projectId}>
-          <JobsBoardActions>
-            <AskViewSwitch />
-            <RequestsBoardActions>{children}</RequestsBoardActions>
-          </JobsBoardActions>
+          <ChatDraftProvider>
+            <JobsBoardActions>
+              <AskViewSwitch />
+              <CommandPalette />
+              <RequestsBoardActions>{children}</RequestsBoardActions>
+            </JobsBoardActions>
+          </ChatDraftProvider>
         </ViewsProvider>
       )}
     />

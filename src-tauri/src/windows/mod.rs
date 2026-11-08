@@ -19,6 +19,9 @@
 //! | [`tray`]         | The tray icon of Windows and Linux: `Show Weaver` and `Quit` |
 //! | [`menu`]         | The application menu (`Cmd+Q` / `Ctrl+Q` / File › Quit, File › Open Folder… / Open Recent) |
 //! | [`menu_open`]    | What the File menu opens: `Open Folder…`, `Open Recent`, `Clear Recent`, and a failed opening |
+//! | [`switcher`]     | The project switcher of every project window: the open projects with their working jobs, the recent ones |
+//! | [`git_state`]    | The branch and the user name of a project window, read when it opens, when it gets the focus and when git's HEAD changes |
+//! | [`head_watch`]   | The watch of git's HEAD file of a working copy, on its own, outside the project's picture |
 //! | [`commands`]     | Tauri commands: the welcome window and `open_in_editor` |
 //!
 //! # What other Tasks plug into
@@ -49,6 +52,8 @@
 pub mod commands;
 pub mod editor;
 pub mod fullscreen;
+pub mod git_state;
+pub mod head_watch;
 pub mod jobs;
 pub mod launch;
 pub mod local_state;
@@ -57,6 +62,7 @@ pub mod menu;
 pub mod menu_open;
 pub mod project;
 pub mod registry;
+pub mod switcher;
 pub mod tauri_shell;
 pub mod tray;
 pub mod unsaved;
@@ -124,6 +130,9 @@ pub fn start(app: &AppHandle) {
     app.manage(manager.clone());
     // At most one folder picker from the File menu at a time.
     app.manage(Arc::new(menu_open::PickerLatch::default()));
+    // The branch and user name of each project window, and the list its switcher shows.
+    app.manage(git_state::GitState::default());
+    app.manage(Arc::new(switcher::SwitcherPublisher::default()));
     // `Open Recent` of the File menu starts from the recent projects of the last session.
     menu::refresh(app);
     // Where Weaver stays reachable while its windows are in the background (Windows and Linux).

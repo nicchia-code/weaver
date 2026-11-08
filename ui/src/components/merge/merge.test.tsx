@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,7 +57,7 @@ function task(runReasons: string[]): BoardCard {
     kind: "task",
     head: { id: "tttttttt", shortNumber: "T1", title: "Write the cart", body: "", created: "2026-11-02T07:00:00.000Z", agentFinishing: false },
     doing: false,
-    heldByAgent: false,
+    heldBy: null,
     technical: false,
     refs: [],
     label: null,
@@ -69,7 +69,7 @@ function task(runReasons: string[]): BoardCard {
 }
 
 function mergeJob(state: JobRow["state"]): JobRow {
-  return { id: "jjjjjjjj", kind: "merge", name: "Merge conflicts", state, reason: null, created: "2026-11-05T10:00:00.000Z", started: null, ended: null, note: null, target: null };
+  return { id: "jjjjjjjj", kind: "merge", name: "Merge conflicts", state, reason: null, created: "2026-11-05T10:00:00.000Z", started: null, ended: null, note: null, target: null, request: null, requestSent: false };
 }
 
 let calls: Array<[string, unknown]>;
@@ -124,7 +124,7 @@ function install(merge?: MergeStatus) {
 async function show(actions: BoardActions = {}) {
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <BoardActionsContext.Provider value={actions}>
           <ProjectStatusProvider projectId={PROJECT}>
             <BoardProvider projectId={PROJECT}>
@@ -172,13 +172,15 @@ describe("the Merge button", () => {
     expect(screen.queryByRole("region", { name: "Merge in progress" })).not.toBeInTheDocument();
   });
 
-  it("sits to the left of Scan System in the header and is enabled when git allows it", async () => {
+  it("sits to the left of the More actions menu in the header and is enabled when git allows it", async () => {
     install(AVAILABLE);
     await show();
     const button = await mergeButton();
     expect(button).not.toHaveAttribute("aria-disabled");
     const buttons = within(header()).getAllByRole("button").map((b) => b.textContent);
-    expect(buttons).toEqual(["Merge", "Scan System"]);
+    expect(buttons.slice(0, 2)).toEqual(["Merge", ""]);
+    expect(buttons[2]).toBe("New Request");
+    expect(buttons[3]).toMatch(/^Run all/);
     await userEvent.setup().hover(button);
     expect((await screen.findAllByText("Merge another branch into main"))[0]).toBeInTheDocument();
   });
@@ -456,25 +458,35 @@ describe("Abort merge", () => {
 });
 
 describe("the other controls during a merge", () => {
-  it("disables Scan System with `A merge is in progress` and enables it again afterwards", async () => {
+  it("disables the Scan System… item with `A merge is in progress` under its text, as its description, and enables it again afterwards", async () => {
     const scanSystem = vi.fn();
     install(conflicts(2));
     await show({ scanSystem });
     const user = userEvent.setup();
-    const scan = await within(header()).findByRole("button", { name: "Scan System" });
-    await waitFor(() => expect(scan).toHaveAttribute("aria-disabled", "true"));
-    expect(reasonsOf(scan)).toEqual(["A merge is in progress"]);
-    await user.click(scan);
+    await screen.findByRole("region", { name: "Merge in progress" });
+    const more = within(header()).getByRole("button", { name: "More actions" });
+    await user.click(more);
+    const item = await screen.findByRole("menuitem", { name: "Scan System…" });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveAccessibleDescription("A merge is in progress");
+    expect(item).toHaveAttribute("data-disabled");
+    expect(within(item).getByText("A merge is in progress")).toHaveClass("text-xs", "text-muted-foreground");
+    fireEvent.click(item);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
     await publish(statusOf(2, AVAILABLE));
-    await waitFor(() => expect(scan).not.toHaveAttribute("aria-disabled"));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Merge in progress" })).not.toBeInTheDocument());
+    await user.click(more);
+    const again = await screen.findByRole("menuitem", { name: "Scan System…" });
+    expect(again).not.toHaveAttribute("aria-disabled");
+    expect(again).not.toHaveAttribute("aria-describedby");
   });
 
   it("shows `A merge is in progress` first on Run all and on Run, as the backend counts them", async () => {
     install(conflicts(2));
     snapshot = board({ runAllReasons: ["A merge is in progress", "Drifts are being resolved"], active: [task(["The agent is still finishing", "A merge is in progress", "Drifts are being resolved"])] });
     await show();
-    const runAll = await screen.findByRole("button", { name: "Run all" });
+    const runAll = await screen.findByRole("button", { name: /^Run all/ });
     expect(reasonsOf(runAll)).toEqual(["A merge is in progress", "Drifts are being resolved"]);
     const run = await screen.findByRole("button", { name: "Run" });
     expect(reasonsOf(run)).toEqual(["The agent is still finishing", "A merge is in progress", "Drifts are being resolved"]);

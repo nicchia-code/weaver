@@ -1,6 +1,6 @@
 ---
 name: weaver-design
-description: Use when the instruction of a Weaver job names a written design request in `.weaver/requests/` of a project that has a `.weaver/` folder, asks to rework a rejected Proposal or refine a stale one with this skill, or when the instruction of Chat sends you here on the developer's explicit order to write a change as a Proposal. Interviews the developer with `weaver question new` (from Chat, with the conversation as the interview) and turns the answers into a Proposal for the Model and its Requirements. Never in Ask more conversations, and not for writing code.
+description: Use only when the instruction of a Weaver job names a written design request in `.weaver/requests/` of a project that has a `.weaver/` folder, or asks to rework a rejected Proposal or refine a stale one with this skill. Interviews the developer with `weaver question new` and turns the answers into a Proposal for the Model and its Requirements. Never in a conversation that is not a job (Chat, Ask more), and not for writing code.
 ---
 
 # Weaver: design
@@ -19,7 +19,7 @@ Announce every Proposal as soon as you know you will write it: `weaver announcem
 
 ## Hard rules
 
-- This skill runs only when the instruction names it: a written design request, a rework or a refinement in a Weaver job, or Chat's instruction sending you here on the developer's explicit order (see "Writing from Chat"). Without that instruction (Ask more, or any other conversation) do not follow it, announce nothing, ask no round and open no Proposal.
+- This skill runs only when the instruction of a Weaver job names it: a written design request, a rework or a refinement. Without that instruction (Chat, Ask more, or any other conversation that is not a job) do not follow it, announce nothing, ask no round and open no Proposal. In Chat a Proposal starts as a design request sent with `weaver request new`, never written with this skill.
 - NEVER edit `.weaver/model/` or `.weaver/requirements/` directly, nor the generated `weaver-req-*` skills. Every change goes through a Proposal, created with `weaver proposal new --input -`.
 - Agents may approve, reject or discard a Proposal, decide a Drift or delete a Task in To do (`weaver task delete`) only when the developer explicitly asks for that decision in the conversation. Without that request, do not decide and do not ask the developer about it: stop and tell them the decision is theirs, on the Board. An explicit design request does not by itself authorise any of them. After handing over a finished Proposal, stop and ask the developer to review it.
 - The Model describes *what can happen*, never *how it is built*: no variables, field names, database columns, endpoints, classes or file paths. A State is a situation in domain words ("Awaiting payment"), not a combination of values. How it is built (layout, styling, libraries, limits, data fields, formulas) belongs in the Requirements.
@@ -46,15 +46,6 @@ When the instruction asks for a language, the texts listed below go in that lang
 - **A language changes nothing already written.** When you edit a file written in another language, keep its existing text and write only the new or rewritten text in the chosen language; never translate the whole file.
 - **No first person in Weaver's texts.** In what you write for Weaver (questions, contexts and options of rounds, titles and bodies of Proposals, Tasks and Drifts, History entries), Weaver is always "Weaver" and you are "the agent": no first-person pronouns or first-person verbs, in any language. Your replies in the conversation are not Weaver's texts and do not change. Text already written is not rewritten.
 - **Self-contained Tasks.** The body of a Task is understood without the conversation that produced it: it says what must be true when done, with the conditions and consequences as the Model says them, and every decision of the interview that concerns it, because whoever implements it does not see that conversation.
-
-## Writing from Chat
-
-This section applies when Chat's instruction sends you to this skill on the developer's explicit order to write a change as a Proposal. Without that instruction, skip it. It replaces the interview and the announcement of the Steps; the rest of the Steps holds.
-
-- **The conversation is the interview.** What the developer and you agreed in it counts as decided and is not asked again. A decision still open is asked in your reply, or with one round of `weaver question new` (see "Asking") only when the developer asked to be asked that way. Whether to bind the images of a request goes the same way.
-- **No announcement and no job note.** Open the Proposal at once with `weaver proposal new --input -`. Pass `request` only when the developer named a design request that is not sent, and `reworks` only when the developer named a rejected Proposal.
-- **Then follow the Steps:** the files (step 4), the Tasks and `## Already present` (step 5), the hand-over (step 6) and the light code scan (step 7), sub-agents included. A contradiction found by the scan is asked as above.
-- **After the hand-over,** summarise the Proposal in a few lines and stop. Decide nothing, unless the developer explicitly asks for that decision.
 
 ## Steps
 

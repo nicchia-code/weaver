@@ -5,7 +5,7 @@ The person who owns the project, looks at it in Weaver and decides. Every decisi
 ## Events
 
 ### OPEN_PROJECT
-The developer opens a folder in Weaver, from the welcome window or from the File menu of any window, choosing a folder or one of the recent projects. A folder already open only comes to the front.
+The developer opens a folder in Weaver, from the welcome window, from the File menu of any window, or from the project switcher or the palette of a project window, choosing a folder, one of the recent projects or another open project. A folder already open only comes to the front.
 
 ### CLOSE_WINDOW
 The developer closes the window of a project. When agent jobs of that project are working, or files of its File view have unsaved changes, he confirms first; with unsaved changes he chooses to save them all or to discard them all. When only agent jobs are working, he can also choose to keep them working with the window in the background.
@@ -56,7 +56,7 @@ The developer asks the agent to resolve the conflicts of the merge in progress.
 The developer aborts the merge in progress, after a confirmation.
 
 ### OPEN_USAGE
-The developer opens Usage from the window of a project, to see how much is left of the usage limits of the connected providers.
+The developer opens Usage from the window of a project, from the summary of the limits in its sidebar or from its palette, to see how much is left of the usage limits of the connected providers.
 
 ### RETRY_USAGE
 The developer asks Weaver to read the usage limits again after reading them failed.
@@ -65,13 +65,16 @@ The developer asks Weaver to read the usage limits again after reading them fail
 The developer closes Usage, also by choosing to open Settings from it.
 
 ### NEW_REQUEST
-The developer starts writing a design request: the setup request when the Model is empty and he chose to start from scratch, an ordinary design request otherwise.
+The developer starts writing a design request, from the Board or by starting from scratch: the setup request when the Model is empty, an ordinary design request otherwise.
 
 ### SEND_REQUEST
-The developer sends the design request he wrote to the agent. Every asset the request tags at that moment is passed to the agent as a file to read; the request itself stays as he wrote it.
+The developer sends the design request he wrote to the agent, from the request itself or from its card on the Board. Every asset the request tags at that moment is passed to the agent as a file to read; the request itself stays as he wrote it.
 
 ### DISCARD_REQUEST
-The developer throws away a design request he never sent.
+The developer throws away a design request he never sent, from the request itself or from its card on the Board.
+
+### LEAVE_REQUEST
+The developer leaves the design request he is writing: he goes back to the Board, or another view of the window takes the place of the request, chosen by him or by a link or a notification he clicked.
 
 ### APPROVE_PROPOSAL
 The developer approves an open Proposal as a whole.

@@ -32,7 +32,7 @@ export function ErrorBanner({ errors }: { errors: readonly ViewError[] }) {
         {open ? (
           <ul id={listId} className="space-y-2">
             {errors.map((error, index) => (
-              <li key={`${error.file}:${error.line ?? 0}:${index}`} className="flex items-start justify-between gap-3 rounded-md border p-2">
+              <li key={`${error.file}:${error.line ?? 0}:${index}`} className="flex items-start justify-between gap-3 rounded-lg p-2 shadow-ring">
                 <div className="min-w-0">
                   <p>{error.message}</p>
                   <p className="font-mono text-xs text-muted-foreground">

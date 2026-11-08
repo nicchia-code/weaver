@@ -72,6 +72,11 @@ export function useViews(): ViewsState {
   return value;
 }
 
+/** The views' state, or `null` where no provider is above (a card that only decorates itself with it). */
+export function useOptionalViews(): ViewsState | null {
+  return useContext(ViewsContext);
+}
+
 const SLICES = ["model", "requirements", "specs", "board"];
 const NO_FOCUS: Record<ViewName, FocusState | null> = { requirements: null, specs: null };
 

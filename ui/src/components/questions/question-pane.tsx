@@ -93,12 +93,12 @@ function Options({ question, selected, onPick }: OptionsProps) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   {index < 9 ? (
-                    <kbd aria-hidden className="rounded border bg-muted px-1.5 text-xs text-muted-foreground">
+                    <kbd aria-hidden className="rounded-sm border bg-muted px-1.5 text-xs text-muted-foreground">
                       {index + 1}
                     </kbd>
                   ) : null}
                   <span className="font-bold">{option.label}</span>
-                  {index === question.recommended ? <Badge variant="info">Recommended</Badge> : null}
+                  {index === question.recommended ? <Badge variant="lavender">Recommended</Badge> : null}
                 </div>
                 <Markdown className="mt-1 text-sm text-muted-foreground">{option.description}</Markdown>
               </div>
@@ -115,7 +115,7 @@ function Options({ question, selected, onPick }: OptionsProps) {
                       return next;
                     })
                   }
-                  className="rounded text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded-sm text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {open ? "Hide details" : "Show details"}
                 </button>

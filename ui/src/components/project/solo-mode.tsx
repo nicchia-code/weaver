@@ -120,8 +120,8 @@ export function SoloModeField({
               message.tone === "info"
                 ? "text-sm text-muted-foreground"
                 : message.tone === "warning"
-                  ? "flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400"
-                  : "flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400"
+                  ? "flex items-start gap-1.5 text-sm text-peach-ink"
+                  : "flex items-start gap-1.5 text-sm text-rose-ink"
             }
           >
             {message.tone === "info" ? null : <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />}

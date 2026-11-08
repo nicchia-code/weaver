@@ -19,11 +19,12 @@
 - A waiting permission does not count in the sidebar's number of jobs waiting and raises no notification.
 
 ### Conversation
-- Rendered as a job's conversation (messages, `Thinking`, tool rows, sub-agents and their read-only conversations, permission cards, queued messages, `Jump to latest`), with no instruction entry, notes, end line or finished line. The sub-agent conversation header starts with the conversation's name: `Ask T3 › <sub-agent name>`.
+- Rendered as a job's conversation (the centred column, messages with their sender row, the Work summary with `Thinking`, tool rows and sub-agent lines, sub-agents and their read-only conversations, permission cards, queued messages, `Jump to latest`), with no instruction entry, notes, end line or finished line. The sub-agent conversation header starts with the conversation's name: `Ask T3 › <sub-agent name>`.
+- **Header:** in the right part of the Jobs view's header band (`requirements/ui#job`, **Header band**), the conversation's name (17 px semibold, as a job's name) with its state badge (`running`, `waiting` or `idle`, as on its row); no started line and no buttons.
 - The first entry is the developer's first message, as for any developer message; Weaver's instruction is never shown.
 - Empty, it shows only the message box, with the placeholder `Ask about the Proposal…`, `Ask about the Task…`, `Ask about the Drift…`, `Ask about the History entry…`, `Ask about the Requirements…` or `Ask about the question…`. After the first message the placeholder is `Message the agent…`.
-- Message box as for a job; a message sent while omp starts or reloads shows `Starting omp…` under it until delivered, as in Chat. `Stop` (`Square`, `Stop the agent`) beside `Send` during a turn, without a dialog.
+- Message box as for a job; a message sent while the agent starts or reloads shows `Starting Weaver…` under it until delivered, as in Chat. `Stop` (`Square`, `Stop the agent`) beside `Send` during a turn, without a dialog.
 - **Back to questions:** a conversation opened from a question shows, at the top of the conversation and while that round is still open, a `Button` `Back to questions` (`ArrowLeft`) that opens the round again where it was. It disappears when the round ends, however it ends.
-- Started jobs, refused starts, failures, omp missing and a session that could not be reloaded show as in Chat (`requirements/ui#general-chat`), with the same texts.
+- Started jobs, refused starts, failures, a missing agent and a session that could not be reloaded show as in Chat (`requirements/ui#general-chat`), with the same texts.
 - No usage bar: usage stays in the `Usage` dialog.
 - Every text is in English.

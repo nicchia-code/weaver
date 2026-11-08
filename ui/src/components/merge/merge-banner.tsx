@@ -26,7 +26,7 @@ export function MergeBanner() {
       : `${head}no conflicts left. Commit the merge in git to finish.`;
 
   return (
-    <div className="px-4 pt-4">
+    <div className="px-6 pt-4">
       <Alert variant="default" role="region" aria-label="Merge in progress">
         <GitMerge aria-hidden />
         <p className="min-w-0 flex-1" aria-live="polite">

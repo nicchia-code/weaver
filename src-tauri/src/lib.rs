@@ -165,6 +165,7 @@ pub fn run() {
             omp::omp_log_in,
             omp::omp_log_out,
             omp::omp_usage,
+            omp::usage_status,
             system_certificates::system_certificates_status,
             system_certificates::system_certificates_refresh,
             system_certificates::system_certificates_dismiss_notice,
@@ -172,8 +173,13 @@ pub fn run() {
             windows::commands::welcome_state,
             windows::commands::open_project,
             windows::commands::open_folder,
+            windows::commands::open_folder_from_window,
+            windows::switcher::project_switcher,
+            windows::git_state::project_git,
             windows::commands::remove_recent,
             windows::commands::open_in_editor,
+            windows::commands::jobs_list_state,
+            windows::commands::jobs_list_set,
             jobs::commands::jobs_snapshot,
             jobs::commands::job_conversation,
             jobs::commands::job_send_message,
@@ -191,6 +197,7 @@ pub fn run() {
             general::commands::general_stop,
             general::commands::general_answer_permission,
             general::commands::general_clear,
+            general::proposals::general_proposals,
             general::commands::general_sub_agents,
             general::commands::general_sub_agent_conversation,
             general::commands::general_sub_agents_view,
@@ -204,12 +211,12 @@ pub fn run() {
             ask::commands::ask_sub_agents,
             ask::commands::ask_sub_agent_conversation,
             ask::commands::ask_sub_agents_view,
-            requests::requests_list,
             requests::request_read,
             requests::request_new,
             requests::request_save,
             requests::request_send,
             requests::request_discard,
+            requests::request_leave,
             requests::request_image_add,
             requests::request_image_import,
             requests::request_image,
@@ -322,7 +329,7 @@ pub fn run() {
             let omp_handle = handle.clone();
             startup::spawn(&handle, Step::app("omp", move || omp::start(&omp_handle)));
 
-            // Updates: the check at start and every 24 hours runs on the async runtime.
+            // Updates: the check at start and every hour runs on the async runtime.
             updates::start(&handle);
 
             // The rest runs on the blocking pool: the window must not wait for the disk.

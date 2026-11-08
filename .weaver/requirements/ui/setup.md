@@ -1,5 +1,5 @@
 ---
-description: "Use when building or changing Get Started, import exclusions, omp status and login, the request editor or Settings."
+description: "Use when building or changing Get Started, import exclusions, omp status and login, or Settings."
 ---
 # Setup and settings
 
@@ -8,7 +8,7 @@ description: "Use when building or changing Get Started, import exclusions, omp 
 - **Overwrite conflict:** when agent files exist with different content, an AlertDialog `Some agent files already exist` lists each relative path (monospace, scrolling past 8 lines) and offers `Overwrite and initialise` (destructive) and `Cancel` (focus). Cancel changes nothing and shows nothing.
 - A failed initialisation shows `Could not initialise: <reason>.` in an error box under the button; the button stays for a retry.
 - **Empty Model:** the Board shows above its empty columns two side-by-side cards (stacked below ~640 px), each a button: `Start from Scratch` (`Sparkles`) `For an application still to be built: you describe it, an agent designs it.`; `Import from Code` (`FolderCode`) `For a project that already has code: an agent describes it as Proposals.` When the folder holds names not starting with a dot besides `.weaver`, a warning line under the cards: `Start from Scratch ignores the files already in this folder unless your request mentions them.` The cards hide while a setup or import job works or a Proposal is open. While omp is not ready, the omp status box shows above the cards.
-- Start from Scratch opens a new setup request in the request editor (`design-request`).
+- Start from Scratch opens in the request editor the oldest request being written, when there is one, else a new setup request (`design-request`).
 - **Import from Code:** a panel with the folder tree and the primary button `Start import`.
   - The tree lists the project folder, leaving out names starting with a dot and everything git ignores; first level shown, folders collapsed, children read when opened.
   - Each entry: checkbox (indeterminate for a partly excluded folder), `Folder`/`FolderOpen` or `File` icon, name truncated with the full path in the tooltip; ~16 px indent per level. Unchecking a folder excludes all inside it.
@@ -40,17 +40,6 @@ description: "Use when building or changing Get Started, import exclusions, omp 
 - **Log in:** `outline` small button, `LogIn` icon: `Log in`, or `Log in again` when Connected; tooltip `Open a terminal that logs omp in to <name>`. The Cursor row is the same, login only.
 - **Log out:** only on Connected rows, `ghost` small button, `LogOut` icon. AlertDialog `Log out of <name>?` / `omp forgets the accounts of <name> it stored. Credentials in environment variables, .env files or models.yml stay.`, `Log out` (destructive) and `Cancel` (focus). While it runs the icon becomes a spinning `Loader`, the row's buttons are disabled and the row has `aria-busy="true"`; afterwards focus returns to the row's `Log in`.
 - Under the row afterwards: failure `Could not log out of <name>: <reason>.` (error colour); still connected `<name> is still connected through another credential (environment variable, .env file or models.yml). Remove it there to disconnect.` Nothing is shown when the row turns `Not connected`.
-
-## design-request
-- **Request editor:** a pane with the open requests (writing or sent) listed on the left, newest first, each with its title (first heading or first line, else `Untitled request`), created time and a `Draft` or `Sent` badge; the selected request on the right. It opens from the Board's new-request button and from Start from Scratch, focused in the text. The header reads `Setup request` or `Design request`.
-- **Editing:** a monospace textarea with soft wrap filling the pane. A `Preview` toggle shows the rendered Markdown (shared renderer) side by side from ~900 px of pane width, in place of the text below it; the preview updates within 150 ms of typing.
-- **Autosave:** the file is written 500 ms after the last keystroke and on blur, view switch and window close. Status text in the header: `Saving…`, `Saved`, or `Could not save: <reason>.` (error colour; the text stays and the next change retries). Typing starts no process.
-- An outside change to the file reloads the editor when nothing is pending; otherwise Weaver's version is written and a warning toast says `The request changed on disk; Weaver kept your version.` A request deleted outside Weaver leaves the editor with the warning toast `The request was deleted outside Weaver.`
-- **Send:** primary `Send` (`SendHorizontal`), also `Ctrl/Cmd+Enter`; disabled while the text is empty after trimming, tooltip `Write the request first.`
-- **Discard:** `Discard` (`Trash2`), AlertDialog `Discard this request?` / `Its file and images are deleted.`, `Discard` (destructive) and `Cancel` (focus).
-- **Sent:** read-only rendered view with a banner `Sent to the agent · <job name>` and `Open conversation`. Back in writing after its job ended without a Proposal: banner `The job ended without a Proposal. Change the request and send it again.`
-- **Held by Chat:** listed with a `Chat` badge in place of `Draft`; read-only rendered view with a banner `Chat is writing a Proposal from this request` and `Open Chat`, without `Send` or `Discard`. When that Draft is discarded, the request is editable again as before.
-- **Images:** PNG, JPEG, GIF or WebP pasted or dropped into the text are saved in the request's images folder next to it as `image-<n>.<ext>` (next free number), and `![](<images folder>/image-<n>.<ext>)` is inserted at the cursor. At most 10 MB per image; anything else is refused with an error toast `Only PNG, JPEG, GIF or WebP images up to 10 MB.` The preview shows images only from that folder.
 
 ## developer.CHANGE_SETTINGS
 - **Settings view:** the view header (`requirements/ui#General`, title `Settings`, no controls) across the whole view, then one centred column, ~720 px wide, that scrolls under it; groups in this order, each a heading with its settings below. Group headings are 14 px semibold, never larger than the header's title:

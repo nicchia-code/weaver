@@ -33,6 +33,7 @@
 //! | [`notes`] | The developer's notes in `.weaver/notes/`: reading and writing the sheet, naming, copying in, reading and trashing the images, the sheet's hash and the images' names the watcher reports |
 //! | [`solo_mode`] | Solo mode: the state of the working copy, the block in git's local exclusions, the tracked files it cannot hide |
 //! | [`solo_merge`] | Merge in Solo mode: availability, the branches, the git steps of a merge, `merge/merge.json` and the check of a merge in progress |
+//! | [`git_info`] | What a project window shows of git: the branch, git's HEAD file of the working copy, the user's name |
 
 pub mod agent_files;
 pub mod assets;
@@ -43,6 +44,7 @@ pub mod endpoint;
 pub mod file_lock;
 pub mod file_tab;
 pub mod file_view;
+pub mod git_info;
 pub mod history_commit;
 pub mod ipc;
 pub mod job_instruction;

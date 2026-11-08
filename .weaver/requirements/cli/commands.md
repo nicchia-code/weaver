@@ -17,6 +17,7 @@ history       new, edit, show, list
 announcement  new
 job           new, show, list, edit
 question      new
+request       new
 ```
 
 - One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. No aliases for removed names; an existing command never answers "unknown command".
@@ -34,18 +35,18 @@ question      new
 
 - `project new {force?, solo?}`: `solo` is `off` (default), `folders` or `files`. Refused, creating nothing, when `.weaver/` exists, when an agent file to install differs (all listed) unless `force: true`, or when `solo` is not `off` and Solo mode cannot be turned on (exit 1 with the reason). Prints `solo` too.
 - `project edit {solo?}`: with `solo`, changes only Solo mode and prints `solo`; without, Update skills: prints `changed`, `areas` and `generated`, the structured result the app shows too.
-- `project show {}`: the Board: `toDecide` (open Proposals and Drifts), `inWriting` (Drafts with their job, or `chat: true` for a Draft Chat is writing), `todo`, `doing` (holder and blockers); and `solo` (`requirements/tech#solo-mode`).
+- `project show {}`: the Board: `toDecide` (open Proposals and Drifts), `inWriting` (Drafts with their job), `todo`, `doing` (holder and blockers); and `solo` (`requirements/tech#solo-mode`).
 
 ## proposal
 
-- `new {title, body?, kind?, label?, requires?, request?, reworks?, announcement?}`: `kind` `change` (default), `setup`, `import`, `resolution`; `label` 1–30 characters, one line. Refused: `setup` on a Model with a Feature or Actor; `request` with `reworks`; `setup` and `import` from Chat's agent. `request` and `reworks` bind only as `requirements/rules#proposal` (**Bindings**) allows for the caller; otherwise the Proposal is created unbound with a note saying why.
+- `new {title, body?, kind?, label?, requires?, request?, reworks?, announcement?}`: `kind` `change` (default), `setup`, `import`, `resolution`; `label` 1–30 characters, one line. Refused: `setup` on a Model with a Feature or Actor; `request` with `reworks`; any call from Chat's agent (`requirements/cli#agent`). `request` and `reworks` bind only as `requirements/rules#proposal` (**Bindings**) allows for the caller; otherwise the Proposal is created unbound with a note saying why.
 - `show <id>`: text, status, required Proposals, files, `## Tasks`, `## Created on approval`, `## Scope` (each entry's reason and coverage), `## Blocked` (every reason), validation.
 - `list {all?}`: Drafts, Open and Refining; all with `all`.
-- `edit <id> {label?, edit?, delete?, drifts?, removeDrifts?, images?, removeImages?, rebase?}`: every call, even without input, sends an Open Proposal back to Draft and says so; from Chat's agent it also marks the Proposal as written by Chat until it is handed over (`requirements/data#proposal`).
+- `edit <id> {label?, edit?, delete?, drifts?, removeDrifts?, images?, removeImages?, rebase?}`: every call, even without input, sends an Open Proposal back to Draft and says so; refused from Chat's agent (`requirements/cli#agent`).
   - `edit`: paths (`model/…`, `requirements/<area>/<fragment>.md`, `specs.yaml`, `tasks/<slug>.md`) made editable, copying the current content and recording `base` the first time; prints the path to write for each. A new Task gets its identity here; Task paths are refused in `import` and `resolution`.
   - `delete` is refused for a path the Proposal holds; `drifts`/`removeDrifts` only in a resolution; `images` `[{task, path}]` copies into `.weaver/task-images/<task>/`, `removeImages` `[{task, name}]`.
   - `rebase: true`, any kind, attached to a Drift or not, drops broken `requires` and, in a resolution, the rows of Drifts no longer open, then records `base` again and sets `refining` (`requirements/rules#proposal`); it prints what it dropped.
-- `move <id> open` hands over, clears the mark of a Proposal written by Chat, and prints the warnings and the `show` text. `approved|rejected|discarded` are decisions; `rejected` takes `{feedback?, rework?}`. `rework: true`, and approving a stale Proposal, need the running app.
+- `move <id> open` hands over and prints the warnings and the `show` text; refused from Chat's agent (`requirements/cli#agent`). `approved|rejected|discarded` are decisions; `rejected` takes `{feedback?, rework?}`. `rework: true`, and approving a stale Proposal, need the running app.
 
 ## task
 

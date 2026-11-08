@@ -17,7 +17,7 @@ use super::providers::{Provider, PROVIDERS};
 use super::run::{limits, Exec};
 
 /// The reason of a reading whose output is not the JSON Weaver reads.
-pub const INVALID_OUTPUT: &str = "omp did not return valid usage";
+pub const INVALID_OUTPUT: &str = "the agent did not return valid usage";
 
 /// From this used fraction on, a limit without a status of omp counts as almost used up.
 pub const ALMOST_USED_UP_FROM: f64 = 0.8;
@@ -44,7 +44,7 @@ pub enum NoLimits {
     NoUsageData,
     /// `Login expired`: omp turned the credential off.
     LoginExpired,
-    /// `Not reported by omp`: omp says nothing about the provider.
+    /// `Not reported by the agent`: omp says nothing about the provider.
     NotReported,
 }
 
@@ -93,6 +93,68 @@ impl Usage {
     /// Whether no provider has a limit to show.
     pub fn is_empty(&self) -> bool {
         self.providers.iter().all(|p| p.limits.is_empty())
+    }
+}
+
+/// The limit closest to being used up among the shown providers: what the summary in the sidebar
+/// shows (`requirements/tech#usage`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSummary {
+    /// The limit's name as omp gives it.
+    pub label: String,
+    /// The used fraction clamped to 0–1; `None` when no limit has a known one (then the summary
+    /// shows neither a percentage nor a bar).
+    pub used_fraction: Option<f64>,
+    pub status: LimitStatus,
+    /// When the limit resets, in milliseconds since the Unix epoch; `None` when omp gives none.
+    pub resets_at: Option<f64>,
+}
+
+impl LimitStatus {
+    /// 0 for `Ok`, 1 for almost used up, 2 for used up: the worse, the higher.
+    fn severity(self) -> u8 {
+        match self {
+            Self::Ok => 0,
+            Self::AlmostUsedUp => 1,
+            Self::UsedUp => 2,
+        }
+    }
+}
+
+impl Usage {
+    /// The limit closest to being used up: the worst status (used up, then almost used up, then
+    /// the others) and, within it, the highest used fraction; ties go to the earliest reset
+    /// (a limit without one comes last), then to the order of the providers and of their limits.
+    /// Limits with an unknown used fraction count only when no other limit exists. `None` when no
+    /// shown provider has a limit.
+    pub fn summary(&self) -> Option<UsageSummary> {
+        let limits = || self.providers.iter().flat_map(|p| p.limits.iter());
+        let known = limits().any(|l| l.used_fraction.is_some());
+        limits()
+            .filter(|l| !known || l.used_fraction.is_some())
+            .min_by(|a, b| {
+                b.status
+                    .severity()
+                    .cmp(&a.status.severity())
+                    .then_with(|| {
+                        let a = a.used_fraction.unwrap_or(0.0);
+                        let b = b.used_fraction.unwrap_or(0.0);
+                        b.total_cmp(&a)
+                    })
+                    .then_with(|| match (a.resets_at, b.resets_at) {
+                        (Some(a), Some(b)) => a.total_cmp(&b),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    })
+            })
+            .map(|l| UsageSummary {
+                label: l.label.clone(),
+                used_fraction: l.used_fraction,
+                status: l.status,
+                resets_at: l.resets_at,
+            })
     }
 }
 
@@ -654,6 +716,132 @@ mod tests {
         assert!(connected_providers(&[]).is_empty());
     }
 
+    fn limit(
+        label: &str,
+        fraction: Option<f64>,
+        status: LimitStatus,
+        resets: Option<f64>,
+    ) -> UsageLimit {
+        UsageLimit {
+            label: label.into(),
+            resets_at: resets,
+            used: None,
+            limit: None,
+            unit: None,
+            used_fraction: fraction,
+            status,
+        }
+    }
+
+    fn usage_of(providers: Vec<Vec<UsageLimit>>) -> Usage {
+        Usage {
+            fetched_at: None,
+            providers: providers
+                .into_iter()
+                .enumerate()
+                .map(|(i, limits)| ProviderUsage {
+                    id: format!("p{i}"),
+                    name: format!("P{i}"),
+                    no_limits: limits.is_empty().then_some(NoLimits::NotReported),
+                    limits,
+                })
+                .collect(),
+        }
+    }
+
+    fn summary_label(usage: &Usage) -> Option<String> {
+        usage.summary().map(|s| s.label)
+    }
+
+    #[test]
+    fn the_summary_is_none_without_any_limit() {
+        assert_eq!(usage_of(vec![]).summary(), None);
+        assert_eq!(usage_of(vec![vec![], vec![]]).summary(), None);
+    }
+
+    #[test]
+    fn the_summary_carries_the_limit_with_its_fraction_status_and_reset() {
+        let usage = usage_of(vec![vec![limit(
+            "Claude 5 Hour",
+            Some(0.17),
+            LimitStatus::Ok,
+            Some(5.0),
+        )]]);
+        assert_eq!(
+            usage.summary(),
+            Some(UsageSummary {
+                label: "Claude 5 Hour".into(),
+                used_fraction: Some(0.17),
+                status: LimitStatus::Ok,
+                resets_at: Some(5.0),
+            })
+        );
+    }
+
+    #[test]
+    fn the_worst_status_wins_before_the_fraction() {
+        let usage = usage_of(vec![vec![
+            limit("high but ok", Some(0.79), LimitStatus::Ok, None),
+            limit("warning", Some(0.5), LimitStatus::AlmostUsedUp, None),
+        ]]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("warning"));
+        let usage = usage_of(vec![vec![
+            limit("warning", Some(0.99), LimitStatus::AlmostUsedUp, None),
+            limit("exhausted", Some(0.2), LimitStatus::UsedUp, None),
+        ]]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("exhausted"));
+    }
+
+    #[test]
+    fn within_a_status_the_highest_fraction_wins() {
+        let usage = usage_of(vec![
+            vec![limit("a", Some(0.2), LimitStatus::Ok, None)],
+            vec![limit("b", Some(0.6), LimitStatus::Ok, None)],
+        ]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn ties_go_to_the_earliest_reset_then_to_the_order_of_providers_and_limits() {
+        let usage = usage_of(vec![
+            vec![limit("late", Some(0.5), LimitStatus::Ok, Some(20.0))],
+            vec![limit("early", Some(0.5), LimitStatus::Ok, Some(10.0))],
+        ]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("early"));
+        // A limit without a reset comes after one with a reset.
+        let usage = usage_of(vec![vec![
+            limit("none", Some(0.5), LimitStatus::Ok, None),
+            limit("some", Some(0.5), LimitStatus::Ok, Some(10.0)),
+        ]]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("some"));
+        // Everything equal: the first limit of the first provider.
+        let usage = usage_of(vec![
+            vec![
+                limit("first", Some(0.5), LimitStatus::Ok, Some(10.0)),
+                limit("second", Some(0.5), LimitStatus::Ok, Some(10.0)),
+            ],
+            vec![limit("third", Some(0.5), LimitStatus::Ok, Some(10.0))],
+        ]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn limits_with_an_unknown_fraction_count_only_when_no_other_limit_exists() {
+        let usage = usage_of(vec![
+            vec![limit("unknown", None, LimitStatus::UsedUp, Some(1.0))],
+            vec![limit("known", Some(0.1), LimitStatus::Ok, None)],
+        ]);
+        assert_eq!(summary_label(&usage).as_deref(), Some("known"));
+
+        let usage = usage_of(vec![vec![
+            limit("first", None, LimitStatus::Ok, Some(30.0)),
+            limit("second", None, LimitStatus::Ok, Some(20.0)),
+        ]]);
+        let summary = usage.summary().unwrap();
+        assert_eq!(summary.label, "second");
+        assert_eq!(summary.used_fraction, None);
+    }
+
     #[test]
     fn reading_runs_only_omp_usage_json_with_a_limit_of_30_seconds() {
         let exec = FakeOmp::new().on(&["usage", "--json"], FakeOmp::ok(SAMPLE));
@@ -693,7 +881,7 @@ mod tests {
         );
         assert_eq!(
             run(Err(Failure::NotStarted)),
-            Err("could not start omp".to_owned())
+            Err("could not start the agent".to_owned())
         );
         assert_eq!(
             run(Err(Failure::TimedOut {
@@ -720,7 +908,7 @@ mod tests {
             &FakeOmp::new().on(&["usage", "--json"], failure()),
         )
         .unwrap_err();
-        assert!(off.starts_with("omp could not verify a server's certificate"));
+        assert!(off.starts_with("the agent could not verify a server's certificate"));
         assert!(off.contains("turning on System Certificates"));
         let on = read_usage(
             omp,

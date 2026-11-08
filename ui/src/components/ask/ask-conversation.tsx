@@ -1,12 +1,11 @@
-import { ArrowLeft, ArrowUp, Square } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AskRow } from "@/bindings/AskRow";
 import type { Entry } from "@/bindings/Entry";
-import { TaggedTextarea } from "@/components/assets/tagged-textarea";
 import { MESSAGE_PLACEHOLDER, PLACEHOLDERS } from "@/components/ask/ask-model";
 import { useAskConversation } from "@/components/ask/use-ask-conversation";
-import { EntryView, FollowScroller } from "@/components/jobs/jobs-view";
+import { ConversationEntries, FollowScroller, MessageComposer } from "@/components/jobs/conversation-ui";
 import { useOptionalQuestionRound } from "@/components/questions/use-question-round";
 import { Button } from "@/components/ui/button";
 import { useOmp } from "@/hooks/use-omp";
@@ -27,7 +26,7 @@ function lastQueued(entries: readonly Entry[]): number {
  * Empty it shows only the message box. `focus` grows when the message box must take the focus.
  */
 export function AskConversation({ ask, focus }: { ask: AskRow; focus: number }) {
-  const entries = useAskConversation(ask.id);
+  const { entries, arrivals } = useAskConversation(ask.id);
   const { status } = useOmp();
   const round = useOptionalQuestionRound();
   const [text, setText] = useState("");
@@ -59,7 +58,7 @@ export function AskConversation({ ask, focus }: { ask: AskRow; focus: number }) 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {backToQuestions && (
-        <div className="border-b px-4 py-3">
+        <div className="mx-auto w-full max-w-[860px] shrink-0 px-7 pt-4">
           <Button variant="outline" size="sm" onClick={() => round?.act({ kind: "minimize", minimized: false })}>
             <ArrowLeft aria-hidden />
             Back to questions
@@ -67,54 +66,37 @@ export function AskConversation({ ask, focus }: { ask: AskRow; focus: number }) 
         </div>
       )}
       <FollowScroller version={entries}>
-        {entries.map((entry, index) => (
-          <Fragment key={index}>
-            <EntryView
-              entry={entry}
-              answer={(request, option) => void reply(call("ask_answer_permission", { askId: ask.id, request, option }))}
-            />
-            {index === waiting && <p className="text-right text-xs text-muted-foreground">Starting omp…</p>}
-          </Fragment>
-        ))}
+        <ConversationEntries
+          entries={entries}
+          arrivals={arrivals}
+          working={working}
+          latest
+          answer={(request, option) => void reply(call("ask_answer_permission", { askId: ask.id, request, option }))}
+          after={(_, index) => index === waiting && <p className="text-right text-xs text-muted-foreground">Starting Weaver…</p>}
+        />
       </FollowScroller>
       {status?.state === "missing" && (
-        <div role="status" className="flex items-center gap-2 border-t p-3 text-sm text-red-600 dark:text-red-400">
-          omp is not installed.
+        <div role="status" className="mx-auto flex w-full max-w-[860px] items-center gap-2 px-7 pb-2 text-sm text-rose-ink">
+          The agent is not installed.
           <Button variant="outline" size="sm" onClick={() => void call("omp_install").catch(() => {})}>
-            Install omp
+            Install the agent
           </Button>
         </div>
       )}
       {problem && (
-        <p role="alert" className="border-t px-3 pt-2 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="mx-auto w-full max-w-[860px] px-7 pb-2 text-xs text-rose-ink">
           {problem}
         </p>
       )}
-      <div className="flex items-end gap-2 border-t p-3">
-        <TaggedTextarea
-          ref={box}
-          aria-label="Message the agent"
-          placeholder={entries.length === 0 ? PLACEHOLDERS[ask.kind] : MESSAGE_PLACEHOLDER}
-          rows={1}
-          className="max-h-60 min-h-9 flex-1"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              send();
-            }
-          }}
-        />
-        <Button size="icon" aria-label="Send" aria-disabled={text.trim() === ""} onClick={send}>
-          <ArrowUp aria-hidden />
-        </Button>
-        {working && (
-          <Button variant="outline" size="icon" aria-label="Stop the agent" title="Stop the agent" onClick={() => void reply(call("ask_stop", { askId: ask.id }))}>
-            <Square aria-hidden />
-          </Button>
-        )}
-      </div>
+      <MessageComposer
+        areaRef={box}
+        text={text}
+        onTextChange={setText}
+        onSend={send}
+        placeholder={entries.length === 0 ? PLACEHOLDERS[ask.kind] : MESSAGE_PLACEHOLDER}
+        sendDisabled={text.trim() === ""}
+        onStop={working ? () => void reply(call("ask_stop", { askId: ask.id })) : undefined}
+      />
     </div>
   );
 }

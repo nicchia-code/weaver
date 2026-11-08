@@ -314,10 +314,10 @@ impl Actor {
                         |error| format!("cannot write the instruction of Chat: {error}"),
                     )?;
                 }
-                OmpProcess::spawn(spec).map_err(|error| format!("could not start omp: {error}"))
+                OmpProcess::spawn(spec).map_err(|error| format!("could not start the agent: {error}"))
             })
             .await
-            .unwrap_or_else(|_| Err("could not start omp".to_owned()));
+            .unwrap_or_else(|_| Err("could not start the agent".to_owned()));
             let _ = tx.send(Msg::Spawned(spawned));
         });
     }
@@ -557,7 +557,7 @@ impl Actor {
                 else {
                     let _ = self.tx.send(Msg::SteerDone(
                         message,
-                        SteeringOutcome::Failed("omp is not running".to_owned()),
+                        SteeringOutcome::Failed("the agent is not running".to_owned()),
                     ));
                     return;
                 };
