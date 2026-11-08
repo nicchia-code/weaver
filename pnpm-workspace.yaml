@@ -8,3 +8,10 @@ allowBuilds:
   edgedriver: false
   esbuild: false
   geckodriver: false
+
+# Forced versions, for the end-to-end tests only (requirements/release#General): Mocha and
+# readdir-glob (through webdriverio -> archiver) still ask for the vulnerable ranges. Remove each
+# one as soon as every package that brings it asks for a fixed version by itself.
+overrides:
+  glob: ">=14.0.2" # GHSA-3g3m-2fjr-6pw4
+  minimatch: ">=11.0.1" # GHSA-g3hv-75wg-m249

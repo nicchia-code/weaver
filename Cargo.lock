@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "fake-acp-agent"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde_json",
 ]
@@ -5287,7 +5287,7 @@ dependencies = [
 
 [[package]]
 name = "weaver"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "block2",
  "chrono",
@@ -5316,7 +5316,7 @@ dependencies = [
 
 [[package]]
 name = "weaver-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "libc",
@@ -5328,7 +5328,7 @@ dependencies = [
 
 [[package]]
 name = "weaver-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "dirs 6.0.0",
  "dunce",
