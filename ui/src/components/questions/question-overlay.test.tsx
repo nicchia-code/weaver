@@ -405,12 +405,12 @@ describe("the bar of a reduced round", () => {
     mount();
     const root = document.documentElement;
     await screen.findByRole("region", { name: "Questions waiting" });
-    expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe("52px");
+    await waitFor(() => expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe("52px"));
     await userEvent.setup().click(screen.getByRole("button", { name: "Open questions" }));
     await screen.findByRole("dialog");
     expect(backend.kinds().at(-1)).toBe("minimize");
     expect(screen.queryByRole("region", { name: "Questions waiting" })).toBeNull();
-    expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe("");
+    await waitFor(() => expect(root.style.getPropertyValue("--toast-bottom-extra")).toBe(""));
   });
 
   it("is not in the overlay: the overlay shows nothing of a round that is reduced", async () => {

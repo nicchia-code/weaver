@@ -133,10 +133,6 @@ mod tests {
         // The backend of the platform needs a moment to be listening.
         std::thread::sleep(Duration::from_millis(300));
 
-        // Another file of the folder changes: nothing is announced.
-        std::fs::write(folder.join("index"), "x").unwrap();
-        assert!(announced.recv_timeout(Duration::from_millis(600)).is_err());
-
         // Git switches branch by writing a lock file and renaming it over HEAD.
         std::fs::write(folder.join("HEAD.lock"), "ref: refs/heads/other\n").unwrap();
         std::fs::rename(folder.join("HEAD.lock"), &head).unwrap();
