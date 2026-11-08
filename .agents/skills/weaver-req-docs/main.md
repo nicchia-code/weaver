@@ -56,7 +56,9 @@
 - `README.md` has a section `## Atomic commits`, right after `## Solo mode`, saying:
   - what it does: after each History entry the agent writes, or each update that adds Tasks to one, Weaver commits the code of that entry, one commit per entry, with an English message written by the agent;
   - that it is off by default, belongs to the working copy and is turned on in Settings → Project only;
-  - what goes into a commit: the files the agent names, what the developer already staged, and, outside Solo mode, the History entry and its Tasks' removed files; with Solo mode on, none of Weaver's files and no co-author trailer;
+  - what goes into a commit: the files the agent names, what the developer already staged, and, outside Solo mode, the History entry and its Tasks' removed files; with Solo mode on, none of Weaver's files;
+  - that the message is the one the agent wrote, with or without Solo mode, and that the author is the developer, as git is configured;
   - that hooks and signing run as configured, that Weaver never amends, pushes or fetches, and that a commit is skipped, with a notice on the Board, when the Run's checks failed or git cannot commit;
   - that it needs git.
 - `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing Atomic commits.
+- `CHANGELOG.md` adds under `## [Unreleased]`, `Changed`, one line saying that the commits of Atomic commits no longer name Weaver as co-author: their message is the agent's alone.
