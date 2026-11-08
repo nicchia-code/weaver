@@ -10,10 +10,12 @@ export interface ColumnProps {
   tone: Tone;
   /** The number of real cards; ghosts never count and a resolution counts once. */
   count: number;
-  /** What an empty column shows, also above ghosts. */
+  /** What an empty column shows: only with no real card and no ghost. */
   empty: ReactNode;
   /** The cards, already in the order the backend gave. */
   cards: ReactNode;
+  /** The number of ghosts; they hide the empty state like a card but never count. */
+  ghostCount: number;
   /** The ghosts, after the cards. */
   ghosts?: ReactNode;
 }
@@ -24,7 +26,7 @@ export interface ColumnProps {
  * title and the number of real cards in Muted. It scrolls on its own, and takes the focus (it is a
  * focus target, not a tab stop) when a details dialog closes because its card left the Board.
  */
-export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, cards, ghosts }, ref) {
+export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, cards, ghostCount, ghosts }, ref) {
   const headingId = useId();
   return (
     <section
@@ -42,7 +44,7 @@ export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ tit
       </div>
       <ScrollArea className="-mx-1.5 min-h-0 flex-1">
         <div className="flex flex-col gap-3 px-1.5 pb-2">
-          {count === 0 ? empty : null}
+          {count === 0 && ghostCount === 0 ? empty : null}
           {cards}
           {ghosts}
         </div>

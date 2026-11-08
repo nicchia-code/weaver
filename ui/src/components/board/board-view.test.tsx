@@ -147,19 +147,42 @@ describe("columns", () => {
     expect(within(active()).getByRole("button", { name: "Task being prepared by the agent: Coming task, Writing" })).toBeInTheDocument();
   });
 
-  it("says Nothing to decide and Nothing active, also above ghosts", async () => {
+  it("says Nothing to decide and Nothing active with no card and no ghost", async () => {
     await show();
     expect(within(backlog()).getByText("Nothing to decide")).toBeInTheDocument();
     expect(within(active()).getByText("Nothing active")).toBeInTheDocument();
   });
 
-  it("keeps the empty text above a ghost and counts 0", async () => {
+  it("hides the empty Backlog with only a ghost, which still counts 0", async () => {
     install(board(1, { ghosts: [ghost("g1", "drift", "Coming drift", { phase: "preparing" })] }));
     await show();
     expect(backlog().querySelector("h2")).toHaveTextContent("Backlog0");
-    const text = within(backlog()).getByText("Nothing to decide");
-    const button = within(backlog()).getByRole("button", { name: "Drift being prepared by the agent: Coming drift, Preparing" });
-    expect(text.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(backlog()).queryByText("Nothing to decide")).not.toBeInTheDocument();
+    expect(within(backlog()).queryByText("New requests and Proposals from Chat land here for your go-ahead.")).not.toBeInTheDocument();
+    expect(backlog().querySelector("svg[data-weave]")).toBeNull();
+    expect(within(backlog()).queryByRole("button", { name: "Request" })).not.toBeInTheDocument();
+    expect(within(backlog()).queryByRole("button", { name: "Ask in Chat" })).not.toBeInTheDocument();
+    expect(within(backlog()).getByRole("button", { name: "Drift being prepared by the agent: Coming drift, Preparing" })).toBeInTheDocument();
+    // The other column keeps its own empty state: a Drift ghost sits in Backlog only.
+    expect(within(active()).getByText("Nothing active")).toBeInTheDocument();
+  });
+
+  it("hides Nothing active with only a Task ghost, which still counts 0", async () => {
+    install(board(1, { ghosts: [ghost("g1", "task", "Coming task")] }));
+    await show();
+    expect(active().querySelector("h2")).toHaveTextContent("Active0");
+    expect(within(active()).queryByText("Nothing active")).not.toBeInTheDocument();
+    expect(within(active()).getByRole("button", { name: "Task being prepared by the agent: Coming task, Writing" })).toBeInTheDocument();
+    expect(within(backlog()).getByText("Nothing to decide")).toBeInTheDocument();
+  });
+
+  it("shows the empty state again in the picture in which the last ghost leaves", async () => {
+    install(board(1, { ghosts: [ghost("g1", "proposal", "Coming proposal")] }));
+    await show();
+    expect(within(backlog()).queryByText("Nothing to decide")).not.toBeInTheDocument();
+    await publish(board(2));
+    expect(within(backlog()).getByText("Nothing to decide")).toBeInTheDocument();
+    expect(within(backlog()).queryByRole("button", { name: /being prepared by the agent/ })).not.toBeInTheDocument();
   });
 
   it("keeps the backend's order of the cards", async () => {
@@ -309,17 +332,14 @@ describe("the lanes", () => {
     }
   });
 
-  it("shows in an empty Backlog the weave, what lands there, `Request` and `Ask in Chat`, also above ghosts", async () => {
+  it("shows in an empty Backlog the weave, what lands there, `Request` and `Ask in Chat`", async () => {
     const user = userEvent.setup();
     const newRequest = vi.fn();
-    install(board(1, { ghosts: [ghost("g1", "drift", "Coming drift", { phase: "preparing" })] }));
+    install(board(1));
     const { showView } = await show({ newRequest });
     expect(backlog().querySelector("svg[data-weave]")).toHaveAttribute("aria-hidden", "true");
     expect(within(backlog()).getByText("Nothing to decide")).toHaveClass("text-sm", "font-semibold");
     expect(within(backlog()).getByText("New requests and Proposals from Chat land here for your go-ahead.")).toHaveClass("text-muted-foreground");
-    const empty = within(backlog()).getByText("Nothing to decide");
-    const ghostButton = within(backlog()).getByRole("button", { name: /Drift being prepared/ });
-    expect(empty.compareDocumentPosition(ghostButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const item = within(backlog()).getByRole("button", { name: "Request" });
     expect(item).toHaveClass("border");

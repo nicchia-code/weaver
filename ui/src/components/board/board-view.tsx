@@ -229,6 +229,8 @@ export function BoardView() {
   }
 
   const ghostsOf = (column: ColumnName) => snapshot.ghosts.filter((ghost) => ghostColumn(ghost) === column);
+  const backlogGhosts = ghostsOf("backlog");
+  const activeGhosts = ghostsOf("active");
   const visibleWarnings = snapshot.warnings.filter((text) => !closedWarnings.has(text));
   // The Tasks in To do that are not blocked: what `Run all` would start.
   const ready = snapshot.active.filter((card) => card.kind === "task" && !card.doing && card.blockedBy.length === 0 && card.waitingFor.length === 0).length;
@@ -311,7 +313,8 @@ export function BoardView() {
             count={snapshot.backlog.length}
             empty={<EmptyBacklog />}
             cards={<CardList cards={snapshot.backlog} />}
-            ghosts={<GhostList ghosts={ghostsOf("backlog")} />}
+            ghostCount={backlogGhosts.length}
+            ghosts={<GhostList ghosts={backlogGhosts} />}
           />
           <Column
             ref={activeRef}
@@ -320,7 +323,8 @@ export function BoardView() {
             count={snapshot.active.length}
             empty={<p className="py-4 text-center text-muted-foreground">Nothing active</p>}
             cards={<CardList cards={snapshot.active} />}
-            ghosts={<GhostList ghosts={ghostsOf("active")} />}
+            ghostCount={activeGhosts.length}
+            ghosts={<GhostList ghosts={activeGhosts} />}
           />
         </div>
         <CardDetails
