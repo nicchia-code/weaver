@@ -20,6 +20,7 @@ const { toast, webview } = vi.hoisted(() => ({
   webview: { handlers: new Set<(event: { payload: unknown }) => void>() },
 }));
 
+vi.mock("@/hooks/use-omp", () => ({ useOmp: () => ({ status: null }) }));
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/lib/backend", async (importOriginal) => ({
   ...(await importOriginal<typeof BackendModule>()),
@@ -200,7 +201,7 @@ describe("the Assets entry", () => {
     expect(tile("over.bin")).toContainElement(marks[0] as HTMLElement);
     expect(tile("exact.bin").querySelector('[role="img"]')).toBeNull();
     expect(marks[0]?.querySelector("svg")?.getAttribute("class")).toContain("lucide-triangle-alert");
-    expect(marks[0]?.className).toContain("text-amber-600");
+    expect(marks[0]?.className).toContain("text-peach-ink");
     expect(LARGE_TEXT).toBe("Larger than 10 MB: it goes into the repository.");
   });
 

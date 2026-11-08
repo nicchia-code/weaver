@@ -283,6 +283,11 @@ fn job_show(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
 fn job_new(jobs: &Jobs, call: &Call) -> Result<CommandReply, Failure> {
     let kind = text(call, "kind");
     let result = start_jobs(jobs, call, kind);
+    if call.caller.general.is_some() {
+        for id in result.iter().flatten() {
+            jobs.mark_by_chat(id);
+        }
+    }
     let general = jobs.hooks.general.read().expect("hooks poisoned").clone();
     let token = call
         .caller

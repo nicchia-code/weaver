@@ -22,7 +22,7 @@ pub const DECLINE_TEXT: &str =
 pub enum OpenError {
     /// The limit passed.
     Timeout,
-    /// omp answered with an error, or closed the connection.
+    /// the agent answered with an error, or closed the connection.
     Failed(String),
     /// omp lacks something Weaver needs: `loadSession` or the steering extension.
     Unsupported(String),
@@ -32,7 +32,7 @@ impl OpenError {
     /// The reason the developer reads.
     pub fn reason(&self) -> String {
         match self {
-            OpenError::Timeout => "omp did not answer within 30 s".to_owned(),
+            OpenError::Timeout => "the agent did not answer within 30 s".to_owned(),
             OpenError::Failed(text) | OpenError::Unsupported(text) => text.clone(),
         }
     }
@@ -67,10 +67,10 @@ pub fn check_capabilities(result: &Value) -> Result<(), OpenError> {
     match (loads, steers) {
         (true, true) => Ok(()),
         (false, _) => Err(OpenError::Unsupported(
-            "this omp cannot reload sessions; update omp".to_owned(),
+            "this version of the agent cannot reload sessions; update it".to_owned(),
         )),
         (_, false) => Err(OpenError::Unsupported(
-            "this omp cannot take messages while the agent works; update omp".to_owned(),
+            "this version of the agent cannot take messages while the agent works; update it".to_owned(),
         )),
     }
 }
@@ -96,7 +96,7 @@ pub fn turn_end(reply: Result<Value, RpcError>) -> TurnEnd {
                 TurnEnd::Failed("the agent reached its turn limit".to_owned())
             }
             Some(other) => TurnEnd::Failed(format!("the turn ended with `{other}`")),
-            None => TurnEnd::Failed("omp answered the prompt without a stop reason".to_owned()),
+            None => TurnEnd::Failed("the agent answered the prompt without a stop reason".to_owned()),
         },
         Err(RpcError::Closed) => TurnEnd::Closed,
         Err(error) => TurnEnd::Failed(error.text()),
@@ -113,11 +113,11 @@ pub fn steering_outcome(reply: Result<Value, RpcError>) -> SteeringOutcome {
                 result
                     .get("reason")
                     .and_then(Value::as_str)
-                    .unwrap_or("omp could not take the message")
+                    .unwrap_or("the agent could not take the message")
                     .to_owned(),
             ),
             other => {
-                SteeringOutcome::Failed(format!("omp answered `{}`", other.unwrap_or("nothing")))
+                SteeringOutcome::Failed(format!("the agent answered `{}`", other.unwrap_or("nothing")))
             }
         },
         Err(error) => SteeringOutcome::Failed(error.text()),
@@ -183,7 +183,7 @@ pub async fn new_session(rpc: &Rpc, cwd: &Path) -> Result<String, OpenError> {
         .get("sessionId")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| OpenError::Failed("omp opened a session without an identity".to_owned()))
+        .ok_or_else(|| OpenError::Failed("the agent opened a session without an identity".to_owned()))
 }
 
 /// `session/load`, sent ordered like `session/prompt`: the history is replayed as `session/update`
@@ -278,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             OpenError::Timeout.reason(),
-            "omp did not answer within 30 s"
+            "the agent did not answer within 30 s"
         );
     }
 
@@ -366,7 +366,7 @@ mod tests {
         }
         let http = turn_end(Err(remote("Internal error", Some("HTTP 407")))).explained("", false);
         assert!(
-            matches!(http, TurnEnd::Failed(text) if text.starts_with("omp received an HTTP 407 error"))
+            matches!(http, TurnEnd::Failed(text) if text.starts_with("the agent received an HTTP 407 error"))
         );
         // A certificate error in the data wins over an HTTP one in the message.
         let both = remote("HTTP 502", Some("SELF_SIGNED_CERT_IN_CHAIN")).text();

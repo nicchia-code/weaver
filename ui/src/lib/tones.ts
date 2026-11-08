@@ -1,36 +1,74 @@
-// Colours that carry a meaning (states, change kinds, label colours, the Drift and resolution
-// marks) come from the Tailwind palette: shade 600 in light, 400 in dark. Everything else uses the
-// theme tokens. Colour never stands alone: whoever uses a tone also shows a text, an icon and an
-// accessible name.
+// Colour tells only a state, with the five threads of the logo (`requirements/ui#General`): Sky for
+// queued, running and refining and whatever an agent is doing now; Sage for done, validated,
+// connected and success; Peach for waiting for the developer, stale, blocked, almost used up, a Drift
+// and warnings; Lavender for a Proposal, a question round and the agent's choices; Rose for failed,
+// stopped, used up, errors and destructive controls. Suspended and every other state stay neutral
+// (`text-muted-foreground` on `bg-muted`). Each thread has a base (dots, bars, stripes), a tint
+// (backgrounds of badges and boxes) and an ink (text and icons on the tint); the CSS tokens live in
+// `index.css`. Colour never stands alone: whoever uses a tone also shows a text, an icon or a badge
+// and an accessible name.
 
-export const TONES = ["blue", "green", "amber", "violet", "cyan", "pink", "red", "yellow"] as const;
+export const TONES = ["sky", "sage", "peach", "lavender", "rose"] as const;
 export type Tone = (typeof TONES)[number];
 
 // Full class names, so Tailwind sees them.
+
+/** The ink of the thread: text and icons, on Surface or on the tint. */
 export const TONE_TEXT: Record<Tone, string> = {
-  blue: "text-blue-600 dark:text-blue-400",
-  green: "text-green-600 dark:text-green-400",
-  amber: "text-amber-600 dark:text-amber-400",
-  violet: "text-violet-600 dark:text-violet-400",
-  cyan: "text-cyan-600 dark:text-cyan-400",
-  pink: "text-pink-600 dark:text-pink-400",
-  red: "text-red-600 dark:text-red-400",
-  yellow: "text-yellow-600 dark:text-yellow-400",
+  sky: "text-sky-ink",
+  sage: "text-sage-ink",
+  peach: "text-peach-ink",
+  lavender: "text-lavender-ink",
+  rose: "text-rose-ink",
 };
 
+/** The base of the thread as a border: boxes, alerts, toasts. */
 export const TONE_BORDER: Record<Tone, string> = {
-  blue: "border-blue-600 dark:border-blue-400",
-  green: "border-green-600 dark:border-green-400",
-  amber: "border-amber-600 dark:border-amber-400",
-  violet: "border-violet-600 dark:border-violet-400",
-  cyan: "border-cyan-600 dark:border-cyan-400",
-  pink: "border-pink-600 dark:border-pink-400",
-  red: "border-red-600 dark:border-red-400",
-  yellow: "border-yellow-600 dark:border-yellow-400",
+  sky: "border-sky",
+  sage: "border-sage",
+  peach: "border-peach",
+  lavender: "border-lavender",
+  rose: "border-rose",
+};
+
+/** The base of the thread as a 3 px left stripe. */
+export const TONE_STRIPE: Record<Tone, string> = {
+  sky: "border-l-[3px] border-l-sky",
+  sage: "border-l-[3px] border-l-sage",
+  peach: "border-l-[3px] border-l-peach",
+  lavender: "border-l-[3px] border-l-lavender",
+  rose: "border-l-[3px] border-l-rose",
+};
+
+/** The tint of the thread: the background of a badge or a box. */
+export const TONE_TINT: Record<Tone, string> = {
+  sky: "bg-sky-tint",
+  sage: "bg-sage-tint",
+  peach: "bg-peach-tint",
+  lavender: "bg-lavender-tint",
+  rose: "bg-rose-tint",
+};
+
+/** The base of the thread as a fill: dots, bars. */
+export const TONE_DOT: Record<Tone, string> = {
+  sky: "bg-sky",
+  sage: "bg-sage",
+  peach: "bg-peach",
+  lavender: "bg-lavender",
+  rose: "bg-rose",
+};
+
+/** Ink on tint: the look of a pill. */
+export const TONE_PILL: Record<Tone, string> = {
+  sky: "bg-sky-tint text-sky-ink",
+  sage: "bg-sage-tint text-sage-ink",
+  peach: "bg-peach-tint text-peach-ink",
+  lavender: "bg-lavender-tint text-lavender-ink",
+  rose: "bg-rose-tint text-rose-ink",
 };
 
 /** Meanings of the interface, by tone: success, warning, error, information. */
-export const SEMANTIC_TONE = { success: "green", warning: "amber", error: "red", info: "blue" } as const satisfies Record<
+export const SEMANTIC_TONE = { success: "sage", warning: "peach", error: "rose", info: "sky" } as const satisfies Record<
   string,
   Tone
 >;

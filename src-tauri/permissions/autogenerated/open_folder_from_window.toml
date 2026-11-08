@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-folder-from-window"
+description = "Enables the open_folder_from_window command without any pre-configured scope."
+commands.allow = ["open_folder_from_window"]
+
+[[permission]]
+identifier = "deny-open-folder-from-window"
+description = "Denies the open_folder_from_window command without any pre-configured scope."
+commands.deny = ["open_folder_from_window"]

@@ -146,7 +146,7 @@ export function ImportPanel({ onClose, onStarted }: { onClose: () => void; onSta
   const included = hasIncluded(excluded, listing);
 
   return (
-    <section aria-labelledby="import-title" className="flex flex-col gap-3 rounded-lg border p-4">
+    <section aria-labelledby="import-title" className="flex flex-col gap-3 rounded-lg p-4 shadow-ring">
       <div className="flex flex-col gap-1">
         <h2 id="import-title" className="text-base font-semibold">
           Import from Code
@@ -168,7 +168,7 @@ export function ImportPanel({ onClose, onStarted }: { onClose: () => void; onSta
         role="tree"
         aria-label="Files and folders to import"
         onKeyDown={onKeyDown}
-        className="max-h-72 overflow-auto rounded-md border py-1 text-sm"
+        className="max-h-72 overflow-auto rounded-lg py-1 text-sm shadow-ring"
       >
         {rows.length === 0 && listing[ROOT] ? <p className="px-3 py-2 text-muted-foreground">Nothing to import in this folder.</p> : null}
         {rows.map((row) => {

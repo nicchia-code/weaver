@@ -202,6 +202,7 @@ mod tests {
             overlay: String::new(),
             running: None,
             running_incomplete: false,
+            by_chat: false,
         }
     }
 

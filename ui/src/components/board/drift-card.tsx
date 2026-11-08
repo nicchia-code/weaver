@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { TONE_STRIPE } from "@/lib/tones";
 
 type DriftCardData = BoardCardOf<"drift">;
 
@@ -27,7 +28,7 @@ function nameOf(ref: { id: string; shortNumber: string | null }): string {
   return ref.shortNumber ?? ref.id;
 }
 
-function BadgeWithTip({ text, tip, variant }: { text: string; tip: string; variant: "outline" | "secondary" | "warning" }) {
+function BadgeWithTip({ text, tip, variant }: { text: string; tip: string; variant: "outline" | "secondary" | "info" }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -48,7 +49,7 @@ function DriftBadges({ card }: { card: DriftCardData }) {
       {view.previous ? (
         <BadgeWithTip variant="outline" text="recurring" tip={`Repeats Drift ${nameOf(view.previous)}: ${view.previous.title}`} />
       ) : null}
-      {view.resolving ? <BadgeWithTip variant="warning" text="resolving" tip="An agent is resolving this Drift" /> : null}
+      {view.resolving ? <BadgeWithTip variant="info" text="resolving" tip="An agent is resolving this Drift" /> : null}
       {view.prepared ? <BadgeWithTip variant="secondary" text="prepared" tip="Resolve asks the prepared question at once" /> : null}
       {view.merge ? <BadgeWithTip variant="outline" text="merge" tip="Found by the scan after a merge" /> : null}
     </>
@@ -94,7 +95,7 @@ function DriftCard({ card }: { card: DriftCardData }) {
       shortNumber={head.shortNumber}
       title={head.title}
       mark={<KindMark kind="drift" />}
-      accent="border-l-[3px] border-l-red-600 dark:border-l-red-400"
+      accent={TONE_STRIPE.peach}
       badges={<DriftBadges card={card} />}
       body={origin ? <p className="text-xs text-muted-foreground">Found while working on {nameOf(origin)}</p> : null}
       controls={<DriftControls card={card} />}
@@ -145,7 +146,6 @@ function DecisionForm({ card }: { card: DriftCardData }) {
       {attached?.refine ? (
         <div className="flex flex-wrap gap-2">
           <GuardedButton
-            variant="refine"
             size="sm"
             reasons={cardReasons(head.agentFinishing, attached.refine.reasons)}
             tooltip={attached.refine.tooltip ?? undefined}
@@ -188,7 +188,7 @@ function DecisionForm({ card }: { card: DriftCardData }) {
             <CheckCheck aria-hidden />
             Accept Proposal
           </GuardedButton>
-          {view.merge ? <Badge variant="secondary">recommended</Badge> : null}
+          {view.merge ? <Badge variant="lavender">recommended</Badge> : null}
         </div>
       ) : null}
     </section>
@@ -230,7 +230,7 @@ function DriftDetails({ card }: { card: DriftCardData }) {
             {view.options.map((option, index) => (
               <li key={option.title}>
                 <span className="font-medium">{option.title}</span>
-                {index === 0 && !view.merge ? <Badge variant="secondary" className="ml-2">recommended</Badge> : null}
+                {index === 0 && !view.merge ? <Badge variant="lavender" className="ml-2">recommended</Badge> : null}
                 <Markdown holderHeadingLevel={3}>{option.text}</Markdown>
               </li>
             ))}
@@ -256,7 +256,7 @@ function DriftDetails({ card }: { card: DriftCardData }) {
         </p>
       ) : null}
       {view.attached ? (
-        <section aria-label="Attached Proposal" className="space-y-2 rounded-md border p-3">
+        <section aria-label="Attached Proposal" className="space-y-2 rounded-lg p-3 shadow-ring">
           <h3 className="text-sm font-semibold">
             Attached Proposal {nameOf(view.attached)}: {view.attached.title} <Badge variant="outline">{view.attached.state}</Badge>
             {view.attached.stale ? (

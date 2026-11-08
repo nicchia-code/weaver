@@ -1,6 +1,6 @@
 # Work
 
-The work that comes out of the Model: Tasks the agent carries out, Drifts where the code and the Model or the Requirements disagree, and the History of what was done. The Board shows what waits for the developer's decision (open Proposals and Drifts) and the Tasks still to finish; finished work leaves the Board and is told in History.
+The work that comes out of the Model: Tasks the agent carries out, Drifts where the code and the Model or the Requirements disagree, and the History of what was done. The Board shows what waits for the developer (open Proposals and Drifts to decide, and the design requests he is still writing) and the Tasks still to finish; finished work leaves the Board and is told in History. A request he sends leaves the Board and comes back as the ghost of its job, then as the card of its Proposal, in the same column.
 
 A Task is a unit of work for the agent. The developer runs it, or runs all the Tasks in To do, and the agent carries them out in a Run; he never moves them by hand. A Run works on several Tasks at once with sub-agents, never two that concern the same thing, and while it works omp's advisor checks that the code the agent reads or writes follows the Task, the Model and the Requirements: a difference in the Task's own work is corrected at once, a difference in code that was already there becomes a Drift. Only one Run works at a time in a project, and a Run and a Resolve exclude each other.
 

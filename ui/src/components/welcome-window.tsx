@@ -1,9 +1,10 @@
-import { Blocks, FolderOpen, TriangleAlert, X } from "lucide-react";
+import { FolderOpen, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { MenuOpenFailed } from "@/bindings/MenuOpenFailed";
 import type { RecentEntry } from "@/bindings/RecentEntry";
 import type { WelcomeState } from "@/bindings/WelcomeState";
+import { Logo } from "@/components/logo";
 import { OmpSetup } from "@/components/omp-status";
 import { StartupBanner } from "@/components/startup-banner";
 import { SystemCertificatesBanners } from "@/components/system-certificates-banners";
@@ -124,46 +125,51 @@ export function WelcomeWindow() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <StartupBanner allProjects />
-      <UpdateBanner />
-      <SystemCertificatesBanners />
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-        <header className="flex items-center gap-3">
-          <Blocks className="size-9 shrink-0 text-primary" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold tracking-tight">{state?.name ?? "Weaver"}</h1>
-            {state ? <p className="text-sm text-muted-foreground">{`Version ${state.version}`}</p> : null}
-          </div>
-          <Button onClick={openFolder}>
-            <FolderOpen aria-hidden />
-            Open Folder
-          </Button>
-        </header>
+    // The frame of a project window: Paper ground and a Surface panel inset 8 px that holds the banners and the content.
+    <div className="h-full bg-paper p-2">
+      <div className="flex h-full flex-col overflow-hidden rounded-xl bg-surface shadow-ring">
+        <StartupBanner allProjects />
+        <UpdateBanner />
+        <SystemCertificatesBanners />
+        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
+          <header className="flex items-end gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <Logo size={48} />
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold tracking-title">{state?.name ?? "Weaver"}</h1>
+                {state ? <p className="text-sm text-muted-foreground">{`Version ${state.version}`}</p> : null}
+              </div>
+            </div>
+            <Button onClick={openFolder}>
+              <FolderOpen aria-hidden />
+              Open Folder
+            </Button>
+          </header>
 
-        {failure ? (
-          <Alert variant="error">
-            <TriangleAlert aria-hidden />
-            <p className="min-w-0 flex-1">{failure}</p>
-          </Alert>
-        ) : null}
-
-        <section aria-labelledby="recent-projects-title" className="flex min-h-0 flex-col gap-1">
-          <h2 id="recent-projects-title" className="text-sm font-semibold">
-            Recent projects
-          </h2>
-          {state && state.recent.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
+          {failure ? (
+            <Alert variant="error">
+              <TriangleAlert aria-hidden />
+              <p className="min-w-0 flex-1">{failure}</p>
+            </Alert>
           ) : null}
-          <ul className="flex flex-col">
-            {state?.recent.map((entry) => (
-              <RecentProject key={entry.path} entry={entry} onOpen={open} onRemove={remove} />
-            ))}
-          </ul>
-        </section>
 
-        <OmpSetup providers="when-needed" />
-      </main>
+          <section aria-labelledby="recent-projects-title" className="flex min-h-0 flex-col gap-1">
+            <h2 id="recent-projects-title" className="text-sm font-semibold">
+              Recent projects
+            </h2>
+            {state && state.recent.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
+            ) : null}
+            <ul className="flex flex-col">
+              {state?.recent.map((entry) => (
+                <RecentProject key={entry.path} entry={entry} onOpen={open} onRemove={remove} />
+              ))}
+            </ul>
+          </section>
+
+          <OmpSetup place="elsewhere" providers="when-needed" />
+        </main>
+      </div>
     </div>
   );
 }

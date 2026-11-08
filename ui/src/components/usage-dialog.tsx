@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { useOmp } from "@/hooks/use-omp";
 import { useUsage } from "@/hooks/use-usage";
 import { formatDate, formatDuration, formatTime } from "@/lib/format";
-import { TONE_TEXT } from "@/lib/tones";
+import { TONE_DOT, TONE_TEXT } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -20,12 +20,12 @@ const DAY = 24 * 60 * 60 * 1000;
 const NO_LIMITS_TEXT: Record<UsageNoLimits, string> = {
   noUsageData: "No usage data",
   loginExpired: "Login expired",
-  notReported: "Not reported by omp",
+  notReported: "Not reported by the agent",
 };
 
-// Amber and red, shade 600 in light and 400 in dark; the others stay neutral.
-const STATUS_TEXT = { ok: "", almostUsedUp: TONE_TEXT.amber, usedUp: TONE_TEXT.red } as const;
-const STATUS_BAR = { ok: "", almostUsedUp: "bg-amber-600 dark:bg-amber-400", usedUp: "bg-red-600 dark:bg-red-400" } as const;
+// Peach for almost used up, Rose for used up; the others stay neutral.
+const STATUS_TEXT = { ok: "", almostUsedUp: TONE_TEXT.peach, usedUp: TONE_TEXT.rose } as const;
+const STATUS_BAR = { ok: "", almostUsedUp: TONE_DOT.peach, usedUp: TONE_DOT.rose } as const;
 const STATUS_LABEL = { almostUsedUp: "Almost used up", usedUp: "Used up" } as const;
 
 const plain = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
@@ -134,7 +134,7 @@ function UsageBody({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { status, current, read } = useUsage(ompReady);
 
   if (!ompReady) {
-    const face = boxFace(omp);
+    const face = boxFace(omp, "elsewhere");
     return (
       <>
         <DialogHeader>
@@ -173,7 +173,7 @@ function UsageBody({ onOpenSettings }: { onOpenSettings: () => void }) {
           <div className="flex flex-col gap-4">
             {failed ? (
               <Alert variant="error">
-                <div className="min-w-0 flex-1">{`Could not read usage: ${(current?.failure ?? "omp did not say why").replace(/\.$/, "")}.`}</div>
+                <div className="min-w-0 flex-1">{`Could not read usage: ${(current?.failure ?? "the agent did not say why").replace(/\.$/, "")}.`}</div>
                 <Button size="sm" variant="outline" onClick={read}>
                   <RotateCw aria-hidden />
                   Retry
@@ -194,14 +194,15 @@ export interface UsageDialogProps {
   onClose: () => void;
   /** `Open Settings` in Waiting for omp: the dialog closes and the window shows Settings. */
   onOpenSettings: () => void;
-  /** Where the focus goes when the dialog closes (the sidebar entry that opened it). */
+  /** Where the focus goes when the dialog closes (where it was when the dialog was opened). */
   onCloseAutoFocus?: (event: Event) => void;
 }
 
 /**
  * The Machine `usage` in the window of a project: how much is left of the usage limits of the
  * providers omp is connected to, and when each limit resets (`requirements/ui#usage`). Its content
- * only exists while it is open, so each opening starts a reading and none runs in the background.
+ * only exists while it is open, so each opening starts a reading; the readings of the timer reach
+ * it, and the summary in the sidebar, as statuses like any other.
  */
 export function UsageDialog({ open, onClose, onOpenSettings, onCloseAutoFocus }: UsageDialogProps) {
   return (

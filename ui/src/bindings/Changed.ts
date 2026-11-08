@@ -4,4 +4,8 @@ import type { Entry } from "./Entry";
 /**
  * The entries that changed since the last batch.
  */
-export type Changed = { index: number, entry: Entry, };
+export type Changed = { index: number, entry: Entry, 
+/**
+ * The instant the entry arrived, in milliseconds since the Unix epoch.
+ */
+at: number, };

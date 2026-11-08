@@ -60,6 +60,11 @@ frameworks:
     chosenByAgent: used by the shadcn/ui components to merge Tailwind classes
   - name: lucide-react
     note: the icons of the interface
+  - name: simple-icons
+    note: monochrome logos of the technologies in the Specs view; the whole collection bundled in the app and loaded on demand, never fetched from the network
+  - name: Geist
+    note: "Geist and Geist Mono, the fonts of the interface, bundled in the app from the `@fontsource-variable/geist` and `@fontsource-variable/geist-mono` packages; never loaded from the network"
+    chosenByAgent: the fontsource packages ship the font files and their CSS for offline bundling with Vite
   - name: mermaid
     note: draws `mermaid` blocks of Markdown, loaded on demand
   - name: react-markdown

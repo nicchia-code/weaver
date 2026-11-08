@@ -4,7 +4,7 @@ description: "Use when building or changing the File view: its tree, tabs, edito
 # Files
 
 ## file-view
-- **Entry:** `Files` in the sidebar, after Jobs, icon `FolderTree`. Like the other views but Settings, it shows Get Started until the project has `.weaver/`.
+- **Entry:** `Files` in the sidebar's `PROJECT` group, after Specs, icon `FolderTree`. Like the other views but Settings, it shows Get Started until the project has `.weaver/`.
 - **Layout:** under the view header (`requirements/ui#General`, title `Files`, no controls), which spans both sides, the tree on the left, the tabs and the editor on the right; the tab bar stays below the view header. With no tab open the right side says `Open a file from the tree.` in muted text.
 - **Tree:**
   - Rows show the icon (`Folder`, `FolderOpen` or `File`) and the name, about 16 px of indent per level, as the Import from Code tree; folders first, then files, each in name order. The root's entries show at once; every folder starts collapsed.

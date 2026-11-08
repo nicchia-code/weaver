@@ -1,5 +1,5 @@
 //! Why an omp command failed, in words for the developer (`requirements/tech#omp`, "Failure
-//! reasons"): the last non-empty line of stderr, else `exit code N`, `could not start omp` or
+//! reasons"): the last non-empty line of stderr, else `exit code N`, `could not start the agent` or
 //! `timed out`. [`classify`] and [`explanation`] tell whether a failure text is a certificate or
 //! an HTTP error that a proxy inspecting HTTPS traffic may cause, and say it in plain words.
 
@@ -63,10 +63,10 @@ pub fn explanation(problem: ProxyProblem, system_certificates_on: bool) -> Strin
             certificate_explanation(system_certificates_on).to_owned()
         }
         ProxyProblem::Http { code } if system_certificates_on => {
-            format!("omp received an HTTP {code} error; {HTTP_BLOCKING}")
+            format!("the agent received an HTTP {code} error; {HTTP_BLOCKING}")
         }
         ProxyProblem::Http { code } => {
-            format!("omp received an HTTP {code} error; {HTTP_BLOCKING}, {TURN_ON}")
+            format!("the agent received an HTTP {code} error; {HTTP_BLOCKING}, {TURN_ON}")
         }
     }
 }
@@ -97,11 +97,11 @@ pub fn installer_failed_text(exit_code: i32, system_certificates_on: bool) -> St
         " Turning on System Certificates in Weaver's settings may fix it."
     };
     match exit_code {
-        90 => "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.".to_owned(),
-        91 => format!("The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal.{suffix}"),
-        92 => "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.".to_owned(),
-        93 => "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal.".to_owned(),
-        other => format!("The omp installer failed (exit code {other}); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause.{suffix}"),
+        90 => "The agent installer failed (exit code 90): the download of the agent was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.".to_owned(),
+        91 => format!("The agent installer failed (exit code 91): the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal.{suffix}"),
+        92 => "The agent installer failed (exit code 92): the downloaded agent was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.".to_owned(),
+        93 => "The agent installer failed (exit code 93): the downloaded agent does not start. See the terminal.".to_owned(),
+        other => format!("The agent installer failed (exit code {other}); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause.{suffix}"),
     }
 }
 
@@ -120,20 +120,20 @@ pub enum DownloadFailure {
 /// stop. `91` is the certificate explanation for the setting as it is.
 pub fn download_failed_reason(failure: DownloadFailure, system_certificates_on: bool) -> String {
     match failure {
-        DownloadFailure::TimedOut => "the download of omp timed out".to_owned(),
+        DownloadFailure::TimedOut => "the download of the agent timed out".to_owned(),
         DownloadFailure::Exit(90) => {
             "the download was blocked, probably by a corporate proxy that filters downloads"
                 .to_owned()
         }
         DownloadFailure::Exit(91) => certificate_explanation(system_certificates_on).to_owned(),
-        DownloadFailure::Exit(92) => "the downloaded omp was incomplete or altered".to_owned(),
-        DownloadFailure::Exit(93) => "the downloaded omp did not start".to_owned(),
-        DownloadFailure::Exit(other) => format!("the download of omp failed (exit code {other})"),
+        DownloadFailure::Exit(92) => "the downloaded agent was incomplete or altered".to_owned(),
+        DownloadFailure::Exit(93) => "the downloaded agent did not start".to_owned(),
+        DownloadFailure::Exit(other) => format!("the download of the agent failed (exit code {other})"),
     }
 }
 
-const CERTIFICATE_OFF: &str = "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
-const CERTIFICATE_ON: &str = "omp could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause";
+const CERTIFICATE_OFF: &str = "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
+const CERTIFICATE_ON: &str = "the agent could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause";
 const HTTP_BLOCKING: &str =
     "a corporate proxy that inspects HTTPS traffic may be blocking the request";
 const TURN_ON: &str = "and turning on System Certificates in Weaver's settings may fix it";
@@ -274,15 +274,15 @@ fn has_phrase(code: u16, after: &str) -> bool {
 
 impl Failure {
     /// The reason in the words of the requirements: the last stderr line, else `exit code N`,
-    /// `could not start omp` or `timed out`.
+    /// `could not start the agent` or `timed out`.
     pub fn reason(&self) -> String {
         match self {
-            Failure::NotStarted => "could not start omp".to_owned(),
+            Failure::NotStarted => "could not start the agent".to_owned(),
             Failure::TimedOut { .. } => "timed out".to_owned(),
             Failure::Exit { code, stderr } => match (last_line(stderr), code) {
                 (Some(line), _) => line.to_owned(),
                 (None, Some(code)) => format!("exit code {code}"),
-                (None, None) => "omp was stopped".to_owned(),
+                (None, None) => "the agent was stopped".to_owned(),
             },
         }
     }
@@ -304,16 +304,16 @@ impl Failure {
             .unwrap_or_else(|| self.reason())
     }
 
-    /// The reason in the words of the status box of `Missing`: `omp did not answer within 15 s`,
-    /// `omp exited with code <N>`, else the last line of stderr.
+    /// The reason in the words of the status box of `Missing`: `the agent did not answer within 15 s`,
+    /// `the agent exited with code <N>`, else the last line of stderr.
     pub fn status_text(&self) -> String {
         match self {
             Failure::TimedOut { limit } => {
-                format!("omp did not answer within {} s", limit.as_secs())
+                format!("the agent did not answer within {} s", limit.as_secs())
             }
             Failure::Exit { code, stderr } if last_line(stderr).is_none() => match code {
-                Some(code) => format!("omp exited with code {code}"),
-                None => "omp was stopped".to_owned(),
+                Some(code) => format!("the agent exited with code {code}"),
+                None => "the agent was stopped".to_owned(),
             },
             other => other.reason(),
         }
@@ -350,7 +350,7 @@ mod tests {
     fn without_stderr_the_reason_is_the_exit_code_or_the_way_it_failed() {
         assert_eq!(exit(3, "").reason(), "exit code 3");
         assert_eq!(exit(3, " \n").reason(), "exit code 3");
-        assert_eq!(Failure::NotStarted.reason(), "could not start omp");
+        assert_eq!(Failure::NotStarted.reason(), "could not start the agent");
         assert_eq!(
             Failure::TimedOut {
                 limit: Duration::from_secs(15)
@@ -367,9 +367,9 @@ mod tests {
                 limit: Duration::from_secs(15)
             }
             .status_text(),
-            "omp did not answer within 15 s"
+            "the agent did not answer within 15 s"
         );
-        assert_eq!(exit(2, "").status_text(), "omp exited with code 2");
+        assert_eq!(exit(2, "").status_text(), "the agent exited with code 2");
         assert_eq!(exit(2, "bad flag").status_text(), "bad flag");
     }
 
@@ -400,7 +400,7 @@ mod tests {
             .contains("even with System Certificates on"));
         assert_eq!(
             exit(22, "request failed: HTTP 407\nretrying").reason_for(true),
-            "omp received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request"
+            "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request"
         );
     }
 
@@ -419,13 +419,13 @@ mod tests {
         assert_eq!(exit(2, "bad flag").reason_for(false), "bad flag");
         assert_eq!(exit(2, "HTTP 404").reason_for(false), "HTTP 404");
         assert_eq!(exit(2, "").reason_for(true), "exit code 2");
-        assert_eq!(Failure::NotStarted.reason_for(false), "could not start omp");
+        assert_eq!(Failure::NotStarted.reason_for(false), "could not start the agent");
         assert_eq!(
             Failure::TimedOut {
                 limit: Duration::from_secs(15)
             }
             .status_text_for(false),
-            "omp did not answer within 15 s"
+            "the agent did not answer within 15 s"
         );
     }
 
@@ -618,20 +618,20 @@ mod tests {
         };
         assert_eq!(
             explanation(certificate, false),
-            "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it"
+            "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it"
         );
         assert_eq!(
             explanation(certificate, true),
-            "omp could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause"
+            "the agent could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause"
         );
         let refusal = ProxyProblem::Http { code: 407 };
         assert_eq!(
             explanation(refusal, false),
-            "omp received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request, and turning on System Certificates in Weaver's settings may fix it"
+            "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request, and turning on System Certificates in Weaver's settings may fix it"
         );
         assert_eq!(
             explanation(refusal, true),
-            "omp received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request"
+            "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request"
         );
     }
 
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(explain("HTTP 404", false), None);
         assert_eq!(
             explain("HTTP 503", true).as_deref(),
-            Some("omp received an HTTP 503 error; a corporate proxy that inspects HTTPS traffic may be blocking the request")
+            Some("the agent received an HTTP 503 error; a corporate proxy that inspects HTTPS traffic may be blocking the request")
         );
         assert_eq!(
             explain("SSL certificate problem", false),
@@ -658,24 +658,24 @@ mod tests {
         for on in [false, true] {
             assert_eq!(
                 installer_failed_text(90, on),
-                "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."
+                "The agent installer failed (exit code 90): the download of the agent was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."
             );
             assert_eq!(
                 installer_failed_text(92, on),
-                "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."
+                "The agent installer failed (exit code 92): the downloaded agent was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."
             );
             assert_eq!(
                 installer_failed_text(93, on),
-                "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal."
+                "The agent installer failed (exit code 93): the downloaded agent does not start. See the terminal."
             );
         }
         assert_eq!(
             installer_failed_text(91, true),
-            "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."
+            "The agent installer failed (exit code 91): the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."
         );
         assert_eq!(
             installer_failed_text(91, false),
-            "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."
+            "The agent installer failed (exit code 91): the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."
         );
     }
 
@@ -683,16 +683,16 @@ mod tests {
     fn the_failed_installer_text_of_any_other_code_depends_on_the_setting() {
         assert_eq!(
             installer_failed_text(22, true),
-            "The omp installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
+            "The agent installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
         );
         assert_eq!(
             installer_failed_text(1, false),
-            "The omp installer failed (exit code 1); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it."
+            "The agent installer failed (exit code 1); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it."
         );
         // 94 is only for updates: for an installer it is any other code.
         assert_eq!(
             installer_failed_text(94, true),
-            "The omp installer failed (exit code 94); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
+            "The agent installer failed (exit code 94); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause."
         );
     }
 
@@ -705,19 +705,19 @@ mod tests {
             );
             assert_eq!(
                 download_failed_reason(DownloadFailure::Exit(92), on),
-                "the downloaded omp was incomplete or altered"
+                "the downloaded agent was incomplete or altered"
             );
             assert_eq!(
                 download_failed_reason(DownloadFailure::Exit(93), on),
-                "the downloaded omp did not start"
+                "the downloaded agent did not start"
             );
             assert_eq!(
                 download_failed_reason(DownloadFailure::Exit(7), on),
-                "the download of omp failed (exit code 7)"
+                "the download of the agent failed (exit code 7)"
             );
             assert_eq!(
                 download_failed_reason(DownloadFailure::TimedOut, on),
-                "the download of omp timed out"
+                "the download of the agent timed out"
             );
         }
     }
@@ -726,11 +726,11 @@ mod tests {
     fn the_certificate_reason_of_a_download_follows_the_setting_as_it_is() {
         assert_eq!(
             download_failed_reason(DownloadFailure::Exit(91), false),
-            "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it"
+            "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it"
         );
         assert_eq!(
             download_failed_reason(DownloadFailure::Exit(91), true),
-            "omp could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause"
+            "the agent could not verify a server's certificate, even with System Certificates on; a corporate proxy that inspects HTTPS traffic is the usual cause"
         );
     }
 

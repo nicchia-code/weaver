@@ -184,3 +184,19 @@ describe("mermaid blocks", () => {
     expect(mermaid.initialize).not.toHaveBeenCalled();
   });
 });
+
+describe("Markdown highlight", () => {
+  it("wraps the matches of the words in marks, inside formatting and lists, whatever the case", () => {
+    const { container } = render(<Markdown highlight={["daily", "age"]}>{"Daily **counters** per page\n\n- Another DAILY item"}</Markdown>);
+    expect([...container.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual(["Daily", "age", "DAILY"]);
+    expect(container).toHaveTextContent("Daily counters per page");
+  });
+
+  it("leaves code blocks as they are and marks nothing without words", () => {
+    const { container } = render(<Markdown highlight={["let"]}>{"```js\nlet a;\n```\n\nlet it be"}</Markdown>);
+    expect(container.querySelector("pre mark")).toBeNull();
+    expect(container.querySelectorAll("mark")).toHaveLength(1);
+    const plain = render(<Markdown>{"let it be"}</Markdown>);
+    expect(plain.container.querySelector("mark")).toBeNull();
+  });
+});

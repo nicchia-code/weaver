@@ -26,7 +26,7 @@ describe("Open in editor", () => {
 
   it("takes the project of the window for a file relative to it", async () => {
     render(
-      <ProjectContext.Provider value={{ projectId: "0123456789abcdef", showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: "0123456789abcdef", showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <OpenInEditor file=".weaver/model/cart.md" />
       </ProjectContext.Provider>,
     );

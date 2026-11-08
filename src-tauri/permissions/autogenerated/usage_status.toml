@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usage-status"
+description = "Enables the usage_status command without any pre-configured scope."
+commands.allow = ["usage_status"]
+
+[[permission]]
+identifier = "deny-usage-status"
+description = "Denies the usage_status command without any pre-configured scope."
+commands.deny = ["usage_status"]

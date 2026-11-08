@@ -64,6 +64,10 @@ pub struct SubAgentConversation {
     #[ts(type = "number")]
     pub seq: u64,
     pub entries: Vec<Entry>,
+    /// The instant each entry arrived (the instant its transcript record was written), in
+    /// milliseconds since the Unix epoch, as `entries` is indexed.
+    #[ts(type = "Array<number>")]
+    pub arrivals: Vec<i64>,
     /// Why the transcript cannot be read (`Conversation not available: <reason>.`).
     pub unavailable: Option<String>,
 }

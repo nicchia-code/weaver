@@ -12,7 +12,7 @@ const RadioGroup = React.forwardRef<
 ));
 RadioGroup.displayName = RadioGroupPrimitive.Root.displayName;
 
-/** The unchecked border is the `input` token, at least 3:1 against the background. */
+/** The unchecked border is the `control` token, at least 3:1 against the background. */
 const RadioGroupItem = React.forwardRef<
   React.ElementRef<typeof RadioGroupPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Item>
@@ -20,7 +20,7 @@ const RadioGroupItem = React.forwardRef<
   <RadioGroupPrimitive.Item
     ref={ref}
     className={cn(
-      "aspect-square size-4 shrink-0 rounded-full border border-input text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
+      "aspect-square size-4 shrink-0 rounded-full border border-control text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
       className,
     )}
     {...props}

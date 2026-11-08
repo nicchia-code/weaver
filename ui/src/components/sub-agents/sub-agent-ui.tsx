@@ -25,7 +25,7 @@ export const SubAgentNavProvider = NavContext.Provider;
 /** A sub-agent's state as an icon and its word: `working`, `succeeded`, `failed`, `interrupted`. */
 export function AgentState({ state }: { state: SubAgentState }) {
   const Icon = state === "working" ? Loader : state === "succeeded" ? Check : state === "failed" ? X : Square;
-  const colour = state === "failed" ? "text-red-600 dark:text-red-400" : state === "succeeded" ? "text-green-600 dark:text-green-400" : "text-muted-foreground";
+  const colour = state === "failed" ? "text-rose-ink" : state === "succeeded" ? "text-sage-ink" : state === "working" ? "text-sky-ink" : "text-muted-foreground";
   return (
     <span className={`flex shrink-0 items-center gap-1 text-xs ${colour}`}>
       <Icon aria-hidden className={`size-3 ${state === "working" ? "animate-spin motion-reduce:animate-none" : ""}`} />
@@ -52,7 +52,7 @@ export function SubAgentLine({ call, agent }: { call: string; agent: SubAgent })
   return (
     <button
       type="button"
-      className="ml-8 flex w-[calc(100%-2rem)] items-center gap-2 rounded px-1 text-left text-xs hover:bg-accent"
+      className="ml-8 flex w-[calc(100%-2rem)] items-center gap-2 rounded-md px-1 text-left text-xs hover:bg-accent"
       onClick={() => nav.open([...nav.base, { call, id: agent.id }])}
     >
       {content}
@@ -82,7 +82,7 @@ export function SubAgentList({
             <button
               type="button"
               aria-current={selected && samePath(selected, path) ? "true" : undefined}
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent aria-[current=true]:bg-accent"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-accent aria-[current=true]:bg-accent"
               onClick={() => onSelect(path)}
             >
               <Bot aria-hidden className="size-3 shrink-0" />

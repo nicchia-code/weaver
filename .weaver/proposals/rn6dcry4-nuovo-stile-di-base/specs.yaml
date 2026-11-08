@@ -1,0 +1,111 @@
+languages:
+  - name: Rust
+    version: stable (edition 2021)
+    note: the core crate shared by the Tauri backend and the `weaver` command line, the command line itself and the app backend
+  - name: TypeScript
+    version: "5"
+    note: the interface only; strict mode, ES modules, `noUncheckedIndexedAccess`; type-checked with `tsc --noEmit`
+frameworks:
+  - name: Tauri
+    version: "2"
+    note: the desktop shell for macOS, Windows and Linux; one process for every window
+  - name: Tauri plugins
+    note: single-instance, window-state, notification, dialog, opener, updater
+    chosenByAgent: the official plugins for the single process, window memory, system notifications, folder picking, opening files in the developer's editor and updates
+  - name: Agent Client Protocol
+    note: the `agent-client-protocol` Rust crate, client side of ACP towards `omp acp`
+  - name: tokio
+    chosenByAgent: async runtime required by Tauri and the ACP client
+  - name: clap
+    chosenByAgent: argument parsing of the `weaver` command line, driven by one command registry
+  - name: serde
+    note: with `serde_json` and `serde_yaml`, for front matter, Specs, settings and command line JSON
+    chosenByAgent: the standard serialisation of Rust
+  - name: schemars
+    chosenByAgent: produces the JSON Schemas printed by `--help --json` from the same input types
+  - name: notify
+    chosenByAgent: cross-platform file watching of each open project's `.weaver/` and of what its File view shows
+  - name: pulldown-cmark
+    chosenByAgent: Markdown parsing of Model and Requirement files in the core
+  - name: trash
+    chosenByAgent: moves what the File view and the Assets view delete to the system's trash on macOS, Windows and Linux
+  - name: drag
+    version: "2"
+    note: CrabNebula's crate, called from the backend only, never through `tauri-plugin-drag`
+    chosenByAgent: starts a native drag of files out of a window on macOS, Windows and Linux, so that assets can be dropped as copies into other apps
+  - name: fd-lock
+    chosenByAgent: OS file locks that serialise writes of the app and of command line processes
+  - name: rustls-native-certs
+    note: reads the certificate authorities the operating system trusts for System Certificates, with no child process
+  - name: webpki-root-certs
+    note: Mozilla's public root authorities as whole certificates, compiled into Weaver and added to the System Certificates bundle; the sibling of `webpki-roots`, which holds only trust anchors that cannot be written as PEM
+  - name: x509-parser
+    chosenByAgent: parses each certificate of the System Certificates export to keep only certificate authorities
+  - name: Vite
+    chosenByAgent: the bundler Tauri recommends for a React interface
+  - name: React
+    version: "19"
+    note: the interface, with `react-dom`
+  - name: shadcn/ui
+    note: components copied into the interface source, zinc base colour with a blue primary, light and dark
+  - name: Radix UI
+    note: the primitives under the shadcn/ui components
+  - name: Tailwind CSS
+    version: "4"
+  - name: class-variance-authority
+    chosenByAgent: used by the shadcn/ui components for their variants
+  - name: clsx
+    chosenByAgent: used by the shadcn/ui components to join class names
+  - name: tailwind-merge
+    chosenByAgent: used by the shadcn/ui components to merge Tailwind classes
+  - name: lucide-react
+    note: the icons of the interface
+  - name: Geist
+    note: "Geist and Geist Mono, the fonts of the interface, bundled in the app from the `@fontsource-variable/geist` and `@fontsource-variable/geist-mono` packages; never loaded from the network"
+    chosenByAgent: the fontsource packages ship the font files and their CSS for offline bundling with Vite
+  - name: mermaid
+    note: draws `mermaid` blocks of Markdown, loaded on demand
+  - name: react-markdown
+    note: renders Markdown with `remark-gfm`; raw HTML disabled
+  - name: remark-gfm
+    note: tables, strikethrough, task lists and autolinks in Markdown
+  - name: CodeMirror
+    version: "6"
+    note: the File view's editor, with `@codemirror/language-data` for syntax colours, each language loaded on first use; no WASM, no completion, no lint, no language server
+  - name: TipTap
+    version: "3"
+    note: the Notes view's WYSIWYG editor on ProseMirror, with `@tiptap/markdown` to read and write the sheet as Markdown; loaded on demand when the view first opens; no WASM
+data:
+  - name: Project files
+    note: Markdown and YAML under `.weaver/` in the developer's repository; no database
+  - name: OS configuration folder
+    note: settings, recent projects and the registry of jobs to resume, outside every repository
+  - name: OS keychain
+    note: the only place for secrets; none are kept in the first version
+testing:
+  - name: cargo test
+    note: the core, the command line and the backend
+  - name: Vitest
+    note: the interface
+  - name: Testing Library
+    note: "`@testing-library/react`, interactions as the user does them"
+  - name: tauri-driver
+    note: end-to-end tests of the packaged app through WebDriver, on Linux and Windows runners of GitHub Actions
+  - name: WebdriverIO
+    chosenByAgent: the WebDriver client documented by Tauri for tauri-driver
+ci:
+  - name: GitHub Actions
+    note: "push to `dev` and pull requests: build and test on macOS, Windows and Linux; push to `main`: the same, then a release when the tag `v<version>` does not exist yet"
+repository:
+  - name: GitHub
+    note: "`nicchia-code/weaver`, branches `dev` and `main`"
+deployment:
+  - name: GitHub Releases
+    note: unsigned builds for now; macOS `.dmg`, Windows NSIS installer, Linux AppImage and deb, with the updater's `latest.json`
+  - name: Tauri updater
+    note: updates from GitHub Releases, signed with the updater key kept in GitHub Actions secrets
+infrastructure:
+  - name: omp
+    note: the only coding agent Weaver starts, as an ACP server, and the only source of model names; installed with its official installer from the system terminal when missing, updated by Weaver; when its own download channel fails, downloaded from its GitHub releases (can1357/oh-my-pi, REST API releases/latest)
+notes: |
+  Code signing and notarisation on macOS and signing on Windows are deliberately left out for now and will come with a dedicated Proposal.

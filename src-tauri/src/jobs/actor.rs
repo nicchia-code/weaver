@@ -202,14 +202,14 @@ impl Actor {
             let spawned = tauri::async_runtime::spawn_blocking(move || {
                 let (spec, overlay, overlay_file) = prepared?;
                 weaver_core::atomic::write(&overlay_file, overlay.as_bytes(), Some(0o600))
-                    .map_err(|error| format!("cannot write the overlay of omp: {error}"))?;
+                    .map_err(|error| format!("cannot write the overlay of the agent: {error}"))?;
                 let (process, incoming) = OmpProcess::spawn(spec)
-                    .map_err(|error| format!("could not start omp: {error}"))?;
+                    .map_err(|error| format!("could not start the agent: {error}"))?;
                 let started = weaver_core::process_group::start_time(process.pid);
                 Ok((process, incoming, started))
             })
             .await
-            .unwrap_or_else(|_| Err("could not start omp".to_owned()));
+            .unwrap_or_else(|_| Err("could not start the agent".to_owned()));
             let _ = tx.send(Msg::Spawned(spawned));
         });
     }
@@ -489,7 +489,7 @@ impl Actor {
                 else {
                     let _ = self.tx.send(Msg::SteerDone(
                         message,
-                        SteeringOutcome::Failed("omp is not running".to_owned()),
+                        SteeringOutcome::Failed("the agent is not running".to_owned()),
                     ));
                     return;
                 };

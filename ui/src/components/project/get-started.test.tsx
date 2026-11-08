@@ -157,7 +157,7 @@ describe("Get Started", () => {
       expect(screen.queryByText(PLAIN)).not.toBeInTheDocument();
       const warning = screen.getByText(WARNING);
       expect(warning.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
-      expect(warning).toHaveClass("text-amber-600");
+      expect(warning).toHaveClass("text-peach-ink");
       expect(screen.getByRole("radiogroup", { name: "Solo mode" })).toHaveAccessibleDescription(`${NOTE} ${WARNING}`);
 
       await user.click(screen.getByRole("button", { name: "Initialise" }));

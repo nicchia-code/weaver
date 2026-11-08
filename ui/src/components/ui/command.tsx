@@ -79,7 +79,7 @@ function Command({
 
   return (
     <CommandContext.Provider value={state}>
-      <div ref={root} className={cn("flex w-full flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground", className)} {...props} onKeyDown={onKeyDown}>
+      <div ref={root} className={cn("flex w-full flex-col overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-ring", className)} {...props} onKeyDown={onKeyDown}>
         {children}
       </div>
     </CommandContext.Provider>
@@ -91,7 +91,7 @@ const CommandInput = React.forwardRef<HTMLInputElement, Omit<React.ComponentProp
   ({ className, value, onValueChange, ...props }, ref) => {
     const { listId, active } = useCommand();
     return (
-      <div className="flex items-center gap-2 border-b px-3">
+      <div className="flex items-center gap-2 border-b border-line-soft px-3">
         <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <input
           ref={ref}
@@ -149,7 +149,7 @@ function CommandItem({ value, className, children, ...props }: Omit<React.HTMLAt
       aria-selected={selected}
       onMouseMove={() => (selected ? undefined : setActive(value))}
       onClick={() => choose(value)}
-      className={cn("relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none", selected && "bg-accent text-accent-foreground", className)}
+      className={cn("relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none", selected && "bg-accent text-accent-foreground", className)}
     >
       {children}
     </div>

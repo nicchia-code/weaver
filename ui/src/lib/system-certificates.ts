@@ -34,7 +34,7 @@ export function systemCertificatesLine(status: SystemCertificatesStatus, now: Da
       const earlier = status.count !== null && status.writtenAt !== null;
       return {
         kind: "failed",
-        text: earlier ? `${failure} Using the ones exported ${written(status, now)}.` : `${failure} omp gets no certificates from Weaver.`,
+        text: earlier ? `${failure} Using the ones exported ${written(status, now)}.` : `${failure} The agent gets no certificates from Weaver.`,
       };
     }
   }

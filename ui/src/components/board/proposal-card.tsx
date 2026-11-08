@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { FocusSubject } from "@/components/views/focus-model";
 import { useOmp } from "@/hooks/use-omp";
+import { TONE_STRIPE, TONE_TINT } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
 type ProposalCardData = BoardCardOf<"proposal"> | BoardCardOf<"resolution">;
@@ -48,7 +49,7 @@ export function standingText(card: Pick<ProposalCardData, "standing">): string {
 // ---------------------------------------------------------------------------------------------
 
 /** `blocked`: a button that opens a Popover with every reason, one per line. */
-function BlockedPopover({ reasons }: { reasons: readonly string[] }) {
+export function BlockedPopover({ reasons }: { reasons: readonly string[] }) {
   const text = reasons.length === 1 ? "Blocked: 1 reason" : `Blocked: ${reasons.length} reasons`;
   return (
     <Popover>
@@ -58,7 +59,7 @@ function BlockedPopover({ reasons }: { reasons: readonly string[] }) {
             <button
               type="button"
               aria-label={text}
-              className={cn(badgeVariants({ variant: "error" }), "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+              className={cn(badgeVariants({ variant: "warning" }), "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
             >
               blocked
             </button>
@@ -165,7 +166,7 @@ function ResolutionRows({ rows }: { rows: BoardCardOf<"resolution">["drifts"] })
 type Dialogs = "reject" | "rework" | "rework-blank" | "discard" | null;
 
 /** The model control: a Select of the models omp lists, `Use the Settings models` first; a choice applies at once. */
-function ModelControl({ card }: { card: ProposalCardData }) {
+function ModelControl({ card }: { card: ControlledProposal }) {
   const { chooseProposalModel } = useBoard();
   const { status } = useOmp();
   const catalog = useMemo(() => modelCatalogOf(status), [status]);
@@ -325,15 +326,32 @@ function ReworkDialog({
   );
 }
 
+/** What a decision on a Proposal does: the Board's notices, or Chat's own refusals under its card. */
+export interface ProposalDecisions {
+  approve: (proposalId: string, name: string) => void | Promise<void>;
+  reject: (proposalId: string, name: string, feedback: string | null, rework: boolean) => void | Promise<void>;
+  discard: (proposalId: string, name: string) => void | Promise<void>;
+}
+
+/** What the controls need of a Proposal: its head, its view and where it stands. */
+type ControlledProposal = Pick<ProposalCardData, "head" | "view" | "standing">;
+
+function ProposalControls({ card }: { card: ProposalCardData }) {
+  const { approveProposal, rejectProposal, discardProposal } = useBoard();
+  return <ProposalControlRow card={card} decisions={{ approve: approveProposal, reject: rejectProposal, discard: discardProposal }} />;
+}
+
 /**
  * The controls of a Proposal: `Approve`, or `Refine` in its place when the backend says a click
  * starts a refinement job; the `Reject` split button (its menu has `Rework with
  * feedback…`, absent once the Proposal is itself a rework), `View requirements`, and last the
- * model control, pushed to the right edge of the row (also when it wraps). A Draft a refinement left half-way has only `Refine` and
- * `Discard`. Every reason a control is disabled comes from the backend, in its fixed order.
+ * model control, pushed to the right edge of the row (also when it wraps). A Draft a refinement
+ * left half-way has only `Refine` and `Discard`. Every reason a control is disabled comes from the
+ * backend, in its fixed order. The Board's card gives it the Board's decisions; Chat's card (`chat`)
+ * its own, and has no `View requirements` and no model control.
  */
-function ProposalControls({ card }: { card: ProposalCardData }) {
-  const { approveProposal, rejectProposal, discardProposal } = useBoard();
+export function ProposalControlRow({ card, decisions, chat = false }: { card: ControlledProposal; decisions: ProposalDecisions; chat?: boolean }) {
+  const { approve: approveProposal, reject: rejectProposal, discard: discardProposal } = decisions;
   const { head, view, standing } = card;
   const name = nameOf(head);
   const subject: FocusSubject = { kind: "proposal", id: head.id, number: head.shortNumber, title: head.title };
@@ -346,7 +364,6 @@ function ProposalControls({ card }: { card: ProposalCardData }) {
   const approve = (
     <GuardedButton
       size="sm"
-      variant={refines ? "refine" : "default"}
       reasons={view.approve.reasons}
       tooltip={view.approve.tooltip ?? undefined}
       onClick={() => void approveProposal(head.id, name)}
@@ -414,7 +431,7 @@ function ProposalControls({ card }: { card: ProposalCardData }) {
           </DropdownMenu>
         ) : null}
       </div>
-      <FocusButton view="requirements" refs={view.scopeRefs} subject={subject} />
+      {chat ? null : <FocusButton view="requirements" refs={view.scopeRefs} subject={subject} />}
       {/* `contents`: the dialogs live in the React tree of the card but take no room in its row. */}
       <div className="contents" onClick={(event) => event.stopPropagation()}>
         <RejectDialog
@@ -433,7 +450,7 @@ function ProposalControls({ card }: { card: ProposalCardData }) {
           returnFocus={arrow}
         />
       </div>
-      {view.carriesTasks ? <ModelControl card={card} /> : null}
+      {view.carriesTasks && !chat ? <ModelControl card={card} /> : null}
     </>
   );
 }
@@ -473,7 +490,7 @@ function ResolutionCard({ card }: { card: BoardCardOf<"resolution"> }) {
       shortNumber={head.shortNumber}
       title={head.title}
       mark={<KindMark kind="resolution" />}
-      accent="border-l-[3px] border-l-yellow-600 bg-yellow-500/10 dark:border-l-yellow-400"
+      accent={cn(TONE_STRIPE.lavender, TONE_TINT.lavender)}
       badges={<ProposalBadges card={card} />}
       body={
         card.drifts.length > 0 || hasFiles ? (
@@ -500,7 +517,7 @@ const ROW = "w-full rounded-sm px-1 py-0.5 text-left";
 function titleWithCode(title: string): ReactNode[] {
   return title.split("`").map((part, index) =>
     index % 2 === 1 ? (
-      <code key={index} className="rounded bg-muted px-1 font-mono text-xs">
+      <code key={index} className="rounded-sm bg-muted px-1 font-mono text-xs">
         {part}
       </code>
     ) : (

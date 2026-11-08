@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · Board</title>
+<script src="a4f8e335-7ec5-465f-98c1-8533c3a74cea"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F6F5F1; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; font-size: 14px">
+  <div style="flex: 1 1 248px; max-width: 100%; display: flex">
+    <dc-import name="Sidebar" active="board" hint-size="248px,960px"></dc-import>
+  </div>
+
+  <main style="flex: 999 1 560px; min-width: 0; margin: 8px; background: #FFFFFF; border-radius: 14px; box-shadow: 0 0 0 1px #E7E5DF, 0 1px 3px rgba(24,24,27,0.04); display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 28px; border-bottom: 1px solid #EFEDE7">
+      <div style="display: flex; flex-direction: column; gap: 3px; flex: 1 1 280px; min-width: 0">
+        <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em">Board</h1>
+        <p style="margin: 0; font-size: 13px; color: #6B6B73">1 active · 18 done since last scan · scanned 6 Nov, 16:07</p>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer">
+          <svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5.5v-2h2M11.5 3.5h2v2M13.5 10.5v2h-2M4.5 12.5h-2v-2"></path><circle cx="8" cy="8" r="2.2"></circle></svg>
+          Scan system
+        </button>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 12px; border-radius: 9px; border: 0; background: #18181B; font: inherit; font-size: 13px; font-weight: 500; color: #FFFFFF; cursor: pointer">
+          <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.2v9.6c0 .5.5.8.9.5l7-4.8a.6.6 0 0 0 0-1L5.9 2.7c-.4-.3-.9 0-.9.5z"></path></svg>
+          Run all
+          <span style="font-size: 12px; color: #C9C9CF; font-weight: 400">1 ready</span>
+        </button>
+      </div>
+    </header>
+
+    <div style="flex: 1; padding: 24px 28px 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: start">
+
+      <section aria-label="Backlog" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7; min-height: 560px">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 4px">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #A996D6"></span>
+          <h2 style="margin: 0; font-size: 13px; font-weight: 600">Backlog</h2>
+          <span style="font-size: 12px; color: #6B6B73">0</span>
+          <span style="flex: 1"></span>
+          <button type="button" aria-label="New work item" style="width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 7px; color: #52525B; cursor: pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"></path></svg></button>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 48px 20px; text-align: center">
+          <svg width="88" height="56" sc-camel-view-box="0 0 88 56" fill="none" aria-hidden="true"><path d="M4 14c20 0 20 28 40 28s20-28 40-28" stroke="#E3A3B5" stroke-width="3" stroke-linecap="round" opacity="0.7"></path><path d="M4 42c20 0 20-28 40-28s20 28 40 28" stroke="#A996D6" stroke-width="3" stroke-linecap="round" opacity="0.7"></path><path d="M4 28h80" stroke="#96BBE0" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 9" opacity="0.9"></path></svg>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <p style="margin: 0; font-size: 14px; font-weight: 600">Nothing to decide</p>
+            <p style="margin: 0; font-size: 13px; color: #6B6B73; max-width: 260px; line-height: 1.5">New work items and Proposals from Chat land here for your go-ahead.</p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px">
+            <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer">
+              <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"></path></svg>
+              Work item
+            </button>
+            <a href="Chat.dc.html" style="display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border-radius: 9px; font-size: 13px; font-weight: 500; color: #52525B; text-decoration: none">Ask in Chat</a>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Active" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7; min-height: 560px">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 4px">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #4A86C5"></span>
+          <h2 style="margin: 0; font-size: 13px; font-weight: 600">Active</h2>
+          <span style="font-size: 12px; color: #6B6B73">1</span>
+        </div>
+
+        <article style="display: flex; flex-direction: column; border-radius: 12px; background: #FFFFFF; box-shadow: 0 0 0 1px #E7E5DF, 0 2px 6px rgba(24,24,27,0.05); overflow: hidden">
+          <div style="display: flex; gap: 3px; height: 3px">
+            <div style="flex: 1; background: #9DC09A"></div>
+            <div style="flex: 1; background: #4A86C5"></div>
+            <div style="flex: 1; background: #EFEDE7"></div>
+            <div style="flex: 1; background: #EFEDE7"></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #52525B; background: #F6F5F1; border-radius: 6px; padding: 2px 6px">T1</span>
+              <span style="font-size: 12px; color: #6B6B73">omp ACP locale</span>
+              <span style="flex: 1"></span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: #2E5F8F; background: #E6EFF8; border-radius: 999px; padding: 3px 9px 3px 8px">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #4A86C5"></span>Implementing · 2m 16s
+              </span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.35">Semplificazione con omp ACP</h3>
+              <p style="margin: 0; font-size: 13px; color: #52525B; line-height: 1.5">Terzo servizio di semplificazione, solo in sviluppo locale: il worker sul Mac avvia <code style="font-family: 'Geist Mono', monospace; font-size: 12px">omp acp</code> come processo figlio.</p>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <span style="font-size: 12px; color: #52525B; border: 1px solid #E7E5DF; border-radius: 6px; padding: 2px 7px">technical</span>
+              <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #52525B; border: 1px solid #E7E5DF; border-radius: 6px; padding: 2px 7px">stack.md</span>
+              <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #52525B; border: 1px solid #E7E5DF; border-radius: 6px; padding: 2px 7px">specs.yaml</span>
+            </div>
+            <ol aria-label="Progress" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; font-size: 11.5px; color: #6B6B73">
+              <li style="display: flex; align-items: center; gap: 4px; color: #3F6B3C"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Plan</li>
+              <li style="color: #2E5F8F; font-weight: 500">Implement</li>
+              <li>Test</li>
+              <li>Verify</li>
+            </ol>
+            <div style="display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid #EFEDE7; flex-wrap: wrap">
+              <span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 6px; background: #E6EFF8; color: #2E5F8F; display: grid; place-items: center">
+                <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="5" width="10.4" height="8" rx="2.2"></rect><path d="M8 2.6V5M6 9h.01M10 9h.01"></path></svg>
+              </span>
+              <span style="font-size: 12px; color: #52525B; flex: 1; min-width: 0">weaver-implementer</span>
+              <a href="#" style="font-size: 12.5px; font-weight: 500; color: #52525B; text-decoration: none; padding: 6px 8px; border-radius: 7px">Requirements</a>
+              <a href="Jobs.dc.html" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 500; color: #18181B; text-decoration: none; padding: 6px 10px; border-radius: 7px; background: #F6F5F1">Open job
+                <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+              </a>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section aria-label="Done" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7; min-height: 560px">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 4px">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #7FAF7B"></span>
+          <h2 style="margin: 0; font-size: 13px; font-weight: 600">Done</h2>
+          <span style="font-size: 12px; color: #6B6B73">18 since last scan</span>
+        </div>
+        <div style="display: flex; flex-direction: column; border-radius: 12px; background: #FFFFFF; box-shadow: 0 0 0 1px #E7E5DF">
+          <sc-for list="{{done}}" as="g" hint-placeholder-count="6">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #F1EFEA">
+              <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="#3F6B3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+              <span style="flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{g.name}}</span>
+              <span style="font-size: 12px; color: #6B6B73; font-variant-numeric: tabular-nums">{{g.tasks}}</span>
+            </div>
+          </sc-for>
+          <a href="History.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 4px; padding: 11px; font-size: 12.5px; font-weight: 500; color: #52525B; text-decoration: none">View history</a>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:960}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      done: [
+        { name: 'Revisione, PDF e archivio', tasks: '3 tasks' },
+        { name: 'Lettura e semplificazione', tasks: '3 tasks' },
+        { name: 'Composizione, invio ed eliminazione', tasks: '3 tasks' },
+        { name: 'Interfaccia, sessioni e account', tasks: '4 tasks' },
+        { name: 'Infrastruttura, test e rilascio', tasks: '3 tasks' },
+        { name: 'Fondamenta del progetto', tasks: '2 tasks' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

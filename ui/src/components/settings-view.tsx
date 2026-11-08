@@ -20,6 +20,17 @@ import { cn } from "@/lib/utils";
 import { settingText, useSettings } from "@/hooks/use-settings";
 import { useSystemCertificates } from "@/hooks/use-system-certificates";
 
+/**
+ * Where a text is shown. The name `omp` appears only in Settings; every other place calls the agent
+ * `the agent` (`requirements/quality#Texts`).
+ */
+export type Place = "settings" | "elsewhere";
+
+/** A text of the settings schema, which names omp, as it reads outside Settings. */
+function outsideSettings(text: string): string {
+  return text.replace(/^omp\b/, "The agent").replace(/\bomp\b/g, "the agent");
+}
+
 /** A model omp lists, in omp's order. */
 export interface ModelEntry {
   /** What is stored and passed to omp. */
@@ -193,13 +204,13 @@ function FieldShell({
       </p>
       {children}
       {error ? (
-        <p id={`${controlId ?? labelId}-error`} role="alert" className="flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
+        <p id={`${controlId ?? labelId}-error`} role="alert" className="flex items-start gap-1.5 text-sm text-rose-ink">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {error}
         </p>
       ) : null}
       {issue ? (
-        <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+        <p className="flex items-start gap-1.5 text-sm text-peach-ink">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {`The value in the settings file was ignored and the default is in force: ${issue.reason}`}
         </p>
@@ -266,7 +277,8 @@ function splitModel(stored: string, catalog: ModelCatalog | undefined): { model:
   return { model: stored, level: "" };
 }
 
-function ModelSetting({ settingKey, catalog }: { settingKey: SettingKey; catalog: ModelCatalog | undefined }) {
+/** The choice of the model of a role: a combobox of the models omp lists, and the thinking level of the one chosen. Chat opens it for `models.analysis`. */
+export function ModelSetting({ settingKey, catalog }: { settingKey: SettingKey; catalog: ModelCatalog | undefined }) {
   const controlId = useId();
   const listed = catalog?.status === "listed" ? catalog.models : [];
   const codec: Codec = {
@@ -406,8 +418,8 @@ function RadioSetting({ settingKey }: { settingKey: SettingKey }) {
 
 const LINE_ICON = {
   exporting: <Loader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />,
-  ready: <CircleCheck aria-hidden className="size-4 text-green-600 dark:text-green-400" />,
-  failed: <TriangleAlert aria-hidden className="size-4 text-amber-600 dark:text-amber-400" />,
+  ready: <CircleCheck aria-hidden className="size-4 text-sage-ink" />,
+  failed: <TriangleAlert aria-hidden className="size-4 text-peach-ink" />,
 } satisfies Record<SystemCertificatesLineKind, ReactNode>;
 
 /**
@@ -416,7 +428,7 @@ const LINE_ICON = {
  * switch for assistive technology and a polite live region. One component in every place; the value
  * comes from the settings and the status from the backend, so all places always agree.
  */
-export function SystemCertificatesSetting() {
+export function SystemCertificatesSetting({ place }: { place: Place }) {
   const controlId = useId();
   const state = useField("systemCertificates.enabled");
   const { status, refresh } = useSystemCertificates();
@@ -440,7 +452,7 @@ export function SystemCertificatesSetting() {
         />
       </div>
       <p id={`${controlId}-description`} className="text-sm text-muted-foreground">
-        {state.field.description}
+        {place === "settings" ? state.field.description : outsideSettings(state.field.description)}
       </p>
       <div id={statusId} aria-live="polite" className="empty:hidden">
         {line ? (
@@ -463,13 +475,13 @@ export function SystemCertificatesSetting() {
         ) : null}
       </div>
       {state.error ? (
-        <p id={`${controlId}-error`} role="alert" className="flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
+        <p id={`${controlId}-error`} role="alert" className="flex items-start gap-1.5 text-sm text-rose-ink">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {state.error}
         </p>
       ) : null}
       {state.issue ? (
-        <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+        <p className="flex items-start gap-1.5 text-sm text-peach-ink">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           {`The value in the settings file was ignored and the default is in force: ${state.issue.reason}`}
         </p>
@@ -528,7 +540,7 @@ export function SettingsView({ ompSlot, projectSlot, modelCatalog }: SettingsVie
         {ompSlot}
         <TextSetting settingKey="ompPath" mono />
         <RadioSetting settingKey="permissions" />
-        <SystemCertificatesSetting />
+        <SystemCertificatesSetting place="settings" />
       </Group>
 
       <Group title="Models">

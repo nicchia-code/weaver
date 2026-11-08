@@ -3,11 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ViewSnapshot } from "@/bindings/ViewSnapshot";
+import { useChatDraftRequest } from "@/components/general/chat-draft";
 import type { FocusSubject } from "@/components/views/focus-model";
 import { RequirementsView } from "@/components/views/requirements-view";
 import { useViews } from "@/components/views/views-state";
 import { snapshot } from "@/components/views/view-fixtures";
 import { fakeBackend, renderViews, type FakeBackend } from "@/components/views/view-test-utils";
+import { call } from "@/lib/backend";
 
 vi.mock("@/lib/backend", () => ({
   call: vi.fn(),
@@ -42,14 +44,15 @@ async function show(extra?: React.ReactNode) {
 }
 
 describe("the Requirements page", () => {
-  it("shows Areas in folder order, fragments with their file name in muted text, and sections with General first", async () => {
+  it("shows Areas in folder order, fragments with their path in a monospace tag, and sections with General first", async () => {
     await show();
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Orders", "Interface"]);
     expect(screen.getByText("How orders work.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Checkout" })).toBeInTheDocument();
-    expect(screen.getByText("checkout.md")).toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("heading", { level: 3, name: "Checkout" })).toHaveClass("text-[22px]", "font-semibold");
+    expect(screen.getByText("orders/checkout.md")).toHaveClass("font-mono", "text-muted-foreground");
     const orders = screen.getByRole("region", { name: "Orders, General" }).parentElement!;
     expect(within(orders).getAllByRole("heading", { level: 4 }).map((h) => h.textContent)).toEqual(["General", "order"]);
+    expect(within(orders).getAllByRole("heading", { level: 4 })[0]).toHaveClass("font-mono");
   });
 
   it("shows a section's title as plain text with `Open in editor` as its only control, and no reference chip", async () => {
@@ -60,15 +63,19 @@ describe("the Requirements page", () => {
     expect(screen.queryByRole("button", { name: /View on diagram/ })).not.toBeInTheDocument();
   });
 
-  it("has `Ask more` for the Requirements as the only control in its header, and none on any section, fragment or Area heading", async () => {
+  it("has the title, the subtitle, the search, `Ask more` for the Requirements and `Ask for a change` in its header, and no `Ask more` anywhere else", async () => {
     await show();
+    const header = screen.getByRole("heading", { level: 1, name: "Requirements" }).closest("header")!;
+    expect(within(header).getByText("What the app must do, in plain words. Agents build from this.")).toBeInTheDocument();
+    expect(within(header).getByRole("textbox", { name: "Search requirements" })).toBeInTheDocument();
+    expect(within(header).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
+      "Ask more about the Requirements",
+      "Ask for a change",
+    ]);
     const buttons = screen.getAllByRole("button", { name: /Ask more/ });
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Ask more about the Requirements"]);
-    const button = buttons[0]!;
-    expect(button).toHaveTextContent("Ask more");
-    expect(button).toBeEnabled();
-    const header = screen.getByRole("heading", { level: 1, name: "Requirements" }).closest("header")!;
-    expect(within(header).getAllByRole("button")).toEqual([button]);
+    expect(buttons[0]).toHaveTextContent("Ask more");
+    expect(buttons[0]).toBeEnabled();
     expect(within(header).queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Overlay" })).not.toBeInTheDocument();
     for (const heading of screen.getAllByRole("heading", { level: 2 })) {
@@ -117,6 +124,161 @@ describe("the Requirements page", () => {
     current = snapshot({}, { errors: [{ message: "Two sections are titled `order`.", file: ".weaver/requirements/orders/checkout.md", line: 20 }] });
     await show();
     expect(await screen.findByText("The Model has 1 error")).toBeInTheDocument();
+  });
+});
+
+describe("Ask for a change", () => {
+  function Draft() {
+    const draft = useChatDraftRequest();
+    return <output aria-label="Chat draft" data-request={JSON.stringify(draft)} />;
+  }
+
+  const request = () => screen.getByRole("status", { name: "Chat draft" }).getAttribute("data-request");
+
+  it("shows Chat and asks it for `Change to the Requirements: ` in its message box, sending nothing", async () => {
+    const user = userEvent.setup();
+    await show(<Draft />);
+    expect(request()).toBe("null");
+    await user.click(screen.getByRole("button", { name: "Ask for a change" }));
+    expect(showView).toHaveBeenCalledWith("general");
+    expect(request()).toBe(JSON.stringify({ text: "Change to the Requirements: ", nonce: 1 }));
+    await user.click(screen.getByRole("button", { name: "Ask for a change" }));
+    expect(request()).toBe(JSON.stringify({ text: "Change to the Requirements: ", nonce: 2 }));
+    expect(vi.mocked(call).mock.calls.every(([name]) => name === "view_snapshot")).toBe(true);
+  });
+});
+
+describe("the navigation of the Requirements", () => {
+  const scrolled: HTMLElement[] = [];
+
+  beforeEach(() => {
+    scrolled.length = 0;
+    Element.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this);
+    };
+  });
+
+  const navigation = () => screen.getByRole("navigation", { name: "Requirements sections" });
+
+  it("lists each Area as a heading with one entry per fragment and its number of sections", async () => {
+    await show();
+    const orders = within(navigation()).getByRole("group", { name: "Orders" });
+    expect(within(orders).getAllByRole("button").map((b) => b.textContent)).toEqual(["Checkout2"]);
+    const ui = within(navigation()).getByRole("group", { name: "Interface" });
+    expect(within(ui).getAllByRole("button").map((b) => b.textContent)).toEqual(["App1"]);
+  });
+
+  it("scrolls the fragment of the chosen entry to the top and highlights the entry of the fragment at the top", async () => {
+    const user = userEvent.setup();
+    await show();
+    const checkout = within(navigation()).getByRole("button", { name: /Checkout/ });
+    const app = within(navigation()).getByRole("button", { name: /App/ });
+    expect(checkout).toHaveAttribute("aria-current", "location");
+    expect(app).not.toHaveAttribute("aria-current");
+    await user.click(app);
+    expect(scrolled.map((el) => el.dataset.fragmentKey)).toEqual(["ui/app"]);
+    expect(app).toHaveAttribute("aria-current", "location");
+    expect(checkout).not.toHaveAttribute("aria-current");
+  });
+
+  it("marks with `changed` the fragments the overlaid Proposal adds, removes or changes in any section", async () => {
+    current = snapshot({ overlays: [{ id: "pppppppp", shortNumber: "P3", title: "Pay" }], overlay: "pppppppp" });
+    current.data.requirements[0]!.fragments[0]!.sections[1]!.change = "added";
+    await show();
+    expect(within(within(navigation()).getByRole("button", { name: /Checkout/ })).getByText("changed")).toBeInTheDocument();
+    expect(within(within(navigation()).getByRole("button", { name: /App/ })).queryByText("changed")).not.toBeInTheDocument();
+  });
+
+  it("has no `changed` mark without an overlay", async () => {
+    await show();
+    expect(within(navigation()).queryByText("changed")).not.toBeInTheDocument();
+  });
+});
+
+/** Adds a fragment to the Orders Area, for the tests of the search. */
+function addPayment() {
+  current.data.requirements[0]!.fragments.push({
+    name: "payment",
+    title: "Payment",
+    description: "",
+    change: null,
+    file: null,
+    sections: [{ title: "payment", body: "Pays with a card.", before: null, change: null, movedFrom: null, file: null, line: null }],
+  });
+}
+
+describe("the search of the Requirements", () => {
+  const field = () => screen.getByRole("textbox", { name: "Search requirements" });
+
+  it("keeps in place only the sections whose title or text has the words, whatever the case, and marks the matches", async () => {
+    const user = userEvent.setup();
+    addPayment();
+    await show();
+    await user.type(field(), "CART");
+    expect(screen.getByRole("region", { name: "Orders, order" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Orders, order" })).getByText("cart", { selector: "mark" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Orders, General" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Orders, payment" })).not.toBeInTheDocument();
+  });
+
+  it("looks at titles too, marks them, and needs every word", async () => {
+    const user = userEvent.setup();
+    addPayment();
+    await show();
+    await user.type(field(), "Payment");
+    const section = screen.getByRole("region", { name: "Orders, payment" });
+    expect(within(section).getByRole("heading", { level: 4 }).querySelector("mark")).toHaveTextContent("payment");
+    expect(screen.queryByRole("region", { name: "Orders, order" })).not.toBeInTheDocument();
+
+    await user.clear(field());
+    await user.type(field(), "order cart");
+    expect(screen.getByRole("region", { name: "Orders, order" })).toBeInTheDocument();
+    await user.type(field(), " nothing");
+    expect(screen.getByText("No sections match.")).toBeInTheDocument();
+  });
+
+  it("hides the fragments and Areas left empty and counts in the navigation only what remains", async () => {
+    const user = userEvent.setup();
+    addPayment();
+    await show();
+    const navigation = screen.getByRole("navigation", { name: "Requirements sections" });
+    expect(within(navigation).getAllByRole("button").map((b) => b.textContent)).toEqual(["Checkout2", "Payment1", "App1"]);
+    await user.type(field(), "cart");
+    expect(within(navigation).getAllByRole("button").map((b) => b.textContent)).toEqual(["Checkout1"]);
+    expect(within(navigation).queryByRole("group", { name: "Interface" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Interface" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 3, name: "Payment" })).not.toBeInTheDocument();
+  });
+
+  it("says `No sections match.` when nothing matches", async () => {
+    const user = userEvent.setup();
+    await show();
+    await user.type(field(), "zzz");
+    expect(screen.getByText("No sections match.")).toHaveClass("text-muted-foreground");
+    expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+  });
+
+  it("shows everything again with Esc in the field, or when it is emptied", async () => {
+    const user = userEvent.setup();
+    await show();
+    await user.type(field(), "zzz");
+    await user.keyboard("{Escape}");
+    expect(field()).toHaveValue("");
+    expect(screen.getByRole("region", { name: "Orders, General" })).toBeInTheDocument();
+    await user.type(field(), "cart");
+    expect(screen.queryByRole("region", { name: "Orders, General" })).not.toBeInTheDocument();
+    await user.clear(field());
+    expect(screen.getByRole("region", { name: "Orders, General" })).toBeInTheDocument();
+  });
+
+  it("searches nothing but the sections of the Requirements: no Area prose, no Specs", async () => {
+    const user = userEvent.setup();
+    await show();
+    await user.type(field(), "orders work");
+    expect(screen.getByText("No sections match.")).toBeInTheDocument();
+    await user.clear(field());
+    await user.type(field(), "TypeScript");
+    expect(screen.getByText("No sections match.")).toBeInTheDocument();
   });
 });
 
@@ -195,8 +357,8 @@ describe("the focus of the Requirements", () => {
     expect(within(bar).getByText("1 of 2")).toBeInTheDocument();
     expect(within(bar).getByText("1 not found")).toBeInTheDocument();
     await waitFor(() => expect(new Set(scrolled.map((el) => el.dataset.stepKey))).toEqual(new Set(["orders#order"])));
-    expect(screen.getByRole("region", { name: "Orders, order" })).toHaveClass("border-cyan-600");
-    expect(screen.getByRole("region", { name: "Orders, General" })).not.toHaveClass("border-cyan-600");
+    expect(screen.getByRole("region", { name: "Orders, order" })).toHaveClass("border-sky");
+    expect(screen.getByRole("region", { name: "Orders, General" })).not.toHaveClass("border-sky");
   });
 
   it("goes to the next step and scrolls to it", async () => {
@@ -248,7 +410,7 @@ describe("the focus of the Requirements", () => {
     const user = await focused(["order"]);
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.queryByRole("region", { name: "Focus" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Orders, order" })).not.toHaveClass("border-cyan-600");
+    expect(screen.getByRole("region", { name: "Orders, order" })).not.toHaveClass("border-sky");
     await user.click(screen.getByRole("button", { name: "open focus" }));
     await screen.findByRole("region", { name: "Focus" });
     screen.getByRole("checkbox", { name: "Only these" }).focus();
@@ -260,7 +422,7 @@ describe("the focus of the Requirements", () => {
     current = snapshot({ overlay: "pppppppp", overlays: [{ id: "pppppppp", shortNumber: "P3", title: "Pay" }] });
     current.data.requirements[0]!.fragments[0]!.sections[1]!.change = "added";
     await focused(["order"]);
-    expect(screen.getByRole("region", { name: "Orders, order, added" })).toHaveClass("border-green-600");
+    expect(screen.getByRole("region", { name: "Orders, order, added" })).toHaveClass("border-sage");
   });
 
   it("stays on the same step when the files change", async () => {
@@ -271,5 +433,22 @@ describe("the focus of the Requirements", () => {
     await waitFor(() => expect(backend.asked).toHaveLength(2));
     expect(within(screen.getByRole("region", { name: "Focus" })).getByText("2 of 2")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Focus" })).getByText("Interface")).toBeInTheDocument();
+  });
+
+  it("combines the search with `Only these`: a section shows only when both keep it, and Esc in the field keeps the focus", async () => {
+    const user = await focused(["order"]);
+    await user.click(screen.getByRole("checkbox", { name: "Only these" }));
+    expect(screen.getByRole("region", { name: "Orders, order" })).toBeInTheDocument();
+    const field = screen.getByRole("textbox", { name: "Search requirements" });
+    await user.type(field, "general");
+    expect(screen.queryByRole("region", { name: "Orders, order" })).not.toBeInTheDocument();
+    expect(screen.getByText("No sections match.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(field).toHaveValue("");
+    expect(screen.getByRole("region", { name: "Focus" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Orders, order" })).toBeInTheDocument();
+    // With the field empty, Esc reaches the focus.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Focus" })).not.toBeInTheDocument();
   });
 });

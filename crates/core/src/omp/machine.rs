@@ -584,7 +584,7 @@ impl Machine {
                         | ProbeResult::InstallFailed { .. }
                         | ProbeResult::NoProvider { .. } => {
                             self.become_missing(Some(format!(
-                                "Could not update omp ({}).",
+                                "Could not update the agent ({}).",
                                 reason.trim_end_matches('.')
                             )));
                         }
@@ -1065,11 +1065,11 @@ mod tests {
     fn missing_keeps_the_reason_and_offers_the_installer() {
         let mut rig = Rig::started("/gone/omp");
         rig.probed(ProbeResult::Missing {
-            reason: Some("omp not found at /gone/omp".into()),
+            reason: Some("the agent not found at /gone/omp".into()),
         });
         assert_eq!(
             rig.machine.status().reason.as_deref(),
-            Some("omp not found at /gone/omp")
+            Some("the agent not found at /gone/omp")
         );
         assert_eq!(rig.send(install()), opens_installer());
         assert_eq!(rig.state(), Phase::Installing);
@@ -1262,7 +1262,7 @@ mod tests {
         assert_eq!(rig.state(), Phase::Missing);
         assert_eq!(
             rig.machine.status().reason.as_deref(),
-            Some("omp 18.0.0 is older than 18.15.0 and could not be updated (exit code 1).")
+            Some("the agent 18.0.0 is older than 18.15.0 and could not be updated (exit code 1).")
         );
         // The installer is offered.
         assert_eq!(rig.send(install()), opens_installer());
@@ -1279,7 +1279,7 @@ mod tests {
         assert_eq!(rig.state(), Phase::Missing);
         assert_eq!(
             rig.machine.status().reason.as_deref(),
-            Some("Could not update omp (timed out).")
+            Some("Could not update the agent (timed out).")
         );
     }
 
@@ -1334,7 +1334,7 @@ mod tests {
             assert_eq!(rig.state(), Phase::Missing, "{failure:?}");
             assert_eq!(
                 rig.machine.status().reason,
-                Some(format!("Could not update omp ({reason})."))
+                Some(format!("Could not update the agent ({reason})."))
             );
         }
     }
@@ -1384,7 +1384,7 @@ mod tests {
         let mut rig = Rig::reach("", Phase::LoggingIn);
         rig.send(Event::RecheckDue);
         rig.probed(ProbeResult::Missing {
-            reason: Some("omp did not answer within 15 s".into()),
+            reason: Some("the agent did not answer within 15 s".into()),
         });
         assert_eq!(rig.state(), Phase::Missing);
 
@@ -1567,12 +1567,12 @@ mod tests {
         let mut rig = Rig::reach("", Phase::Ready);
         rig.send(Event::OmpMissing {
             omp_path: "".into(),
-            reason: Some("could not start omp".into()),
+            reason: Some("could not start the agent".into()),
         });
         assert_eq!(rig.state(), Phase::Missing);
         assert_eq!(
             rig.machine.status().reason.as_deref(),
-            Some("could not start omp")
+            Some("could not start the agent")
         );
         assert_eq!(rig.machine.ready(), None);
         // Said for another path, it changes nothing.
@@ -1938,7 +1938,7 @@ mod tests {
         assert_eq!(rig.machine.status().reason, None);
         assert_eq!(
             is_installer_failed(&rig).as_deref(),
-            Some("The omp installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it.")
+            Some("The agent installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it.")
         );
         // The action stays `Install omp`.
         assert_eq!(rig.send(install()), opens_installer());
@@ -1965,12 +1965,12 @@ mod tests {
     #[test]
     fn the_text_of_a_failed_installer_is_by_cause_for_the_setting_as_it_is() {
         for (code, on, expected) in [
-            (90, false, "the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
-            (90, true, "the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
-            (91, false, "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."),
-            (91, true, "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."),
-            (92, false, "the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."),
-            (93, true, "the downloaded omp does not start. See the terminal."),
+            (90, false, "the download of the agent was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
+            (90, true, "the download of the agent was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal."),
+            (91, false, "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it."),
+            (91, true, "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal."),
+            (92, false, "the downloaded agent was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal."),
+            (93, true, "the downloaded agent does not start. See the terminal."),
         ] {
             let mut rig = Rig::reach("", Phase::Installing);
             rig.send(change_certificates("", on));
@@ -1979,7 +1979,7 @@ mod tests {
             assert_eq!(
                 is_installer_failed(&rig),
                 Some(format!(
-                    "The omp installer failed (exit code {code}): {expected}"
+                    "The agent installer failed (exit code {code}): {expected}"
                 )),
                 "code {code}, setting on: {on}"
             );
@@ -1994,13 +1994,13 @@ mod tests {
         assert!(is_installer_failed(&rig).is_some());
         rig.send(Event::ExportEnded);
         rig.probed(ProbeResult::Missing {
-            reason: Some("omp not found at /x".into()),
+            reason: Some("the agent not found at /x".into()),
         });
         assert_eq!(rig.state(), Phase::Missing);
         assert!(is_installer_failed(&rig).unwrap().contains("exit code 56"));
         assert_eq!(
             rig.machine.status().reason.as_deref(),
-            Some("omp not found at /x")
+            Some("the agent not found at /x")
         );
         // omp is found: the code is forgotten, and does not come back.
         rig.send(Event::ExportEnded);

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · Chat</title>
+<script src="2dd9875f-1119-44f5-b932-9f8d48144d31"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F6F5F1; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; font-size: 14px">
+  <div style="flex: 1 1 248px; max-width: 100%; display: flex">
+    <dc-import name="Sidebar" active="chat" hint-size="248px,960px"></dc-import>
+  </div>
+
+  <main style="flex: 999 1 560px; min-width: 0; margin: 8px; background: #FFFFFF; border-radius: 14px; box-shadow: 0 0 0 1px #E7E5DF, 0 1px 3px rgba(24,24,27,0.04); display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 28px; border-bottom: 1px solid #EFEDE7">
+      <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em">Chat</h1>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #52525B; border: 1px solid #E7E5DF; border-radius: 999px; padding: 3px 10px 3px 8px">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #7FAF7B"></span>omp · ready
+      </span>
+      <span style="flex: 1"></span>
+      <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer">
+        <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"></path></svg>
+        New chat
+      </button>
+    </header>
+
+    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; padding: 32px 24px 0">
+      <div style="width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 28px">
+
+        <div style="display: flex; justify-content: flex-end">
+          <p style="margin: 0; max-width: 560px; background: #F6F5F1; border-radius: 16px 16px 4px 16px; padding: 12px 16px; font-size: 14px; line-height: 1.55">Voglio poter semplificare in locale con omp via ACP, senza toccare Azure in produzione.</p>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <svg width="24" height="24" sc-camel-view-box="0 0 30 30" aria-hidden="true"><rect x="0.5" y="0.5" width="29" height="29" rx="8.5" fill="#FBF6EE" stroke="#E7E5DF"></rect><path d="M5.5 15h19" stroke="#96BBE0" stroke-width="2" stroke-linecap="round" opacity="0.8"></path><path d="M7 8.5l4 13" stroke="#EDB08F" stroke-width="3.2" stroke-linecap="round"></path><path d="M11 21.5l4-11" stroke="#A996D6" stroke-width="3.2" stroke-linecap="round"></path><path d="M15 10.5l4 11" stroke="#E3A3B5" stroke-width="3.2" stroke-linecap="round"></path><path d="M19 21.5l4-13" stroke="#9DC09A" stroke-width="3.2" stroke-linecap="round"></path></svg>
+            <span style="font-size: 13px; font-weight: 600">omp</span>
+            <span style="font-size: 12px; color: #6B6B73">09:21</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px #EFEDE7; background: #FAF9F6; align-self: flex-start; min-width: 280px; max-width: 100%">
+            <button type="button" sc-camel-on-click="{{toggleTrace}}" aria-expanded="{{traceOpen}}" style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 0; background: transparent; font: inherit; font-size: 13px; color: #52525B; cursor: pointer; text-align: left; border-radius: 12px">
+              <span style="display: flex; gap: 2px" aria-hidden="true">
+                <span style="width: 3px; height: 12px; border-radius: 2px; background: #A996D6"></span>
+                <span style="width: 3px; height: 12px; border-radius: 2px; background: #96BBE0"></span>
+                <span style="width: 3px; height: 12px; border-radius: 2px; background: #9DC09A"></span>
+              </span>
+              <span style="flex: 1">Worked for 1m 12s · 6 steps</span>
+              <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: {{chev}}"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg>
+            </button>
+            <sc-if value="{{traceOpen}}" hint-placeholder-val="{{ false }}">
+              <ol style="list-style: none; margin: 0; padding: 4px 12px 12px 12px; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid #EFEDE7">
+                <sc-for list="{{steps}}" as="s" hint-placeholder-count="6">
+                  <li style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12.5px; color: #52525B">
+                    <span style="width: 18px; text-align: center; font-family: 'Geist Mono', monospace; font-size: 11px; color: #6B6B73">{{s.kind}}</span>
+                    <span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: {{s.font}}">{{s.label}}</span>
+                    <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" stroke="#3F6B3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  </li>
+                </sc-for>
+              </ol>
+            </sc-if>
+          </div>
+
+          <p style="margin: 0; font-size: 14.5px; line-height: 1.65">Ho scritto la <strong style="font-weight: 600">Proposal P1</strong>. È aperta e la validazione non ha trovato problemi. Il codice dell'app non l'ho toccato: arriverà con la Task, se approvi la Proposal.</p>
+
+          <article aria-label="Proposal P1" style="display: flex; flex-direction: column; border-radius: 14px; background: #FFFFFF; box-shadow: 0 0 0 1px #E2DDF0, 0 4px 14px rgba(91,74,153,0.07); overflow: hidden">
+            <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; background: #F8F6FC; border-bottom: 1px solid #ECE7F6">
+              <span aria-hidden="true" style="width: 32px; height: 32px; flex: none; border-radius: 9px; background: #EFEAF8; color: #5B4A99; display: grid; place-items: center">
+                <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h5.8l2.7 2.7v8.3H4z"></path><path d="M6.5 8l1.3 1.3L10.5 6.7"></path></svg>
+              </span>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+                  <span style="font-size: 12px; font-weight: 500; color: #5B4A99">Proposal P1</span>
+                  <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #3F6B3C; background: #E9F2E7; border-radius: 999px; padding: 2px 8px">
+                    <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Validated
+                  </span>
+                </div>
+                <h2 style="margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em">Semplificazione locale con omp</h2>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 18px; padding: 18px">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <h3 style="margin: 0; font-size: 12px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; color: #6B6B73">Cosa decide</h3>
+                <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.55; color: #27272A">
+                  <li>Terzo servizio, <code style="font-family: 'Geist Mono', monospace; font-size: 12.5px; background: #F6F5F1; border-radius: 4px; padding: 1px 4px">SIMPLIFICATION_SERVICE=omp-acp</code>, accanto ad azure e fake. Solo in sviluppo locale.</li>
+                  <li>Il worker gira sul Mac e avvia <code style="font-family: 'Geist Mono', monospace; font-size: 12.5px; background: #F6F5F1; border-radius: 4px; padding: 1px 4px">omp acp</code>; nei container restano db, azurite, migrate e web.</li>
+                  <li>Il modello di omp si sceglie con una variabile d'ambiente; vuota, usa il predefinito.</li>
+                </ul>
+                <button type="button" style="align-self: flex-start; border: 0; background: transparent; padding: 4px 0; font: inherit; font-size: 13px; font-weight: 500; color: #5B4A99; cursor: pointer">5 scelte da controllare</button>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px; box-shadow: inset 0 0 0 1px #EFEDE7">
+                  <span style="font-size: 12px; color: #6B6B73">Files changed</span>
+                  <div style="display: flex; align-items: center; gap: 8px; font-family: 'Geist Mono', monospace; font-size: 12px"><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">requirements/tech/stack.md</span><span style="color: #3F6B3C">+14</span><span style="color: #9B3B57">−2</span></div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-family: 'Geist Mono', monospace; font-size: 12px"><span style="flex: 1">specs.yaml</span><span style="color: #3F6B3C">+4</span><span style="color: #9B3B57">−0</span></div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px; box-shadow: inset 0 0 0 1px #EFEDE7">
+                  <span style="font-size: 12px; color: #6B6B73">Creates task</span>
+                  <div style="display: flex; align-items: center; gap: 8px"><span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #52525B; background: #F6F5F1; border-radius: 5px; padding: 1px 5px">T1</span><span style="font-size: 13px; font-weight: 500">Semplificazione con omp ACP</span></div>
+                  <span style="font-size: 12px; color: #6B6B73; line-height: 1.45">Codice, configurazione, .env.example, README, test con un finto server ACP</span>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #FBEDE4">
+                <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="#9A4A22" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M8 2.5l6 10.5H2z"></path><path d="M8 6.8v2.6M8 11.2h.01"></path></svg>
+                <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #6E3417"><strong style="font-weight: 600">Da sapere.</strong> Con questa modalità il testo dei documenti va al provider di modelli configurato in omp. Usala solo con documenti di prova.</p>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; box-shadow: inset 0 0 0 1px #E2DDF0; flex-wrap: wrap">
+                <span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 50%; background: #EFEAF8; color: #5B4A99; display: grid; place-items: center; font-size: 12px; font-weight: 600">?</span>
+                <span style="flex: 1 1 220px; font-size: 13px; line-height: 1.5">Da chiarire: come passare il modello a <code style="font-family: 'Geist Mono', monospace; font-size: 12.5px">omp acp</code>, il suo --help non mostra opzioni.</span>
+                <button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E2DDF0; background: #FFFFFF; font: inherit; font-size: 12.5px; font-weight: 500; color: #5B4A99; cursor: pointer">Rispondi</button>
+              </div>
+            </div>
+
+            <sc-if value="{{pending}}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 18px; border-top: 1px solid #EFEDE7; background: #FAF9F6">
+                <button type="button" sc-camel-on-click="{{approve}}" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: #18181B; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">
+                  <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approve
+                </button>
+                <button type="button" style="height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer">Reject</button>
+                <button type="button" style="height: 36px; padding: 0 12px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 500; color: #52525B; cursor: pointer">View diff</button>
+                <span style="flex: 1"></span>
+                <span style="font-family: 'Geist Mono', monospace; font-size: 11.5px; color: #6B6B73">q0ewq9c0</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{approved}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; border-top: 1px solid #DCEBD8; background: #E9F2E7; color: #2F5A2D">
+                <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                <span style="flex: 1; font-size: 13px; font-weight: 500">Approved. T1 is now on the Board, ready to run.</span>
+                <a href="Main.dc.html" style="font-size: 13px; font-weight: 500; color: #2F5A2D">Open Board</a>
+                <button type="button" sc-camel-on-click="{{undo}}" style="border: 0; background: transparent; font: inherit; font-size: 13px; color: #2F5A2D; cursor: pointer; padding: 4px 6px">Undo</button>
+              </div>
+            </sc-if>
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div style="position: sticky; bottom: 0; display: flex; justify-content: center; padding: 20px 24px 24px; background: linear-gradient(rgba(255,255,255,0), #FFFFFF 28%); border-radius: 0 0 14px 14px">
+      <div style="width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-wrap: wrap; gap: 6px">
+          <button type="button" style="height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid #E7E5DF; background: #FFFFFF; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">Spiegami il rischio sui dati</button>
+          <button type="button" style="height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid #E7E5DF; background: #FFFFFF; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">Mostra le 5 scelte</button>
+          <button type="button" style="height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid #E7E5DF; background: #FFFFFF; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">Rispondi alla domanda aperta</button>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 10px 16px; border-radius: 16px; background: #FFFFFF; box-shadow: 0 0 0 1px #E0DDD5, 0 6px 20px rgba(24,24,27,0.06)">
+          <label for="composer" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message omp</label>
+          <textarea id="composer" rows="2" placeholder="Message omp… use @ to add files, / for commands" style="border: 0; outline: none; resize: none; font: inherit; font-size: 14px; line-height: 1.5; color: #18181B; background: transparent; padding: 2px 0"></textarea>
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+            <button type="button" aria-label="Attach file" style="width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 8px; color: #52525B; cursor: pointer">
+              <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7.5l-4.6 4.6a2.5 2.5 0 0 1-3.5-3.5L8.6 4a1.7 1.7 0 0 1 2.4 2.4L6.4 11"></path></svg>
+            </button>
+            <span style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-radius: 8px; background: #F6F5F1; font-size: 12px; color: #52525B">
+              <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5h5.8l2.7 2.7v8.3H4z"></path></svg>
+              <span style="font-family: 'Geist Mono', monospace">stack.md</span>
+            </span>
+            <span style="flex: 1"></span>
+            <button type="button" style="display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px; border: 0; background: transparent; border-radius: 8px; font: inherit; font-size: 12.5px; color: #52525B; cursor: pointer">omp · default model
+              <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg>
+            </button>
+            <button type="button" aria-label="Send" style="width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: #18181B; border-radius: 10px; color: #FFFFFF; cursor: pointer">
+              <svg width="16" height="16" sc-camel-view-box="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3.5M4 7.5l4-4 4 4"></path></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1180}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { traceOpen: false, approved: false };
+  }
+  renderVals() {
+    var self = this;
+    var open = this.state.traceOpen;
+    var mono = "'Geist Mono', monospace";
+    var sans = 'inherit';
+    return {
+      traceOpen: open,
+      chev: open ? 'rotate(180deg)' : 'none',
+      toggleTrace: function () { self.setState({ traceOpen: !open }); },
+      pending: !this.state.approved,
+      approved: this.state.approved,
+      approve: function () { self.setState({ approved: true }); },
+      undo: function () { self.setState({ approved: false }); },
+      steps: [
+        { kind: 'R', label: 'Read simplifier section of fragment', font: sans },
+        { kind: 'R', label: 'Read specs frameworks block', font: sans },
+        { kind: 'E', label: 'Added omp ACP to specs and simplifier requirements', font: sans },
+        { kind: '$', label: 'weaver proposal edit q0ewq9c0', font: mono },
+        { kind: 'E', label: 'Wrote Task body', font: sans },
+        { kind: '$', label: 'weaver proposal move q0ewq9c0 open', font: mono }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

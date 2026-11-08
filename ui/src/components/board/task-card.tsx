@@ -1,21 +1,28 @@
-import { ListChecks, Package, Play, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { Bot, ChevronRight, ListChecks, Package, Play, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { JobRow } from "@/bindings/JobRow";
 import type { TitledRef } from "@/bindings/TitledRef";
 import { AskMoreButton } from "@/components/ask/ask-button";
 import { useBoard } from "@/components/board/board-state";
 import { useBoardActions, type FocusView } from "@/components/board/board-ui";
 import { registerCardRenderer, type BoardCardOf } from "@/components/board/card-registry";
 import { CardShell } from "@/components/board/card-shell";
+import { fileChips, type FileChip } from "@/components/board/file-chips";
 import { ConfirmDialog } from "@/components/dialogs";
 import { cardReasons, GuardedButton } from "@/components/guarded-button";
+import { useOptionalJobs } from "@/components/jobs/use-jobs";
 import { Markdown } from "@/components/markdown";
+import { useProject } from "@/components/project-context";
 import { Badge, badgeVariants } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { FocusSubject } from "@/components/views/focus-model";
-import { labelTone, leftBorderClass } from "@/lib/label-colour";
-import { TONE_BORDER, TONE_TEXT } from "@/lib/tones";
+import { useOptionalViews } from "@/components/views/views-state";
+import { formatRunning } from "@/lib/format";
+import { firstParagraph } from "@/lib/plain-text";
+import { TONE_DOT, TONE_PILL } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
 type TaskCardData = BoardCardOf<"task">;
@@ -26,14 +33,32 @@ function nameOf(ref: { id: string; shortNumber: string | null }): string {
 }
 
 /** `To do`, `In progress`, or `Agent working` while a job holds the Task. */
-export function taskStatus(card: Pick<TaskCardData, "doing" | "heldByAgent">): string {
-  if (card.heldByAgent) return "Agent working";
+export function taskStatus(card: Pick<TaskCardData, "doing" | "heldBy">): string {
+  if (card.heldBy !== null) return "Agent working";
   return card.doing ? "In progress" : "To do";
 }
 
-/** The 8 px status dot of a Task: a hollow ring in To do, a filled amber dot in progress. Never animated. */
-function StatusDot({ card }: { card: TaskCardData }) {
-  const label = taskStatus(card);
+/** The running time of a job, ticking every second while it has a session (`null` before). */
+function useJobRunning(job: JobRow | undefined): string | null {
+  const started = job?.started ?? null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (started === null) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [started]);
+  return started === null ? null : formatRunning(now - Date.parse(started));
+}
+
+/**
+ * The status of a Task as a pill, never animated, with its tooltip and accessible name: To do is a
+ * neutral pill with a hollow ring, In progress a Sky pill with a filled dot, and while a job holds
+ * the Task `Agent working · <running time of that job>`.
+ */
+function StatusPill({ card, running }: { card: TaskCardData; running: string | null }) {
+  const active = card.doing || card.heldBy !== null;
+  const label = card.heldBy !== null && running !== null ? `${taskStatus(card)} · ${running}` : taskStatus(card);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -41,10 +66,13 @@ function StatusDot({ card }: { card: TaskCardData }) {
           role="img"
           aria-label={label}
           className={cn(
-            "mt-1.5 inline-block size-2 shrink-0 rounded-full",
-            card.doing ? "bg-amber-600 dark:bg-amber-400" : "border border-muted-foreground",
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums",
+            active ? TONE_PILL.sky : "bg-muted text-ink-2",
           )}
-        />
+        >
+          <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", active ? TONE_DOT.sky : "border border-current")} />
+          <span aria-hidden>{label}</span>
+        </span>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -91,7 +119,7 @@ function RefsPopover({ kind, refs }: RefsPopoverProps) {
               type="button"
               aria-label={text}
               className={cn(
-                badgeVariants({ variant: blocked ? "error" : "warning" }),
+                badgeVariants({ variant: "warning" }),
                 "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               )}
             >
@@ -136,50 +164,108 @@ function RefsPopover({ kind, refs }: RefsPopoverProps) {
   );
 }
 
-/** The badge of the Proposal's label, in the label's colour (and its text, never colour alone). */
+/** The label of a Proposal: text in an outline badge, with no colour of its own. */
 export function LabelBadge({ label }: { label: string }) {
-  const tone = labelTone(label);
   return (
-    <Badge variant="outline" className={cn(TONE_TEXT[tone], TONE_BORDER[tone])} title={`Label ${label}`}>
+    <Badge variant="outline" title={`Label ${label}`}>
       {label}
     </Badge>
   );
 }
 
+/** The chip of a Requirements fragment or of a Specs field a Task names: a button that opens the single-ref focus of the first reference it stands for. */
+function FileChipButton({ chip }: { chip: FileChip }) {
+  const { viewOn } = useBoardActions();
+  return (
+    <button
+      type="button"
+      className={cn(badgeVariants({ variant: "outline" }), "cursor-pointer rounded-sm font-mono text-[11.5px] font-normal hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+      aria-label={`${FOCUS_BUTTONS[chip.view].label}: ${chip.label}`}
+      onClick={() => viewOn?.(chip.view, [chip.ref])}
+    >
+      {chip.label}
+    </button>
+  );
+}
+
 function TaskCard({ card }: { card: TaskCardData }) {
   const { head } = card;
-  const held = card.heldByAgent;
+  const { openJob } = useProject();
+  const jobs = useOptionalJobs();
+  const data = useOptionalViews()?.snapshot?.data;
+  const job = card.heldBy === null ? undefined : jobs?.jobs.find((candidate) => candidate.id === card.heldBy);
+  const running = useJobRunning(job);
+  const summary = firstParagraph(head.body);
+  const chips = useMemo(() => fileChips(card.refs, data), [card.refs, data]);
+  const subject: FocusSubject = { kind: "task", id: head.id, number: head.shortNumber, title: head.title };
+  const held = card.heldBy;
   return (
     <CardShell
       cardId={head.id}
       shortNumber={head.shortNumber}
       title={head.title}
-      lead={<StatusDot card={card} />}
-      accent={cn(leftBorderClass(card.label), held && "task-held")}
+      meta={card.label ? <span className="min-w-0 truncate text-xs text-muted-foreground">{card.label}</span> : null}
+      status={<StatusPill card={card} running={running} />}
+      summary={summary ? <p className="line-clamp-3 text-[13px] leading-normal text-ink-2">{summary}</p> : null}
+      accent={held !== null ? "task-held" : undefined}
       badges={
+        card.technical || card.blockedBy.length > 0 || card.waitingFor.length > 0 || chips.length > 0 ? (
+          <>
+            {card.technical ? (
+              <Badge variant="outline" className="rounded-sm font-normal">
+                technical
+              </Badge>
+            ) : null}
+            {card.blockedBy.length > 0 ? <RefsPopover kind="blocked" refs={card.blockedBy} /> : null}
+            {card.waitingFor.length > 0 ? <RefsPopover kind="waiting" refs={card.waitingFor} /> : null}
+            {chips.map((chip) => (
+              <FileChipButton key={chip.key} chip={chip} />
+            ))}
+          </>
+        ) : null
+      }
+      controls={
         <>
-          {card.technical ? <Badge variant="outline">technical</Badge> : null}
-          {card.blockedBy.length > 0 ? <RefsPopover kind="blocked" refs={card.blockedBy} /> : null}
-          {card.waitingFor.length > 0 ? <RefsPopover kind="waiting" refs={card.waitingFor} /> : null}
-          {card.label ? <LabelBadge label={card.label} /> : null}
+          {held !== null ? (
+            <>
+              <span aria-hidden className={cn("grid size-[22px] shrink-0 place-items-center rounded-md", TONE_PILL.sky)}>
+                <Bot className="size-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-2">{job?.name ?? "Agent"}</span>
+            </>
+          ) : null}
+          <FocusButton view="requirements" refs={card.refs} subject={subject} />
+          {held !== null ? (
+            <Button variant="secondary" size="sm" onClick={() => openJob(held)}>
+              Open job
+              <ChevronRight aria-hidden />
+            </Button>
+          ) : (
+            <RunButton card={card} />
+          )}
         </>
       }
-      controls={<TaskControls card={card} />}
     />
+  );
+}
+
+function RunButton({ card }: { card: TaskCardData }) {
+  const actions = useBoardActions();
+  return (
+    <GuardedButton variant="secondary" size="sm" reasons={card.runReasons} onClick={() => actions.runTask?.(card.head.id)}>
+      <Play aria-hidden />
+      Run
+    </GuardedButton>
   );
 }
 
 /** `View requirements` (only when its focus has at least one step) and `Run`. */
 function TaskControls({ card }: { card: TaskCardData }) {
-  const actions = useBoardActions();
   const subject: FocusSubject = { kind: "task", id: card.head.id, number: card.head.shortNumber, title: card.head.title };
   return (
     <>
       <FocusButton view="requirements" refs={card.refs} subject={subject} />
-      <GuardedButton variant="outline" size="sm" reasons={card.runReasons} onClick={() => actions.runTask?.(card.head.id)}>
-        <Play aria-hidden />
-        Run
-      </GuardedButton>
+      <RunButton card={card} />
     </>
   );
 }
@@ -195,7 +281,7 @@ export function FocusButton({ view, refs, subject }: { view: FocusView; refs: re
   if (refs.length === 0 || !viewOn || !focusSteps || focusSteps(view, refs, subject) < 1) return null;
   const { label, icon: Icon } = FOCUS_BUTTONS[view];
   return (
-    <GuardedButton variant="outline" size="sm" onClick={() => viewOn(view, refs, subject)}>
+    <GuardedButton variant="ghost" size="sm" onClick={() => viewOn(view, refs, subject)}>
       <Icon aria-hidden />
       {label}
     </GuardedButton>
@@ -228,9 +314,9 @@ function TaskDetails({ card }: { card: TaskCardData }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">{taskStatus(card)}</Badge>
+        <Badge variant={card.doing || card.heldBy !== null ? "info" : "secondary"}>{taskStatus(card)}</Badge>
         {card.technical ? <Badge variant="outline">technical</Badge> : null}
-        {card.blockedBy.length > 0 ? <Badge variant="error">blocked</Badge> : null}
+        {card.blockedBy.length > 0 ? <Badge variant="warning">blocked</Badge> : null}
         {card.waitingFor.length > 0 ? <Badge variant="warning">waiting {card.waitingFor.map(nameOf).join(", ")}</Badge> : null}
         {card.label ? <LabelBadge label={card.label} /> : null}
       </div>

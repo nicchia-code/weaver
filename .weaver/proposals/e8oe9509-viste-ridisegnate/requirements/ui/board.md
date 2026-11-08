@@ -1,0 +1,53 @@
+---
+description: "Use when building or changing the Board: columns, footers, ghosts, notices, Task cards and their details dialogs."
+---
+# Board
+
+## work
+- Two columns of equal width share the whole view, under the header, with 24 px around and 16 px between them, in this order: `Backlog` (open Proposals and open Drifts in one creation order, oldest first) and `Active` (Tasks in To do and In progress, blocked ones included, oldest first). No Done column, collapsed or not, and no other column.
+- Each column is a lane: Lane background, inset 1 px `#EFEDE7` ring, radius 14 px, padding 14 px, 12 px between cards. Its heading: an 8 px dot (Lavender for Backlog, Sky for Active), the title (13 px semibold) and the number of its real cards in Muted; ghosts never count, a resolution card counts once.
+- The Backlog grouping (which Drifts sit in a resolution, which Proposals are hidden) comes computed from the backend; the interface never regroups.
+- No card can be dragged, moved, taken back or removed from the Board. Clicking a card outside its controls, or Enter on its title, opens its details dialog.
+- Each column scrolls on its own.
+- **Empty Backlog:** centred in the lane, the woven drawing of the redesign (three threads, decorative), `Nothing to decide` (14 px semibold), `New work items and Proposals from Chat land here for your go-ahead.` in Muted, then `Work item` (secondary, `Plus`), which opens a new design request, and `Ask in Chat` (ghost), which shows Chat. It shows also above ghosts. **Empty Active:** `Nothing active` in Muted, also above ghosts.
+
+### Header
+- Board header (the view header of `requirements/ui#General`, title `Board`), subtitle in Muted: `<n> active · <m> done since last scan`, where `<n>` is the number of real cards in Active and `<m>` the Tasks finished (not closed unchanged) since the last scan job of the whole System started, asked by the developer or started after a merge, deleted and forgotten ones included; each part is left out when 0, and the subtitle with them.
+- On its right, in order: `Merge` while Solo mode is on (`requirements/ui#solo-merge`); `Scan System` (secondary, `ScanSearch`), which confirms first (`Compare the whole System with the code?`, `Scan System` / `Cancel`; cancelling leaves the count unchanged) and is disabled with `A merge is in progress` while a merge is in progress; then `Run all` (primary, `Play`) followed inside the button by `<n> ready` in a lighter weight and colour, the Tasks in To do that are not blocked (hidden when 0). Tooltip `Run all the Tasks in To do`. Disabled reasons, in order: `A merge is in progress`, `Drifts are being resolved`, `A run is in progress`, `No Task is in To do`, `All the Tasks in To do are blocked`.
+- The Backlog heading ends with an icon-only `Plus` button `New Work Item` (tooltip `Write a work item in Markdown and send it to an agent`), always enabled, which opens a new design request (see `design-request`).
+- While a merge is in progress its banner sits at the top of the Board, above the notices (`requirements/ui#solo-merge`).
+
+### Ghosts
+- A ghost sits at the bottom of its target column (Backlog for a Proposal or Drift, Active for a Task), after the real cards, in announcement order; Weaver's own ghost of a setup or import job takes the place it would have if it had been announced when its job was created.
+- Skeleton card: dashed border, 70% opacity. Top part, known and still: the kind (`Proposal`, `Task`, `Drift`), the title, a phase line, then the job's latest note in muted text on one line cut with `…` (full text as tooltip). None of these ever shimmers.
+- Phase line: `Preparing` until the Draft exists, `Writing` once it exists, `Waiting for your answers` while the job waits for a round or a permission, `Being refined` for a refinement. Plain muted text, no icon, no animation.
+- Under the known part, always, one block of placeholders for what the ghost does not know yet, in the order of the real card of its kind and with its shape: muted bars and blocks with no text.
+  - Proposal: a short bar for the id, a bar for the files line, a bar for the Tasks line (always shown), then a row of two button-sized blocks for the controls.
+  - Task: a small circle for the status dot next to a short bar for the id, then one button-sized block for `Run`.
+  - Drift: a short bar for the id, then a row of two button-sized blocks for `Resolve` and `Dismiss Drift`.
+- Only the placeholders shimmer: a light band sweeps across them from right to left, once every 2.4 s. Under reduced motion they are still bars.
+- The whole ghost is one button that opens its job's conversation in Jobs. Accessible name `<kind> being prepared by the agent: <title>, <phase>`.
+- When the card arrives, in the same picture the ghost disappears and the card takes its place in creation order.
+- **Weaver's own ghost of a setup or import job:** from the moment the job is created (queued) until it ends, suspended included, whenever none of the job's announced ghosts is on the Board, Backlog shows one ghost of the job made by Weaver, without any announcement.
+  - Kind `Proposal`; title `Setup` for a setup job, `Import from Code` for an import job; phase line `Waiting for your answers` while the job waits for a round or a permission, `Preparing` otherwise (never `Writing`); the job's latest note as on the other ghosts. Same skeleton, button and accessible name as every ghost (`Proposal being prepared by the agent: Setup, Preparing`); it never counts in the column's number.
+  - In the same picture in which the job's first announced ghost appears, it disappears; it comes back in the same picture in which the job's last announced ghost leaves, while the job has not ended. A Proposal's ghost stays while its Draft is written, so Weaver's ghost stays away until that Proposal is handed over.
+  - It disappears when the job ends, whatever the reason, in the same picture as the job's other ghosts.
+  - Its identity is derived from its job, stays the same across pictures and never equals an announcement's; it is never stored in the job's record.
+
+### Details dialogs and notices
+- A details dialog follows its card: each new picture updates it in place without moving the focus. When the card leaves the Board (decided, Done, deleted, gathered into a resolution) the dialog closes by itself and the focus goes to the column the card was in.
+- Notices sit at the top of the Board, above both columns, newest first, each an `Alert` with a close button, until closed or the window closes: decisions refused when applied (`Could not delete T4: the agent that filed it is still working.`), Proposals sent back to Draft while the developer was deciding them, and History entries Weaver did not commit (`requirements/ui#atomic-commits`).
+- History warnings sit under the notices, above both columns: one amber `Alert` with `TriangleAlert` for each cited Task whose copy in History could not be made (`Could not record T3 in History: <reason>. The Task stays until its copy can be made.`), each with a close button (`X`, accessible name and tooltip `Close`). A closed warning stays hidden while the window stays open, even when the Board changes; it shows again at the next opening of the window if it is still true. A new warning, or one whose text changed, shows at once.
+
+## task
+- Card: Surface, 1 px Line ring and the soft shadow of a card on a lane, radius 12 px, padding 14 px 16 px 16 px, 12 px between its rows:
+  1. the id tag, the Proposal's label in Muted when it has one, and, pushed right, the status pill;
+  2. the title (15 px semibold, at most 3 lines) and, under it, the first paragraph of the body as plain text in Ink 2, at most 3 lines cut with `…`;
+  3. chips, when there are some: `technical` (outline) for a technical Task, `blocked` and `waiting <id>` (Peach), then one chip per Requirement fragment and per Specs field the Task's refs name, in Geist Mono (`stack.md`, `specs.yaml`), each a button opening the single-ref focus of the first ref it stands for;
+  4. after a `#EFEDE7` rule, the footer: while a job holds the Task, a 22 px Sky tile with `Bot`, the job's name (`Run T3`, `All tasks`) in Ink 2, `View requirements` (ghost) and `Open job` (secondary, `ChevronRight` after the text), which shows the Jobs view with that job selected; otherwise `View requirements` (ghost) and `Run` (secondary, `Play`). `View requirements` shows only when its focus would have at least one step.
+- Status pill, never animated, with tooltip and accessible name: To do = neutral pill with a hollow ring, `To do`; In progress = Sky pill with a filled dot, `In progress`, or, while a job holds it, `Agent working · <running time of that job>` (as in the Jobs list, ticking every second).
+- `blocked` and `waiting` are Popover buttons: `Blocked by` lists the blocking Drifts (id, title) in creation order, `Waiting for` lists the fix Task; a row closes the popover, scrolls its card (or its row in a resolution card) into view and focuses it. Tooltips: `Blocked by Drift D3, D7`, `Waiting for Task T4`.
+- No coloured border tells the label: every Task card has the same Line ring. No phase of the work (plan, implementation, tests) is shown.
+- While a job holds it: a 2 px conic border rotating through Sky's base and ink (CSS only, one turn every 3 s), static Sky under reduced motion. No other card has it.
+- `Run` disabled reasons, in order: `The agent is still finishing`, `A merge is in progress`, `Drifts are being resolved`, `A run is in progress`, `The agent is working on it`, `Blocked by Drift <ids>`, `Waiting for Task <id>`. Another Task held by the agent never disables it.
+- Details dialog: id, status, badges, label, refs as chips (single-ref focus), rendered body, for a fix Task its Drift's two sides, chosen option and note; then `View requirements`, `Run`, `Ask more` (see `ask-conversation`; not on the card) and, only in To do, `Delete` (destructive), confirmed with `Delete <id> for good?` / `Delete` / `Cancel`. `Delete` disabled reasons, in order: `The agent is still finishing`, `Origin of open Drift <id>`, `Fix Task of Drift <id>, whose code is to be fixed`.

@@ -36,7 +36,7 @@ export function AskMoreButton({
 }
 
 /**
- * `Ask more` in the header of the Requirements view, its only control: a small
+ * `Ask more` in the header of the Requirements view, between the search and `Ask for a change`: a
  * ghost button with the icon and the text, always visible and enabled, about the Requirements as a
  * whole. It sends only the overlay Proposal in view, if any; never a section, an Area, the focus or
  * `Only these`. The view stays as it was.
@@ -49,7 +49,6 @@ export function AskRequirementsButton() {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="sm"
           aria-label="Ask more about the Requirements"
           onClick={() => void askMore?.({ kind: "requirements", overlay: snapshot?.overlay ?? null })}
         >

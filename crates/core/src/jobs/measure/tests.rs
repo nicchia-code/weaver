@@ -367,6 +367,7 @@ fn run_record(state: JobState) -> JobRecord {
             since: None,
         }),
         running_incomplete: false,
+        by_chat: false,
     }
 }
 

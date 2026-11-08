@@ -6,12 +6,11 @@ import type { HistoryEntry } from "@/bindings/HistoryEntry";
 import type { HistorySnapshot } from "@/bindings/HistorySnapshot";
 import type { HistoryTask } from "@/bindings/HistoryTask";
 import { BoardActionsContext } from "@/components/board/board-ui";
-import { groupByDay, inPeriod, localMidnight, plainSummary } from "@/components/history/history-model";
+import { groupByDay, inPeriod, localMidnight, periodTotals } from "@/components/history/history-model";
 import { HistoryView } from "@/components/history/history-view";
 import { ProjectContext } from "@/components/project-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on } from "@/lib/backend";
-import { fnv1a32, labelTone } from "@/lib/label-tone";
 
 vi.mock("@/lib/backend", () => ({
   call: vi.fn(),
@@ -62,7 +61,7 @@ function install(entries: HistoryEntry[], revision = 1) {
 async function show() {
   render(
     <TooltipProvider>
-      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+      <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
         <HistoryView now={() => NOW} />
       </ProjectContext.Provider>
     </TooltipProvider>,
@@ -76,6 +75,10 @@ async function choosePeriod(user: UserEvent, name: string) {
 }
 
 const group = (name: string) => screen.getByRole("region", { name });
+const totalsOf = () => {
+  const boxes = [...document.querySelectorAll("dl > div")];
+  return Object.fromEntries(boxes.map((box) => [box.querySelector("dt")?.textContent, box.querySelector("dd")?.textContent]));
+};
 const titles = () => screen.queryAllByRole("button").map((button) => button.textContent ?? "");
 
 beforeEach(() => {
@@ -113,7 +116,7 @@ describe("the periods", () => {
 });
 
 describe("the grouping", () => {
-  it("names Today, Yesterday and then the long date, each with its count, keeping the order of the backend", () => {
+  it("names Today, Yesterday and then the weekday, each with its date and its count, keeping the order of the backend", () => {
     const entries = [
       entry("aaaaaaaa", "One", local(11, 2, 11, 0)),
       entry("bbbbbbbb", "Two", local(11, 2, 9, 30)),
@@ -121,34 +124,79 @@ describe("the grouping", () => {
       entry("dddddddd", "Four", local(10, 30, 10, 0)),
     ];
     const groups = groupByDay(entries, "all", NOW);
-    expect(groups.map((g) => g.header)).toEqual(["Today · 2", "Yesterday · 1", "Friday, 30 October 2026 · 1"]);
-    expect(groups.map((g) => g.showTime)).toEqual([true, true, false]);
+    expect(groups.map((g) => [g.name, g.date, g.count])).toEqual([
+      ["Today", "Monday, 2 November 2026", "· 2 entries"],
+      ["Yesterday", "Sunday, 1 November 2026", "· 1 entry"],
+      ["Friday", "30 October 2026", "· 1 entry"],
+    ]);
     expect(groups[0]?.entries.map((e) => e.title)).toEqual(["One", "Two"]);
-  });
-
-  it("writes the summary on one line without its inline marks", () => {
-    expect(plainSummary("**Bold** and `code` with [a link](https://example.com)")).toBe("Bold and code with a link");
   });
 });
 
-describe("the label colour", () => {
-  it("is the FNV-1a 32-bit hash of the UTF-8 bytes modulo 6, in the order blue, green, amber, violet, cyan, pink", () => {
-    expect(fnv1a32("")).toBe(0x811c9dc5);
-    expect(fnv1a32("a")).toBe(0xe40c292c);
-    expect(labelTone("")).toBe("green");
-    expect(labelTone("a")).toBe("cyan");
+describe("the totals of a period", () => {
+  const totals = (entries: HistoryEntry[], period: "today" | "all" = "all") => periodTotals(groupByDay(entries, period, NOW), NOW);
+
+  it("count the entries, the Tasks they cite and give the date of the newest", () => {
+    const entries = [
+      entry("aaaaaaaa", "One", local(11, 2, 11, 5)),
+      entry("bbbbbbbb", "Two", local(11, 1, 18, 0), { tasks: [task("bbbb0001", "A"), task("bbbb0002", "B")] }),
+    ];
+    expect(totals(entries)).toEqual({ delivered: 2, tasksDone: 3, lastDelivery: "Today, 11:05" });
+    expect(totals(entries.slice(1))).toEqual({ delivered: 1, tasksDone: 2, lastDelivery: "Yesterday, 18:00" });
+  });
+
+  it("write the date out for an older newest entry, and give nothing for an empty period", () => {
+    expect(totals([entry("aaaaaaaa", "Old", local(10, 30, 10, 0))]).lastDelivery).toBe("Friday, 30 October 2026");
+    expect(totals([entry("aaaaaaaa", "Old", local(10, 30, 10, 0))], "today")).toEqual({ delivered: 0, tasksDone: 0, lastDelivery: null });
+  });
+
+  it("take the newest by date, not by position", () => {
+    const entries = [entry("aaaaaaaa", "Early", local(11, 2, 8, 0)), entry("bbbbbbbb", "Late", local(11, 2, 10, 45))];
+    expect(totals(entries).lastDelivery).toBe("Today, 10:45");
   });
 });
 
 describe("HistoryView", () => {
-  it("has the view header with the title History and the Period filter on its right", async () => {
+  it("has the view header with the title History, its subtitle and the Period filter on its right", async () => {
     install([entry("aaaaaaaa", "Checkout works", local(11, 2, 9, 30))]);
     await show();
     const header = screen.getByRole("heading", { level: 1, name: "History" }).closest("header")!;
+    expect(within(header).getByText("Everything that shipped, grouped as it was delivered.")).toBeInTheDocument();
     expect(within(header).getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
-  it("groups the entries by local day under Today, Yesterday and the long date, and shows the time only in the first two", async () => {
+  it("offers Today, Last 7 days, Last 30 days and All time", async () => {
+    const user = userEvent.setup();
+    install([]);
+    await show();
+    await user.click(screen.getByRole("combobox", { name: "Period" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Today", "Last 7 days", "Last 30 days", "All time"]);
+  });
+
+  it("shows three totals computed on the entries of the period, and a dash for an empty one", async () => {
+    const user = userEvent.setup();
+    install([
+      entry("aaaaaaaa", "Now", local(11, 2, 11, 5)),
+      entry("bbbbbbbb", "Yesterday", local(11, 1, 18, 0), { tasks: [task("bbbb0001", "A"), task("bbbb0002", "B")] }),
+      entry("cccccccc", "Long ago", local(8, 15, 12, 0)),
+    ]);
+    await show();
+    expect(totalsOf()).toEqual({ Delivered: "2", "Tasks done": "3", "Last delivery": "Today, 11:05" });
+
+    await choosePeriod(user, "All time");
+    expect(totalsOf()).toEqual({ Delivered: "3", "Tasks done": "4", "Last delivery": "Today, 11:05" });
+
+    await choosePeriod(user, "Today");
+    expect(totalsOf()).toEqual({ Delivered: "1", "Tasks done": "1", "Last delivery": "Today, 11:05" });
+  });
+
+  it("shows a dash as the last delivery when the period is empty", async () => {
+    install([entry("aaaaaaaa", "Old", local(9, 1, 12, 0))]);
+    await show();
+    expect(totalsOf()).toEqual({ Delivered: "0", "Tasks done": "0", "Last delivery": "—" });
+  });
+
+  it("groups the entries by local day under Today, Yesterday and the weekday, each with its date and count, and shows the time and the Tasks on every row", async () => {
     install([
       entry("aaaaaaaa", "Checkout works", local(11, 2, 9, 30)),
       entry("bbbbbbbb", "Cart totals", local(11, 2, 8, 15), { tasks: [task("bbbb0001", "One"), task("bbbb0002", "Two")] }),
@@ -157,17 +205,17 @@ describe("HistoryView", () => {
     ]);
     await show();
 
-    expect(within(group("Today · 2")).getAllByRole("listitem")).toHaveLength(2);
-    expect(group("Yesterday · 1")).toBeInTheDocument();
-    expect(group("Friday, 30 October 2026 · 1")).toBeInTheDocument();
+    const today = group("Today Monday, 2 November 2026 · 2 entries");
+    expect(within(today).getAllByRole("listitem")).toHaveLength(2);
+    const yesterday = group("Yesterday Sunday, 1 November 2026 · 1 entry");
+    const friday = group("Friday 30 October 2026 · 1 entry");
 
-    const today = group("Today · 2");
     expect(within(today).getByText("09:30")).toBeInTheDocument();
     expect(within(today).getByText("08:15")).toBeInTheDocument();
-    expect(within(today).getByText("2 Tasks")).toBeInTheDocument();
-    expect(within(today).getByText("1 Task")).toBeInTheDocument();
-    expect(within(group("Yesterday · 1")).getByText("18:00")).toBeInTheDocument();
-    expect(within(group("Friday, 30 October 2026 · 1")).queryByText("10:00")).not.toBeInTheDocument();
+    expect(within(today).getByText("2 tasks")).toBeInTheDocument();
+    expect(within(today).getByText("1 task")).toBeInTheDocument();
+    expect(within(yesterday).getByText("18:00")).toBeInTheDocument();
+    expect(within(friday).getByText("10:00")).toBeInTheDocument();
   });
 
   it("shows Last 7 days first and filters by the period chosen, entries in the future only under All", async () => {
@@ -197,7 +245,7 @@ describe("HistoryView", () => {
     expect(screen.queryByText("Long ago")).not.toBeInTheDocument();
     expect(screen.queryByText("Soon")).not.toBeInTheDocument();
 
-    await choosePeriod(user, "All");
+    await choosePeriod(user, "All time");
     expect(screen.getByText("Long ago")).toBeInTheDocument();
     expect(screen.getByText("Soon")).toBeInTheDocument();
   });
@@ -207,18 +255,20 @@ describe("HistoryView", () => {
     install([entry("aaaaaaaa", "Old", local(9, 1, 12, 0))]);
     await show();
     expect(screen.getByText("Nothing done in this period")).toBeInTheDocument();
-    await choosePeriod(user, "All");
+    await choosePeriod(user, "All time");
     expect(screen.queryByText("Nothing done in this period")).not.toBeInTheDocument();
   });
 
-  it("gives the row the title, the one-line summary, the time and the number of Tasks, and the whole summary as tooltip", async () => {
+  it("gives the row the title, the summary on at most two lines, the time and the number of tasks, and the whole summary as tooltip", async () => {
     const user = userEvent.setup();
     const summary = "A very long summary that the row has to cut but that the tooltip shows whole, to the last word.";
     install([entry("aaaaaaaa", "Checkout works", local(11, 2, 9, 30), { summary })]);
     await show();
     const row = screen.getByRole("button", { name: /Checkout works/ });
     expect(row).toHaveTextContent(summary);
-    expect(within(row).getByText(summary)).toHaveClass("truncate");
+    expect(within(row).getByText(summary)).toHaveClass("line-clamp-2");
+    expect(within(row).getByText("09:30")).toHaveClass("font-mono");
+    expect(within(row).getByText("1 task")).toBeInTheDocument();
     await user.hover(row);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(summary);
   });
@@ -248,6 +298,7 @@ describe("HistoryView", () => {
     expect(rows[0]).toHaveTextContent("bbbbbbbb");
     expect(rows[0]).toHaveTextContent("Pay with a card");
     expect(rows[0]).toHaveTextContent("Checkout");
+    expect(within(rows[0] as HTMLElement).getByText("Checkout")).toHaveClass("border");
     expect(rows[0]).toHaveTextContent("Finished 08:05");
     expect(rows[1]).toHaveTextContent("cccccccc");
     expect(rows[1]).toHaveTextContent("Receipt");
@@ -289,7 +340,7 @@ describe("Ask more on a History entry", () => {
     install([entry("eeeeeeee", "Checkout works", local(11, 2, 9, 30), { tasks: [task("bbbbbbbb", "Pay with a card", { body: "Card payments." })] })]);
     render(
       <TooltipProvider>
-        <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null }}>
+        <ProjectContext.Provider value={{ projectId: PROJECT, showView: vi.fn(), openJob: vi.fn(), openedJob: null, openedJobRequest: 0 }}>
           <BoardActionsContext.Provider value={{ askMore }}>
             <HistoryView now={() => NOW} />
           </BoardActionsContext.Provider>

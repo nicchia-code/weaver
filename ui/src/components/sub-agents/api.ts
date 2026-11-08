@@ -111,18 +111,20 @@ export function useSubAgentsView(api: SubAgentsApi | null, path: readonly Step[]
 
 export interface SubAgentTranscript {
   entries: readonly Entry[];
+  /** The instant each entry arrived, as `entries` is indexed. */
+  arrivals: readonly number[];
   /** Why the transcript cannot be read, if it cannot. */
   unavailable: string | null;
 }
 
 /** The conversation of one sub-agent: the snapshot, then the batches of changes that follow it. */
 export function useSubAgentConversation(api: SubAgentsApi | null, path: readonly Step[] | null): SubAgentTranscript {
-  const [state, setState] = useState<SubAgentTranscript>({ entries: [], unavailable: null });
+  const [state, setState] = useState<SubAgentTranscript>({ entries: [], arrivals: [], unavailable: null });
   const seq = useRef(0);
   const key = path ? JSON.stringify(path) : null;
 
   useEffect(() => {
-    setState({ entries: [], unavailable: null });
+    setState({ entries: [], arrivals: [], unavailable: null });
     seq.current = 0;
     if (!api || !key) return;
     const wanted = JSON.parse(key) as Step[];
@@ -133,7 +135,7 @@ export function useSubAgentConversation(api: SubAgentsApi | null, path: readonly
         .then((snapshot) => {
           if (!alive || !samePath(snapshot.path, wanted)) return;
           seq.current = snapshot.seq;
-          setState({ entries: snapshot.entries, unavailable: snapshot.unavailable });
+          setState({ entries: snapshot.entries, arrivals: snapshot.arrivals, unavailable: snapshot.unavailable });
         })
         .catch(() => {});
     const stop = on("sub-agent-entries", (event) => {
@@ -146,8 +148,12 @@ export function useSubAgentConversation(api: SubAgentsApi | null, path: readonly
       seq.current = Math.max(seq.current, event.seq);
       setState((previous) => {
         const next = [...previous.entries];
-        for (const { index, entry } of event.changes) next[index] = entry;
-        return { entries: next, unavailable: event.unavailable };
+        const at = [...previous.arrivals];
+        for (const { index, entry, at: arrived } of event.changes) {
+          next[index] = entry;
+          at[index] = arrived;
+        }
+        return { entries: next, arrivals: at, unavailable: event.unavailable };
       });
     });
     void fetchSnapshot();

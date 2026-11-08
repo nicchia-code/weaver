@@ -205,6 +205,8 @@ pub struct Conversation {
     entries: Vec<Entry>,
     /// The instant each entry arrived, as `entries` is indexed.
     arrived: Vec<i64>,
+    /// The instant the entries now being made were written, when a transcript says it.
+    clock: Option<i64>,
     seq: u64,
     dirty: BTreeSet<usize>,
     tools: HashMap<String, usize>,
@@ -370,8 +372,15 @@ impl Conversation {
         self.seq
     }
 
+    /// The instant a transcript record says it was written, for the entries it makes; `None` goes
+    /// back to the instant Weaver sees them.
+    pub fn set_clock(&mut self, at: Option<i64>) {
+        self.clock = at;
+    }
+
     fn push(&mut self, entry: Entry) -> usize {
-        self.push_at(entry, now_ms())
+        let at = self.clock.unwrap_or_else(now_ms);
+        self.push_at(entry, at)
     }
 
     fn push_at(&mut self, entry: Entry, at: i64) -> usize {

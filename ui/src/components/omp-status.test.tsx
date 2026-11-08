@@ -9,6 +9,7 @@ import type { OmpStatus } from "@/bindings/OmpStatus";
 import type { SettingField } from "@/bindings/SettingField";
 import type { SettingsSnapshot } from "@/bindings/SettingsSnapshot";
 import type { SystemCertificatesStatus } from "@/bindings/SystemCertificatesStatus";
+import type { Place } from "@/components/settings-view";
 import { ConnectedSettingsView, modelCatalogOf, OmpSetup, OmpStatusBox, Providers, providersShown } from "@/components/omp-status";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OmpProvider } from "@/hooks/use-omp";
@@ -65,18 +66,18 @@ function status(state: OmpPhase, patch: Partial<OmpStatus> = {}): OmpStatus {
 const anthropic = model("anthropic", "anthropic/claude-sonnet-5");
 const ready = (patch: Partial<OmpStatus> = {}) => status("ready", { models: [anthropic, model("anthropic", "anthropic/claude-haiku-5")], ...patch });
 
-function renderBox(s: OmpStatus | null) {
+function renderBox(s: OmpStatus | null, place: Place = "settings") {
   return render(
     <TooltipProvider>
-      <OmpStatusBox status={s} />
+      <OmpStatusBox status={s} place={place} />
     </TooltipProvider>,
   );
 }
 
-function renderProviders(s: OmpStatus) {
+function renderProviders(s: OmpStatus, place: Place = "settings") {
   const view = (value: OmpStatus) => (
     <TooltipProvider>
-      <Providers status={value} />
+      <Providers status={value} place={place} />
     </TooltipProvider>
   );
   const result = render(view(s));
@@ -96,11 +97,11 @@ describe("omp status box", () => {
     ["Checking", status("checking"), "Checking omp…", null],
     ["no answer yet", null, "Checking omp…", null],
     ["Missing without a reason", status("missing"), "omp is not installed.", "Install omp"],
-    ["Missing with a reason", status("missing", { reason: "omp not found at /gone/omp" }), "omp not found at /gone/omp", "Install omp"],
+    ["Missing with a reason", status("missing", { reason: "the agent not found at /gone/omp" }), "the agent not found at /gone/omp", "Install omp"],
     [
       "Missing after a failed update of an old omp",
-      status("missing", { reason: "omp 18.0.0 is older than 18.15.0 and could not be updated (exit code 1)." }),
-      "omp 18.0.0 is older than 18.15.0 and could not be updated (exit code 1).",
+      status("missing", { reason: "the agent 18.0.0 is older than 18.15.0 and could not be updated (exit code 1)." }),
+      "the agent 18.0.0 is older than 18.15.0 and could not be updated (exit code 1).",
       "Install omp",
     ],
     ["Installing", status("installing"), "Installing omp in the terminal…", "Open installer again"],
@@ -133,7 +134,7 @@ describe("omp status box", () => {
     expect(box).toHaveTextContent("Exporting system certificates first…");
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("checking")} />
+        <OmpStatusBox status={status("checking")} place="settings" />
       </TooltipProvider>,
     );
     expect(box).toHaveTextContent("Checking omp…");
@@ -141,7 +142,7 @@ describe("omp status box", () => {
   });
 
   const explanation =
-    "omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
+    "the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause, and turning on System Certificates in Weaver's settings may fix it";
 
   it("ends a proxy explanation with a full stop and leaves the other reasons as they are", () => {
     const { rerender } = renderBox(status("missing", { reason: explanation }));
@@ -149,22 +150,22 @@ describe("omp status box", () => {
     expect(box).toHaveTextContent(`${explanation}.`);
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("missing", { reason: "omp received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request" })} />
+        <OmpStatusBox status={status("missing", { reason: "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request" })} place="settings" />
       </TooltipProvider>,
     );
     expect(box.textContent).toContain("may be blocking the request.");
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("missing", { reason: "omp exited with code 3" })} />
+        <OmpStatusBox status={status("missing", { reason: "the agent exited with code 3" })} place="settings" />
       </TooltipProvider>,
     );
-    expect(box.textContent).toContain("omp exited with code 3");
-    expect(box.textContent).not.toContain("omp exited with code 3.");
+    expect(box.textContent).toContain("the agent exited with code 3");
+    expect(box.textContent).not.toContain("the agent exited with code 3.");
   });
 
   it("shows the text of a failed installer with its action, and the last reason under it", () => {
     const text =
-      "The omp installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it.";
+      "The agent installer failed (exit code 22); see the terminal. A corporate proxy that inspects HTTPS traffic is a common cause. Turning on System Certificates in Weaver's settings may fix it.";
     const { rerender } = renderBox(status("missing", { installerFailure: text }));
     const box = screen.getByRole("status", { name: "omp status" });
     expect(box).toHaveTextContent(text);
@@ -172,18 +173,18 @@ describe("omp status box", () => {
     expect(within(box).getByRole("button", { name: "Install omp" })).toBeInTheDocument();
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("missing", { installerFailure: text, reason: "omp not found at /gone/omp" })} />
+        <OmpStatusBox status={status("missing", { installerFailure: text, reason: "the agent not found at /gone/omp" })} place="settings" />
       </TooltipProvider>,
     );
     expect(box).toHaveTextContent(text);
-    expect(box).toHaveTextContent("omp not found at /gone/omp");
+    expect(box).toHaveTextContent("the agent not found at /gone/omp");
   });
 
   it.each([
-    "The omp installer failed (exit code 90): the download of omp was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.",
-    "The omp installer failed (exit code 91): omp could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it.",
-    "The omp installer failed (exit code 92): the downloaded omp was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.",
-    "The omp installer failed (exit code 93): the downloaded omp does not start. See the terminal.",
+    "The agent installer failed (exit code 90): the download of the agent was blocked on both of its download sites, probably by a corporate proxy that filters downloads. See the terminal.",
+    "The agent installer failed (exit code 91): the agent could not verify a server's certificate; a corporate proxy that inspects HTTPS traffic is the usual cause. See the terminal. Turning on System Certificates in Weaver's settings may fix it.",
+    "The agent installer failed (exit code 92): the downloaded agent was incomplete or altered, so it was not installed; a proxy may have changed it. See the terminal.",
+    "The agent installer failed (exit code 93): the downloaded agent does not start. See the terminal.",
   ])("shows the text of a failed installer by cause: %s", (text) => {
     renderBox(status("missing", { installerFailure: text }));
     const box = screen.getByRole("status", { name: "omp status" });
@@ -202,7 +203,7 @@ describe("omp status box", () => {
     expect(container.querySelector("svg.lucide-triangle-alert")).toHaveAttribute("aria-hidden", "true");
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={ready()} />
+        <OmpStatusBox status={ready()} place="settings" />
       </TooltipProvider>,
     );
     expect(container.querySelector("svg.lucide-circle-check")).toHaveAttribute("aria-hidden", "true");
@@ -222,13 +223,13 @@ describe("omp status box", () => {
     expect(screen.getByText(line)).toBeInTheDocument();
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("loggingIn", { loginProvider: "cursor" })} />
+        <OmpStatusBox status={status("loggingIn", { loginProvider: "cursor" })} place="settings" />
       </TooltipProvider>,
     );
     expect(screen.getByText(line)).toBeInTheDocument();
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={ready()} />
+        <OmpStatusBox status={ready()} place="settings" />
       </TooltipProvider>,
     );
     expect(screen.queryByText(line)).not.toBeInTheDocument();
@@ -241,7 +242,7 @@ describe("omp status box", () => {
     expect(call).toHaveBeenCalledWith("omp_install");
     rerender(
       <TooltipProvider>
-        <OmpStatusBox status={status("installing")} />
+        <OmpStatusBox status={status("installing")} place="settings" />
       </TooltipProvider>,
     );
     await user.click(screen.getByRole("button", { name: "Open installer again" }));
@@ -429,12 +430,65 @@ describe("what is shown when", () => {
         { selector: "anthropic/claude-haiku-5", name: undefined, thinkingLevels: ["low", "high"] },
       ],
     });
-    expect(modelCatalogOf(status("missing", { reason: "omp not found at /gone/omp" }))).toEqual({
+    expect(modelCatalogOf(status("missing", { reason: "the agent not found at /gone/omp" }))).toEqual({
       status: "unavailable",
-      reason: "omp not found at /gone/omp",
+      reason: "the agent not found at /gone/omp",
     });
     expect(modelCatalogOf(null).status).toBe("unavailable");
     expect(modelCatalogOf(status("notConnected")).status).toBe("unavailable");
+  });
+});
+
+describe("status box outside Settings", () => {
+  const cases: Array<[string, OmpStatus | null, string, string | null]> = [
+    ["Checking", status("checking"), "Checking the agent…", null],
+    ["no answer yet", null, "Checking the agent…", null],
+    ["Missing without a reason", status("missing"), "The agent is not installed.", "Install the agent"],
+    ["Missing with a reason", status("missing", { reason: "the agent did not answer within 15 s" }), "the agent did not answer within 15 s", "Install the agent"],
+    ["Installing", status("installing"), "Installing the agent in the terminal…", "Open installer again"],
+    ["Updating with a version", status("updating", { updateTarget: "18.16.0" }), "Updating the agent to 18.16.0…", null],
+    ["Updating without one", status("updating"), "Updating the agent…", null],
+    ["Not connected", status("notConnected"), "The agent has no model provider. Log in to one below.", null],
+    ["Logging in", status("loggingIn", { loginProvider: "anthropic" }), "Waiting for the login to Anthropic in the terminal…", null],
+    ["Ready", ready(), "The agent is ready with 2 models.", null],
+    ["Ready after a failed update", ready({ updateFailure: "timed out" }), "Could not update the agent (timed out). The agent is ready with 2 models.", null],
+  ];
+
+  it.each(cases)("%s shows its text and its action without naming omp", (_name, value, text, action) => {
+    renderBox(value, "elsewhere");
+    const box = screen.getByRole("status", { name: "agent status" });
+    expect(box).toHaveTextContent(text);
+    expect(box.textContent).not.toMatch(/\bomp\b/);
+    if (action) expect(within(box).getByRole("button", { name: action })).toBeInTheDocument();
+    else expect(within(box).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("Install the agent asks the backend for the installer", async () => {
+    const user = userEvent.setup();
+    renderBox(status("missing"), "elsewhere");
+    await user.click(screen.getByRole("button", { name: "Install the agent" }));
+    expect(call).toHaveBeenCalledWith("omp_install");
+  });
+
+  it("ends a proxy explanation written with the agent with a full stop", () => {
+    renderBox(status("missing", { reason: "the agent received an HTTP 407 error; a corporate proxy that inspects HTTPS traffic may be blocking the request" }), "elsewhere");
+    expect(screen.getByRole("status", { name: "agent status" }).textContent).toContain("may be blocking the request.");
+  });
+
+  it("names the agent in the Log in tooltip and in the Log out dialog of a provider row", async () => {
+    const user = userEvent.setup();
+    renderProviders(ready(), "elsewhere");
+    await user.hover(within(row("OpenAI Codex")).getByRole("button", { name: "Log in" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Open a terminal that logs the agent in to OpenAI Codex");
+    await user.click(within(row("Anthropic")).getByRole("button", { name: "Log out" }));
+    expect(await screen.findByRole("alertdialog", { name: "Log out of Anthropic?" })).toHaveTextContent(
+      "The agent forgets the accounts of Anthropic it stored. Credentials in environment variables, .env files or models.yml stay.",
+    );
+  });
+
+  it("says why the agent could not log out, in words that do not name omp", () => {
+    renderProviders(ready({ logout: { provider: "anthropic", phase: "failed", reason: null } }), "elsewhere");
+    expect(within(row("Anthropic")).getByText("Could not log out of Anthropic: the agent did not say why.")).toBeInTheDocument();
   });
 });
 
@@ -452,7 +506,7 @@ describe("OmpProvider", () => {
     render(
       <TooltipProvider>
         <OmpProvider>
-          <OmpSetup providers="when-needed" systemCertificates={false} />
+          <OmpSetup place="elsewhere" providers="when-needed" systemCertificates={false} />
         </OmpProvider>
       </TooltipProvider>,
     );
@@ -461,11 +515,11 @@ describe("OmpProvider", () => {
     vi.mocked(call).mockImplementation(((name: string) =>
       name === "omp_status" ? Promise.resolve(status("checking", { revision: 2 })) : Promise.resolve(null)) as never);
     mount();
-    expect(await screen.findByRole("status", { name: "omp status" })).toHaveTextContent("Checking omp…");
+    expect(await screen.findByRole("status", { name: "agent status" })).toHaveTextContent("Checking the agent…");
     act(() => push(ready({ revision: 4 })));
-    expect(screen.getByRole("status", { name: "omp status" })).toHaveTextContent("omp 18.15.0 is ready with 2 models.");
+    expect(screen.getByRole("status", { name: "agent status" })).toHaveTextContent("The agent is ready with 2 models.");
     act(() => push(status("missing", { revision: 3 })));
-    expect(screen.getByRole("status", { name: "omp status" })).toHaveTextContent("ready");
+    expect(screen.getByRole("status", { name: "agent status" })).toHaveTextContent("ready");
   });
 
   it("shows Providers where room is short only while omp has no provider or a login runs", async () => {
@@ -514,7 +568,10 @@ const settings: SettingsSnapshot = {
     field("editor.preset", "Editor", "choice", "vscode", [{ value: "vscode", label: "VS Code" }]),
     field("editor.command", "Custom command", "text"),
     field("permissions", "Permissions", "choice", "yolo", [{ value: "yolo", label: "Run without asking" }]),
-    field("systemCertificates.enabled", "System Certificates", "boolean", "false"),
+    {
+      ...field("systemCertificates.enabled", "System Certificates", "boolean", "false"),
+      description: "omp trusts the certificates your system trusts, for proxies that inspect HTTPS. Replaces NODE_EXTRA_CA_CERTS, SSL_CERT_FILE and similar variables.",
+    },
   ],
 };
 
@@ -542,11 +599,11 @@ describe("ConnectedSettingsView", () => {
   });
 
   it("says in the Models group why omp lists no model", async () => {
-    mount(status("missing", { reason: "omp not found at /gone/omp" }));
+    mount(status("missing", { reason: "the agent not found at /gone/omp" }));
     const box = await screen.findByRole("status", { name: "omp status" });
-    expect(box).toHaveTextContent("omp not found at /gone/omp");
+    expect(box).toHaveTextContent("the agent not found at /gone/omp");
     expect(screen.queryByRole("heading", { name: "Providers" })).not.toBeInTheDocument();
-    expect(screen.getAllByText("omp not found at /gone/omp")).toHaveLength(2);
+    expect(screen.getAllByText("the agent not found at /gone/omp")).toHaveLength(2);
   });
 });
 
@@ -573,11 +630,12 @@ describe("System Certificates places", () => {
     );
   }
 
-  it("shows the switch under the box where the box shows outside Settings (Get Started, welcome window)", async () => {
-    mount(<OmpSetup providers="when-needed" />);
-    const box = await screen.findByRole("status", { name: "omp status" });
+  it("shows the switch under the box where the box shows outside Settings (Get Started, welcome window), with its description naming the agent", async () => {
+    mount(<OmpSetup place="elsewhere" providers="when-needed" />);
+    const box = await screen.findByRole("status", { name: "agent status" });
     const toggle = await screen.findByRole("switch", { name: "System Certificates" });
     expect(box.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toggle).toHaveAccessibleDescription(/^The agent trusts the certificates your system trusts/);
   });
 
   it("shows it once in Settings, in the omp group and not under the box", async () => {
@@ -585,13 +643,14 @@ describe("System Certificates places", () => {
     await screen.findByRole("status", { name: "omp status" });
     expect(await screen.findAllByRole("switch", { name: "System Certificates" })).toHaveLength(1);
     expect(within(screen.getByRole("region", { name: "omp" })).getByRole("switch", { name: "System Certificates" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "System Certificates" })).toHaveAccessibleDescription(/^omp trusts the certificates your system trusts/);
   });
 
   it("shows the same value in every place, and a change in one shows in all", async () => {
     const user = userEvent.setup();
     mount(
       <>
-        <OmpSetup providers="when-needed" />
+        <OmpSetup place="elsewhere" providers="when-needed" />
         <ConnectedSettingsView />
       </>,
     );

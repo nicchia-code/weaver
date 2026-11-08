@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Weaver · History</title>
+<script src="45218e51-1a6b-456b-ae9d-95bd54f783ad"></script>
+</head>
+<body>
+<x-dc>
+
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #F6F5F1; font-family: Geist, Inter, system-ui, sans-serif; color: #18181B; font-size: 14px">
+  <div style="flex: 1 1 248px; max-width: 100%; display: flex">
+    <dc-import name="Sidebar" active="hist" hint-size="248px,960px"></dc-import>
+  </div>
+
+  <main style="flex: 999 1 560px; min-width: 0; margin: 8px; background: #FFFFFF; border-radius: 14px; box-shadow: 0 0 0 1px #E7E5DF, 0 1px 3px rgba(24,24,27,0.04); display: flex; flex-direction: column">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 28px; border-bottom: 1px solid #EFEDE7">
+      <div style="display: flex; flex-direction: column; gap: 3px; flex: 1 1 260px">
+        <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em">History</h1>
+        <p style="margin: 0; font-size: 13px; color: #6B6B73">Everything that shipped, grouped as it was delivered.</p>
+      </div>
+      <label for="range" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Time range</label>
+      <sc-raw-select id="range" style="height: 36px; padding: 0 32px 0 12px; border-radius: 9px; border: 1px solid #E0DDD5; background: #FFFFFF; font: inherit; font-size: 13px; color: #18181B">
+        <option>Last 7 days</option>
+        <option>Last 30 days</option>
+        <option>All time</option>
+      </sc-raw-select>
+    </header>
+
+    <div style="flex: 1; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 28px; max-width: 1040px; width: 100%; box-sizing: border-box">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7">
+          <span style="font-size: 12px; color: #6B6B73">Groups delivered</span>
+          <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">6</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7">
+          <span style="font-size: 12px; color: #6B6B73">Tasks done</span>
+          <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">18</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: #FAF9F6; box-shadow: inset 0 0 0 1px #EFEDE7">
+          <span style="font-size: 12px; color: #6B6B73">Last delivery</span>
+          <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.02em">Yesterday, 16:07</span>
+        </div>
+      </div>
+
+      <section style="display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600">Yesterday <span style="font-weight: 400; color: #6B6B73">Friday 6 November · 6 groups</span></h2>
+        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px #E7E5DF">
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+            <li style="display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px; border-bottom: 1px solid #F1EFEA">
+              <span aria-hidden="true" style="width: 4px; align-self: stretch; border-radius: 4px; background: {{r.color}}; flex: none"></span>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                <span style="font-size: 14px; font-weight: 600">{{r.title}}</span>
+                <span style="font-size: 13px; color: #52525B; line-height: 1.5">{{r.desc}}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none">
+                <span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #6B6B73">16:07</span>
+                <span style="font-size: 12px; color: #3F6B3C; background: #E9F2E7; border-radius: 999px; padding: 2px 8px; white-space: nowrap">{{r.tasks}}</span>
+              </div>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:960}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      rows: [
+        { title: 'Revisione, PDF e archivio', desc: 'Revisione modificabile dei blocchi, PDF ad alta leggibilità e archivio I miei documenti.', tasks: '3 tasks', color: '#E3A3B5' },
+        { title: 'Lettura e semplificazione', desc: 'Lettura delle pagine con Azure, semplificazione del testo, gestione degli errori e riprova.', tasks: '3 tasks', color: '#A996D6' },
+        { title: 'Composizione, invio ed eliminazione', desc: 'Composizione del documento, invio, eliminazione e scadenza dei documenti.', tasks: '3 tasks', color: '#EDB08F' },
+        { title: 'Interfaccia, sessioni e account', desc: 'Guscio dell’interfaccia, sessione ospite, accesso con Google e Microsoft, uscita ed eliminazione dell’account.', tasks: '4 tasks', color: '#96BBE0' },
+        { title: 'Infrastruttura, test e rilascio', desc: 'Infrastruttura Azure in Bicep, integrazione continua con test e rilascio automatico su Azure.', tasks: '3 tasks', color: '#9DC09A' },
+        { title: 'Fondamenta del progetto', desc: 'Scheletro di backend, frontend e container, più database PostgreSQL, Blob Storage, coda dei lavori e worker.', tasks: '2 tasks', color: '#D9D6CE' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>

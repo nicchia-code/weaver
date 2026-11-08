@@ -25,10 +25,20 @@ export function formatTime(time: Date | number): string {
   return `${two(date.getHours())}:${two(date.getMinutes())}`;
 }
 
+/** `2 November 2026`. */
+export function formatCalendarDate(time: Date | number): string {
+  const date = new Date(time);
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/** `Monday`: the weekday in English. */
+export function formatWeekday(time: Date | number): string {
+  return WEEKDAYS[new Date(time).getDay()] as string;
+}
+
 /** `Monday, 2 November 2026`. */
 export function formatDate(time: Date | number): string {
-  const date = new Date(time);
-  return `${WEEKDAYS[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  return `${formatWeekday(time)}, ${formatCalendarDate(time)}`;
 }
 
 /** `less than a minute`, `<n> min`, `<h> h <m> min`: a length of time in words. */
