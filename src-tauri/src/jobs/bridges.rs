@@ -30,8 +30,8 @@ use crate::{log_info, log_warn};
 pub struct JobsWork(pub Arc<Jobs>);
 
 impl AgentWork for JobsWork {
-    fn ghosts(&self, project_id: &str) -> Vec<Ghost> {
-        self.0.ghosts_of(project_id)
+    fn ghosts(&self, project_id: &str, image: &ProjectImage) -> Vec<Ghost> {
+        self.0.ghosts_in(project_id, image)
     }
 
     fn facts(&self, project_id: &str) -> AgentFacts {

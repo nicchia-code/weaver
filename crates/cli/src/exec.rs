@@ -63,6 +63,9 @@ pub trait Authority {
     }
     /// A Task reached Done by `FINISHED`.
     fn task_finished(&self, _root: &Path) {}
+    /// A Run took a Task: `weaver task move <id> doing` by `job` succeeded. Only called for a
+    /// caller the app vouches for as a job.
+    fn task_taken(&self, _root: &Path, _job: &str) {}
 }
 
 /// An authority that accepts nothing: no app answers, or the app has no job to accept yet.
@@ -366,12 +369,18 @@ fn after_success(
             }
         }
     }
-    if request.object == "task"
-        && request.verb == "move"
-        && request.state.as_deref() == Some("done")
-        && !request.input.contains_key("unchanged")
-    {
-        authority.task_finished(root);
+    if request.object == "task" && request.verb == "move" {
+        match request.state.as_deref() {
+            Some("done") if !request.input.contains_key("unchanged") => {
+                authority.task_finished(root);
+            }
+            Some("doing") if caller.who == Who::Job => {
+                if let Some(job) = caller.job.as_deref() {
+                    authority.task_taken(root, job);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

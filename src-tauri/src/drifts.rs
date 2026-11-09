@@ -1282,7 +1282,7 @@ mod tests {
     struct Working(AtomicBool);
 
     impl AgentWork for Working {
-        fn ghosts(&self, _: &str) -> Vec<Ghost> {
+        fn ghosts(&self, _: &str, _: &weaver_core::project::image::ProjectImage) -> Vec<Ghost> {
             Vec::new()
         }
         fn facts(&self, _: &str) -> AgentFacts {

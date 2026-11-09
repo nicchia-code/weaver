@@ -2,6 +2,6 @@
 
 /**
  * How far the job is: the UI words it (`Preparing`, `Writing`, `Waiting for your answers`,
- * `Being refined`).
+ * `Being refined`, `Finishing up`).
  */
-export type GhostPhase = "preparing" | "writing" | "waiting-for-answers" | "being-refined";
+export type GhostPhase = "preparing" | "writing" | "waiting-for-answers" | "being-refined" | "finishing-up";

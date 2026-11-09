@@ -1220,7 +1220,7 @@ async fn weavers_own_ghost_waits_for_the_answers_and_keeps_the_place_of_its_job_
         [format!("job:{setup}"), announced]
     );
 
-    // The other kinds of job get none.
+    // A Run that took no Task yet gets none: its cleanup ghost needs a Task taken first.
     jobs.stop(&project.id, &import).unwrap();
     jobs.stop(&project.id, &setup).unwrap();
     state_of(&host, &project, &import, JobState::Stopped).await;
@@ -1229,6 +1229,267 @@ async fn weavers_own_ghost_waits_for_the_answers_and_keeps_the_place_of_its_job_
     let task_run = run_task(&jobs, &project, "aaaaaaaa").unwrap();
     assert!(ghost_ids(&jobs, &project).is_empty(), "{task_run}");
     jobs.stop(&project.id, &task_run).unwrap();
+}
+
+/// The Tasks of the project are written with these columns (`todo`, `doing`, `done`) and the
+/// picture is built again.
+async fn set_tasks(host: &TestHost, project: &Project, columns: &[(&str, &str)]) {
+    for (id, column) in columns {
+        let extra = match *column {
+            "doing" => "holder: someone\n",
+            "done" => "finished: 2026-11-02T08:00:00.000Z\n",
+            _ => "",
+        };
+        std::fs::write(
+            project
+                .root
+                .join(format!(".weaver/tasks/{id}-first-task.md")),
+            format!(
+                "---\ncolumn: {column}\ntechnical: true\nrefs: []\n{extra}created: 2026-11-02T07:00:01.000Z\n---\n# First task\n\nDone when.\n"
+            ),
+        )
+        .unwrap();
+    }
+    host.pictures
+        .rebuild(&project.id, crate::pictures::Rebuild::All)
+        .await
+        .unwrap();
+}
+
+/// `weaver task move <task> <state>` typed by the agent of `job`, with the picture built again.
+async fn agent_moves(
+    host: &TestHost,
+    jobs: &Arc<Jobs>,
+    project: &Project,
+    job: &str,
+    task: &str,
+    state: &str,
+) {
+    use weaver_cli::exec::execute;
+    use weaver_cli::spec::Caller;
+    use weaver_core::command::CommandRequest;
+
+    let request = CommandRequest {
+        object: "task".into(),
+        verb: "move".into(),
+        root: project.root.to_string_lossy().into_owned(),
+        card: Some(task.into()),
+        state: Some(state.into()),
+        input: Default::default(),
+        general: None,
+        ask: None,
+    };
+    let caller = Caller {
+        job: Some(job.to_owned()),
+        ..Caller::default()
+    };
+    let authority = super::authority::AppAuthority { jobs: jobs.clone() };
+    execute(&request, &caller, &authority).unwrap();
+    host.pictures
+        .rebuild(&project.id, crate::pictures::Rebuild::All)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_run_that_took_a_task_and_holds_none_shows_its_cleanup_ghost_until_it_ends() {
+    use crate::agent_work::{GhostKind, GhostPhase};
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "wait_steer": 1 }]] }));
+    let id = run_task(&jobs, &project, "aaaaaaaa").unwrap();
+    state_of(&host, &project, &id, JobState::Running).await;
+    let name = row(&host, &project.id, &id).unwrap().name;
+
+    // Just started, nothing taken: no ghost, and Weaver remembers no Task.
+    assert!(ghost_ids(&jobs, &project).is_empty());
+    assert!(!jobs.record(&id).unwrap().took_task);
+
+    // `task move doing` of the job is the memory; the Task it holds is a real card in Active.
+    agent_moves(&host, &jobs, &project, &id, "aaaaaaaa", "doing").await;
+    assert!(jobs.record(&id).unwrap().took_task);
+    assert!(ghost_ids(&jobs, &project).is_empty());
+
+    // The last Task leaves Active: the ghost is in the same picture, never `Nothing active`.
+    agent_moves(&host, &jobs, &project, &id, "aaaaaaaa", "done").await;
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    let ghost = &ghosts[0];
+    assert_eq!(
+        (
+            ghost.id.as_str(),
+            ghost.job_id.as_str(),
+            ghost.kind,
+            ghost.title.clone(),
+            ghost.phase,
+            ghost.note.as_deref(),
+            ghost.cleanup_of.as_deref(),
+        ),
+        (
+            format!("job:{id}").as_str(),
+            id.as_str(),
+            GhostKind::Task,
+            format!("Cleaning up: {name}"),
+            GhostPhase::FinishingUp,
+            None,
+            Some(name.as_str()),
+        )
+    );
+    jobs.declare_note(&id, "Running the checks").unwrap();
+    assert_eq!(
+        jobs.ghosts_of(&project.id)[0].note.as_deref(),
+        Some("Running the checks")
+    );
+
+    // Weaver wrote the memory in the record, and never in the identity of the ghost.
+    jobs.flush();
+    let stored = JobStore::new(&host.dirs).read(&id).unwrap().unwrap();
+    assert!(stored.took_task);
+
+    // Taking another Task again only keeps the memory.
+    set_tasks(&host, &project, &[("aaaaaaaa", "todo")]).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+    set_tasks(&host, &project, &[("aaaaaaaa", "done")]).await;
+    assert_eq!(ghost_ids(&jobs, &project), [format!("job:{id}")]);
+
+    // The job ends: the ghost goes with it.
+    jobs.send_message(&project.id, &id, "Wrap up").unwrap();
+    state_of(&host, &project, &id, JobState::Done).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+}
+
+#[tokio::test]
+async fn the_cleanup_ghost_waits_for_the_answers_of_its_run() {
+    use crate::agent_work::GhostPhase;
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.permissions(Permissions::Ask);
+    host.script(json!({ "prompts": [[{ "permission": {
+        "toolCall": { "toolCallId": "t1", "title": "$ ls", "kind": "execute", "rawInput": { "command": "ls" } },
+        "options": [{ "optionId": "allow", "name": "Allow once", "kind": "allow_once" }] } }]] }));
+    let id = run_task(&jobs, &project, "aaaaaaaa").unwrap();
+    state_of(&host, &project, &id, JobState::Waiting).await;
+    jobs.task_taken(&project.root, &id);
+    set_tasks(&host, &project, &[("aaaaaaaa", "done")]).await;
+    let ghosts = jobs.ghosts_of(&project.id);
+    assert_eq!(ghosts.len(), 1);
+    assert_eq!(ghosts[0].phase, GhostPhase::WaitingForAnswers);
+    jobs.stop(&project.id, &id).unwrap();
+    state_of(&host, &project, &id, JobState::Stopped).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+}
+
+#[tokio::test]
+async fn the_cleanup_ghosts_of_several_runs_show_together_only_while_active_shows_nothing_else() {
+    use weaver_core::jobs::admission::plan_run_task;
+    use weaver_core::project::board::AgentFacts;
+
+    let (host, jobs, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "hold": true }]] }));
+    set_tasks(&host, &project, &[("aaaaaaaa", "todo"), ("bbbbbbbb", "todo")]).await;
+    let image = ProjectImage::load(&project.root);
+    let first = run_task(&jobs, &project, "aaaaaaaa").unwrap();
+    // A second Run, as the Runs of one Run all are: created without the exclusion of a Run.
+    let plan = plan_run_task(
+        &image,
+        &weaver_core::project::shortnum::ShortNumbers::default(),
+        &AgentFacts::default(),
+        "bbbbbbbb",
+        &|_: &str| None,
+        1,
+    )
+    .unwrap();
+    let second = jobs
+        .create(super::registry::NewJob {
+            project_id: project.id.clone(),
+            root: project.root.clone(),
+            plan,
+        })
+        .unwrap();
+    state_of(&host, &project, &first, JobState::Running).await;
+    state_of(&host, &project, &second, JobState::Running).await;
+    jobs.task_taken(&project.root, &first);
+    jobs.task_taken(&project.root, &second);
+
+    // The Tasks they hold are real cards: no ghost.
+    set_tasks(&host, &project, &[("aaaaaaaa", "doing"), ("bbbbbbbb", "doing")]).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+
+    // Both leave Active in one picture: one ghost for each Run, in the order of their creation,
+    // and the picture the Board is made of decides, not a later one.
+    let before = ProjectImage::load(&project.root);
+    set_tasks(&host, &project, &[("aaaaaaaa", "done"), ("bbbbbbbb", "done")]).await;
+    let both = [format!("job:{first}"), format!("job:{second}")];
+    assert_eq!(ghost_ids(&jobs, &project), both);
+    assert!(jobs.ghosts_in(&project.id, &before).is_empty());
+
+    // An announced ghost of a Task, of any job, hides both until its card arrives and finishes.
+    let announced = jobs.announce(&first, "task", "Cancel an order").unwrap();
+    assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&announced));
+    jobs.card_filed(Some(&first), "task", "cccccccc", &announced);
+    task_arrives(&host, &project, "cccccccc", "Cancel an order").await;
+    assert!(ghost_ids(&jobs, &project).is_empty(), "the card is in Active");
+
+    // An announced ghost of a Proposal sits in Backlog: it hides only the cleanup of its own Run.
+    let proposal = jobs.announce(&first, "proposal", "Order changes").unwrap();
+    std::fs::write(
+        project.root.join(".weaver/tasks/cccccccc-card.md"),
+        TASK.replace("column: todo", "column: done")
+            .replace("---\n#", "finished: 2026-11-02T08:00:00.000Z\n---\n#"),
+    )
+    .unwrap();
+    host.pictures
+        .rebuild(&project.id, crate::pictures::Rebuild::All)
+        .await
+        .unwrap();
+    assert_eq!(
+        ghost_ids(&jobs, &project),
+        [format!("job:{second}"), proposal]
+    );
+
+    jobs.stop(&project.id, &first).unwrap();
+    jobs.stop(&project.id, &second).unwrap();
+    state_of(&host, &project, &first, JobState::Stopped).await;
+    state_of(&host, &project, &second, JobState::Stopped).await;
+    assert!(ghost_ids(&jobs, &project).is_empty());
+}
+
+#[tokio::test]
+async fn a_suspended_run_keeps_its_cleanup_ghost_and_gets_it_back_after_a_restart() {
+    let (host, first, _dir, project) = one_task().await;
+    host.script(json!({ "prompts": [[{ "hold": true }]] }));
+    let id = run_task(&first, &project, "aaaaaaaa").unwrap();
+    state_of(&host, &project, &id, JobState::Running).await;
+    first.task_taken(&project.root, &id);
+    set_tasks(&host, &project, &[("aaaaaaaa", "done")]).await;
+    assert_eq!(ghost_ids(&first, &project), [format!("job:{id}")]);
+
+    first.window_closed(&project.id).await;
+    assert_eq!(
+        row(&host, &project.id, &id).unwrap().state,
+        JobState::Suspended
+    );
+    assert_eq!(ghost_ids(&first, &project), [format!("job:{id}")]);
+
+    // A new run of the app: only the registry knows that the Run took a Task.
+    let second = Jobs::new(host.clone());
+    host.script(json!({ "replay": [], "prompts": [[{ "hold": true }]] }));
+    second.window_opened(&project.id, &project.root);
+    until("the job to be resumed", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Running)
+    })
+    .await;
+    assert_eq!(ghost_ids(&second, &project), [format!("job:{id}")]);
+    second.stop(&project.id, &id).unwrap();
+    until("the job to be stopped", LIMIT, || {
+        second
+            .record(&id)
+            .is_some_and(|r| r.state == JobState::Stopped)
+    })
+    .await;
+    assert!(ghost_ids(&second, &project).is_empty());
 }
 
 #[tokio::test]

@@ -465,7 +465,7 @@ pub async fn board_snapshot(
     blocking::disk_named("board snapshot", name, move || {
         let _gate = service.board_read();
         let facts = work.facts(&project_id);
-        let ghosts = work.ghosts(&project_id);
+        let ghosts = work.ghosts(&project_id, &picture.image);
         let ghost_jobs = ghosts.iter().map(|ghost| ghost.job_id.clone()).collect();
         let drafts = match service.drafts(
             &project_id,
@@ -546,6 +546,7 @@ mod tests {
             title: "Coming".into(),
             phase: GhostPhase::Writing,
             note: Some("Reading the Model".into()),
+            cleanup_of: None,
         };
 
         let board = snapshot(

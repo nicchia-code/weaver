@@ -26,7 +26,7 @@ const snapshot: BoardSnapshot = {
   ],
   active: [],
   gathered: [],
-  ghosts: [{ id: "g1", jobId: "job-1", kind: "proposal", title: "Coming", phase: "preparing", note: null }],
+  ghosts: [{ id: "g1", jobId: "job-1", kind: "proposal", title: "Coming", phase: "preparing", note: null, cleanupOf: null }],
   runAllReasons: [],
   doneSinceLastScan: 0,
   warnings: [],

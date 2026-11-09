@@ -20,6 +20,11 @@ pub const MERGE: &str = "Merge conflicts";
 /// `Import`. The ghost of a setup or design job takes the title of the request the job received.
 pub const IMPORT_GHOST_TITLE: &str = "Import from Code";
 
+/// The title of Weaver's own cleanup ghost of a Run (`requirements/ui#work`): `Cleaning up: Run T3`.
+pub fn cleanup_ghost_title(job_name: &str) -> String {
+    format!("Cleaning up: {job_name}")
+}
+
 pub fn run_task(numbers: &ShortNumbers, task: &str) -> String {
     format!("Run {}", card_label(numbers, CardKind::Task, task))
 }
@@ -92,5 +97,14 @@ mod tests {
             "All tasks · openai/gpt-5.2:high"
         );
         assert_eq!(run_all(Some("")), "All tasks · default model");
+    }
+
+    #[test]
+    fn the_cleanup_ghost_of_a_run_is_titled_after_the_name_of_the_job() {
+        assert_eq!(cleanup_ghost_title("Run T3"), "Cleaning up: Run T3");
+        assert_eq!(
+            cleanup_ghost_title(&run_all(Some("openai/gpt-5.2"))),
+            "Cleaning up: All tasks · openai/gpt-5.2"
+        );
     }
 }

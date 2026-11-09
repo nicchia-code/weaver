@@ -52,7 +52,7 @@ function proposal(id: string, shortNumber: string, title: string): BoardCard {
 }
 
 function ghost(id: string, kind: Ghost["kind"], title: string, patch: Partial<Ghost> = {}): Ghost {
-  return { id, jobId: `job-${id}`, kind, title, phase: "writing", note: null, ...patch };
+  return { id, jobId: `job-${id}`, kind, title, phase: "writing", note: null, cleanupOf: null, ...patch };
 }
 
 function board(revision: number, patch: Partial<BoardSnapshot> = {}): BoardSnapshot {
@@ -233,6 +233,40 @@ describe("ghosts", () => {
     await publish(board(2, { active: [task("tttttttt", "T1", "Coming task")] }));
     expect(within(active()).queryByRole("button", { name: /being prepared by the agent/ })).not.toBeInTheDocument();
     expect(within(active()).getByRole("button", { name: "Coming task" })).toBeInTheDocument();
+  });
+
+  it("shows the cleanup ghost of a Run as a Task, with Weaver's phase and its own accessible name", async () => {
+    install(
+      board(1, {
+        ghosts: [ghost("job:j1", "task", "Cleaning up: Run T3", { phase: "finishing-up", note: "Running the checks", cleanupOf: "Run T3" })],
+      }),
+    );
+    const { openJob } = await show();
+    const button = within(active()).getByRole("button", { name: "Agent cleaning up after its Tasks: Run T3, Finishing up" });
+    expect(button).toHaveTextContent("Cleaning up: Run T3");
+    expect(button).toHaveTextContent("Finishing up");
+    expect(button).toHaveTextContent("Running the checks");
+    expect(Array.from(button.querySelectorAll("[data-placeholder]")).map((element) => (element.classList.contains("h-8") ? "button" : element.classList.contains("size-2") ? "dot" : "bar"))).toEqual(["dot", "bar", "button"]);
+    // Like every ghost it hides the empty state, never counts and opens its job.
+    expect(within(active()).queryByText("Nothing active")).not.toBeInTheDocument();
+    await userEvent.setup().click(button);
+    expect(openJob).toHaveBeenCalledWith("job-job:j1");
+  });
+
+  it("words the cleanup ghost of a Run that waits for the developer's answers", async () => {
+    install(board(1, { ghosts: [ghost("job:j1", "task", "Cleaning up: All tasks · gpt", { phase: "waiting-for-answers", cleanupOf: "All tasks · gpt" })] }));
+    await show();
+    expect(within(active()).getByRole("button", { name: "Agent cleaning up after its Tasks: All tasks · gpt, Waiting for your answers" })).toBeInTheDocument();
+  });
+
+  it("replaces the last Task of Active by the cleanup ghost in one picture, never showing Nothing active", async () => {
+    install(board(1, { active: [task("tttttttt", "T1", "Write the cart", { doing: true })] }));
+    await show();
+    await publish(board(2, { ghosts: [ghost("job:j1", "task", "Cleaning up: Run T1", { phase: "finishing-up", cleanupOf: "Run T1" })] }));
+    expect(within(active()).queryByText("Nothing active")).not.toBeInTheDocument();
+    expect(within(active()).getByRole("button", { name: /Agent cleaning up after its Tasks: Run T1/ })).toBeInTheDocument();
+    await publish(board(3));
+    expect(within(active()).getByText("Nothing active")).toBeInTheDocument();
   });
 });
 

@@ -33,7 +33,7 @@ vi.mock("@/components/board/board-state", () => ({
       backlog: [card("p1", "P1", "Add a cart"), draft("r1", "Dark mode Cart theme"), draft("r2", "Untitled request"), ...Array.from({ length: 9 }, (_, index) => draft(`m${index}`, `Mobile ${index}`))],
       active: [card("t1", "T1", "Cart total task")],
       // Ghosts are not cards: the palette never lists them.
-      ghosts: [{ id: "g1", jobId: "j1", kind: "proposal", title: "Cart ghost", phase: "preparing", note: null }],
+      ghosts: [{ id: "g1", jobId: "j1", kind: "proposal", title: "Cart ghost", phase: "preparing", note: null, cleanupOf: null }],
     },
   }),
 }));
