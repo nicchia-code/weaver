@@ -27,6 +27,7 @@
 //! | [`image`] | The incremental in-memory image of a project |
 //! | [`concerns`] | "Concerns the same thing": the one function of blocking, slots, groups and Drift lookups |
 //! | [`board`] | The Board: Backlog and Active columns, blocking of Tasks, Run all reasons, Delete |
+//! | [`rank`] | The order of the Board's two columns: actionable first, what unblocks first, the place of the ghosts |
 //! | [`history`] | History entries: writing them, citing Tasks, the copy kept when a Task is recorded |
 //! | [`browse`] | Requirement sections that apply to an element, text search of the Model |
 //! | [`init`] | What a new project holds: the System and the starting Areas |
@@ -57,6 +58,7 @@ pub mod model_view;
 pub mod order;
 pub mod proposal;
 pub mod random;
+pub mod rank;
 pub mod refs;
 pub mod requests;
 pub mod requirements;

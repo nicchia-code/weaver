@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BoardCard } from "@/bindings/BoardCard";
 import type { BoardSnapshot } from "@/bindings/BoardSnapshot";
@@ -11,6 +11,7 @@ import { BoardView } from "@/components/board/board-view";
 import { ProjectContext } from "@/components/project-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { call, on } from "@/lib/backend";
+import { setReducedMotion } from "@/test/media";
 import { proposalView } from "@/components/board/proposal-fixtures";
 import { driftView } from "@/components/board/drift-fixtures";
 
@@ -55,12 +56,15 @@ function ghost(id: string, kind: Ghost["kind"], title: string, patch: Partial<Gh
   return { id, jobId: `job-${id}`, kind, title, phase: "writing", note: null, cleanupOf: null, ...patch };
 }
 
+/** A picture of the Board; unless a test says otherwise the ghosts of a column go after its cards. */
 function board(revision: number, patch: Partial<BoardSnapshot> = {}): BoardSnapshot {
   return {
     projectId: PROJECT,
     revision,
     backlog: [],
+    backlogGhostsAt: patch.backlog?.length ?? 0,
     active: [],
+    activeGhostsAt: patch.active?.length ?? 0,
     ghosts: [],
     gathered: [],
     runAllReasons: ["No Task is in To do"],
@@ -267,6 +271,178 @@ describe("ghosts", () => {
     expect(within(active()).getByRole("button", { name: /Agent cleaning up after its Tasks: Run T1/ })).toBeInTheDocument();
     await publish(board(3));
     expect(within(active()).getByText("Nothing active")).toBeInTheDocument();
+  });
+});
+
+describe("the place of the ghosts", () => {
+  const keys = (column: HTMLElement) => Array.from(column.querySelectorAll("[data-motion-key]")).map((element) => element.getAttribute("data-motion-key"));
+
+  it("puts the ghosts of a column where the snapshot says, between the cards, not at the bottom", async () => {
+    install(
+      board(1, {
+        backlog: [proposal("pppppppp", "P1", "Add a cart"), drift("dddddddd", "D1", "Cart total"), proposal("qqqqqqqq", "P2", "Wishlist")],
+        backlogGhostsAt: 1,
+        active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second", { doing: true })],
+        activeGhostsAt: 2,
+        ghosts: [ghost("g1", "proposal", "Coming proposal"), ghost("g2", "task", "Coming task")],
+      }),
+    );
+    await show();
+    expect(keys(backlog())).toEqual(["card:pppppppp", "ghost:g1", "card:dddddddd", "card:qqqqqqqq"]);
+    expect(keys(active())).toEqual(["card:aaaaaaaa", "card:bbbbbbbb", "ghost:g2"]);
+  });
+
+  it("puts the ghosts first when no card can be acted on yet is above them, and last when all can", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")], backlogGhostsAt: 0, ghosts: [ghost("g1", "drift", "Coming drift")] }));
+    await show();
+    expect(keys(backlog())).toEqual(["ghost:g1", "card:pppppppp"]);
+  });
+
+  it("gives the cards that cannot be acted on the same look as the others: one list, no divider or heading", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart"), drift("dddddddd", "D1", "Cart total")], backlogGhostsAt: 1 }));
+    await show();
+    expect(backlog().querySelectorAll("ul")).toHaveLength(1);
+    expect(backlog().querySelector("hr, [role=separator]")).toBeNull();
+    expect(within(backlog()).getAllByRole("heading").map((heading) => heading.tagName)).toEqual(["H2", "H3", "H3"]);
+  });
+});
+
+describe("motion", () => {
+  const animate = vi.fn();
+  const slot = (column: HTMLElement, key: string) => column.querySelector<HTMLElement>(`[data-motion-key="${key}"]`);
+  const offsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+
+  beforeEach(() => {
+    animate.mockClear();
+    (Element.prototype as unknown as { animate: unknown }).animate = animate;
+    // A layout for jsdom, which has none: every element of a list is 100 px high, in order.
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!this.dataset.motionKey) return 0;
+        const rows = Array.from(this.parentElement?.children ?? []).filter((row) => (row as HTMLElement).style.position !== "absolute");
+        return rows.indexOf(this) * 100;
+      },
+    });
+  });
+
+  afterEach(() => {
+    delete (Element.prototype as unknown as { animate?: unknown }).animate;
+    if (offsetTop) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTop);
+  });
+
+  const FADE = { duration: 150, easing: "ease-out" };
+
+  it("does not animate what is there when the Board first shows", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")], active: [task("aaaaaaaa", "T1", "First")] }));
+    await show();
+    expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("fades a card in when it enters, in 150 ms, ease-out, from the picture that brings it", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First")] }));
+    await show();
+    await publish(board(2, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second")] }));
+    expect(active().querySelector("h2")).toHaveTextContent("Active2");
+    const entered = slot(active(), "card:bbbbbbbb")!;
+    expect(animate.mock.instances).toEqual([entered]);
+    expect(animate).toHaveBeenCalledWith([{ opacity: 0 }, { opacity: 1 }], expect.objectContaining(FADE));
+  });
+
+  it("fades a card out when it leaves, inert and hidden from screen readers from the start, and takes it away once it is gone", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second")] }));
+    await show();
+    await publish(board(2, { active: [task("bbbbbbbb", "T2", "Second")] }));
+    // The numbers change at once; the card is still there, fading.
+    expect(active().querySelector("h2")).toHaveTextContent("Active1");
+    const leaving = slot(active(), "card:aaaaaaaa")!;
+    expect(leaving).toHaveAttribute("data-motion", "leaving");
+    expect(leaving).toHaveAttribute("inert");
+    expect(leaving).toHaveAttribute("aria-hidden", "true");
+    expect(leaving.style.position).toBe("absolute");
+    expect(within(active()).queryByRole("button", { name: "First" })).not.toBeInTheDocument();
+    expect(animate.mock.instances).toContain(leaving);
+    expect(animate).toHaveBeenCalledWith([{ opacity: 1 }, { opacity: 0 }], expect.objectContaining({ ...FADE, fill: "forwards" }));
+    await waitFor(() => expect(slot(active(), "card:aaaaaaaa")).toBeNull());
+    expect(slot(active(), "card:bbbbbbbb")).not.toBeNull();
+  });
+
+  it("slides a card that stays and changes place from where it was, in 150 ms, ease-out", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second")] }));
+    await show();
+    await publish(board(2, { active: [task("bbbbbbbb", "T2", "Second"), task("aaaaaaaa", "T1", "First")] }));
+    const moves = animate.mock.calls.map(([keyframes], index) => ({ keyframes, element: animate.mock.instances[index] }));
+    expect(moves).toEqual([
+      { keyframes: [{ transform: "translate(0px, 100px)" }, { transform: "none" }], element: slot(active(), "card:bbbbbbbb") },
+      { keyframes: [{ transform: "translate(0px, -100px)" }, { transform: "none" }], element: slot(active(), "card:aaaaaaaa") },
+    ]);
+    expect(animate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining(FADE));
+    // The order is the snapshot's, read at once.
+    expect(within(active()).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Second", "First"]);
+  });
+
+  it("moves up the cards below the one that leaves, at once, and leaves the ones above where they are", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second"), task("cccccccc", "T3", "Third")] }));
+    await show();
+    await publish(board(2, { active: [task("aaaaaaaa", "T1", "First"), task("cccccccc", "T3", "Third")] }));
+    const slides = animate.mock.calls.flatMap(([keyframes], index) => (JSON.stringify(keyframes).includes("transform") ? [(animate.mock.instances[index] as HTMLElement).dataset.motionKey] : []));
+    expect(slides).toEqual(["card:cccccccc"]);
+    expect(animate).toHaveBeenCalledWith([{ transform: "translate(0px, 100px)" }, { transform: "none" }], expect.objectContaining(FADE));
+    // The card that leaves is out of the flow: the cards that stay are already where they go.
+    expect(slot(active(), "card:bbbbbbbb")!.style.position).toBe("absolute");
+    expect(slot(active(), "card:bbbbbbbb")!.style.top).toBe("100px");
+  });
+
+  it("keeps the focus on a card that moves", async () => {
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second")] }));
+    await show();
+    const run = within(slot(active(), "card:aaaaaaaa")!).getByRole("button", { name: /Run/ });
+    run.focus();
+    await publish(board(2, { active: [task("bbbbbbbb", "T2", "Second"), task("aaaaaaaa", "T1", "First")] }));
+    expect(within(slot(active(), "card:aaaaaaaa")!).getByRole("button", { name: /Run/ })).toBe(run);
+    expect(run).toHaveFocus();
+  });
+
+  it("starts the fade of a ghost and the fade-in of its card in the same picture", async () => {
+    install(board(1, { ghosts: [ghost("g1", "task", "Coming task")] }));
+    await show();
+    await publish(board(2, { active: [task("tttttttt", "T1", "Coming task")] }));
+    const ghostSlot = slot(active(), "ghost:g1")!;
+    const cardSlot = slot(active(), "card:tttttttt")!;
+    expect(ghostSlot).toHaveAttribute("data-motion", "leaving");
+    expect(ghostSlot).toHaveAttribute("inert");
+    expect(cardSlot).not.toHaveAttribute("data-motion");
+    expect(animate.mock.instances).toEqual(expect.arrayContaining([ghostSlot, cardSlot]));
+    expect(animate).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the empty state, fading in, while the last card fades out", async () => {
+    install(board(1, { backlog: [proposal("pppppppp", "P1", "Add a cart")] }));
+    await show();
+    await publish(board(2));
+    const empty = within(backlog()).getByText("Nothing to decide");
+    expect(slot(backlog(), "card:pppppppp")).toHaveAttribute("data-motion", "leaving");
+    expect(backlog().querySelector("h2")).toHaveTextContent("Backlog0");
+    expect(animate.mock.instances.some((element) => (element as HTMLElement).contains(empty))).toBe(true);
+    expect(animate).toHaveBeenCalledWith([{ opacity: 0 }, { opacity: 1 }], expect.objectContaining(FADE));
+    expect(animate).toHaveBeenCalledWith([{ opacity: 1 }, { opacity: 0 }], expect.objectContaining({ fill: "forwards" }));
+  });
+
+  it("does not fade the empty state that is there from the start", async () => {
+    install(board(1));
+    await show();
+    expect(within(backlog()).getByText("Nothing to decide")).toBeInTheDocument();
+    expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("changes instantly under reduced motion: no animation, a card that leaves is gone at once", async () => {
+    setReducedMotion(true);
+    install(board(1, { active: [task("aaaaaaaa", "T1", "First"), task("bbbbbbbb", "T2", "Second")] }));
+    await show();
+    await publish(board(2, { active: [task("bbbbbbbb", "T2", "Second"), task("cccccccc", "T3", "Third")] }));
+    expect(slot(active(), "card:aaaaaaaa")).toBeNull();
+    expect(slot(active(), "card:cccccccc")).not.toBeNull();
+    expect(animate).not.toHaveBeenCalled();
   });
 });
 

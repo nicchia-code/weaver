@@ -8,6 +8,8 @@ use weaver_core::project::board::{self, ActiveEntry, BacklogEntry, ProposalState
 use weaver_core::project::cards::{Card, CardKind};
 use weaver_core::project::layout::WEAVER_DIR;
 use weaver_core::project::proposal::data;
+use weaver_core::project::proposal::files;
+use weaver_core::project::rank::{self, RankedBacklog};
 use weaver_core::project::shortnum::{self, ShortNumbers};
 use weaver_core::project_files::{self, InitialiseError, SyncOptions, SyncReport};
 use weaver_core::solo_mode::{self, Git, Inspection, Mode, Reason};
@@ -76,15 +78,15 @@ pub fn commands() -> Vec<Command> {
             .example("weaver project edit --input '{\"solo\":\"files\"}'"),
         Command::new("project", "show", "Prints the Board and Solo mode.", show)
             .output(vec![
-                cards("Open Proposals and open Drifts.", "toDecide"),
+                cards("Open Proposals and open Drifts, in the order they have on the Board.", "toDecide"),
                 req("inWriting", list(object(card_with(vec![
                     req("job", nullable(line()), "The job writing it."),
                 ]))), "Draft Proposals with their job."),
-                cards("Tasks in To do.", "todo"),
+                cards("Tasks in To do, in the order they have on the Board.", "todo"),
                 req("doing", list(object(card_with(vec![
                     req("holder", nullable(line()), "The job that holds the Task."),
                     req("blockedBy", list(line()), "The Drifts that block it."),
-                ]))), "Tasks in progress."),
+                ]))), "Tasks in progress, in the order they have on the Board."),
                 solo_output(),
             ])
             .example("weaver project show"),
@@ -287,7 +289,16 @@ fn card_json(numbers: &ShortNumbers, kind: CardKind, card: &Card) -> Value {
 fn show(call: &Call) -> Result<CommandReply, Failure> {
     let image = call.image;
     let numbers = shortnum::peek(call.root, image.cards());
-    let board = board::compute(image, &call.caller.agent);
+    // The cards in the order they have on the Board (`requirements/rules#work`); the requests
+    // being written are not part of the image and are not listed here.
+    let folders = files::read_folders(call.root, image);
+    let board = rank::rank(
+        &board::compute(image, &call.caller.agent),
+        image,
+        &call.caller.agent,
+        &folders,
+        &[],
+    );
     let kind_of = |id: &str| {
         if image.card(CardKind::Drift, id).is_some() {
             CardKind::Drift
@@ -299,7 +310,10 @@ fn show(call: &Call) -> Result<CommandReply, Failure> {
     // Open Proposals and open Drifts wait for the developer; a Proposal an agent still writes is in writing.
     let mut to_decide: Vec<(CardKind, &Card)> = Vec::new();
     let mut in_writing: Vec<&Card> = Vec::new();
-    for entry in &board.backlog {
+    for item in &board.backlog {
+        let RankedBacklog::Card(entry) = item else {
+            continue;
+        };
         let id = entry.id();
         let kind = kind_of(id);
         let Some(card) = image.card(kind, id) else {
@@ -610,6 +624,36 @@ mod tests {
             "{}",
             reply.markdown
         );
+    }
+
+    #[test]
+    fn project_show_lists_the_cards_in_the_order_they_have_on_the_board() {
+        let dir = tempfile::tempdir().unwrap();
+        run(dir.path(), json!({})).unwrap();
+        let write = |rel: &str, text: &str| {
+            let path = dir.path().join(".weaver").join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        let task = |title: &str, created: &str| {
+            format!("---\ncolumn: todo\ntechnical: true\nrefs: []\ncreated: {created}\n---\n# {title}\n")
+        };
+        // The older Task is the origin of an open Drift: it cannot run, so the younger one comes
+        // first.
+        write("tasks/aaaaaaaa-old.md", &task("Old", "2026-11-02T07:00:01.000Z"));
+        write("tasks/bbbbbbbb-new.md", &task("New", "2026-11-02T07:00:02.000Z"));
+        write(
+            "drifts/dddddddd-d.md",
+            "---\nstatus: open\nrefs:\n  - system\norigin: aaaaaaaa\ncreated: 2026-11-02T07:00:03.000Z\n---\n# A Drift\n",
+        );
+        let reply = run_edit_or_show(2, dir.path()).unwrap();
+        let titles: Vec<&str> = reply.json["todo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|card| card["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["New", "Old"]);
     }
 
     // --- Solo mode ---------------------------------------------------------------------------

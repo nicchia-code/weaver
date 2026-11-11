@@ -12,13 +12,22 @@ export type BoardSnapshot = { projectId: string,
  */
 revision: number, 
 /**
- * Open Proposals, resolutions and Drifts in one creation order, oldest first.
+ * Open Proposals, resolutions, Drifts and the drafts of requests, in the Board order
+ * (`requirements/rules#work`): the UI never sorts.
  */
 backlog: Array<BoardCard>, 
 /**
- * Tasks in To do and In progress, blocked ones included, oldest first.
+ * How many cards of `backlog` come before its ghosts.
+ */
+backlogGhostsAt: number, 
+/**
+ * Tasks in To do and In progress, blocked ones included, in the Board order.
  */
 active: Array<BoardCard>, 
+/**
+ * How many cards of `active` come before its ghosts.
+ */
+activeGhostsAt: number, 
 /**
  * Cards the jobs announced and have not filed, in announcement order.
  */

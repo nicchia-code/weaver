@@ -51,7 +51,7 @@ function proposal(patch: Partial<ProposalCard> = {}, view: Partial<ProposalView>
 }
 
 function snapshot(backlog: BoardCard[]): BoardSnapshot {
-  return { projectId: PROJECT, revision: 1, backlog, active: [], ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [] };
+  return { projectId: PROJECT, revision: 1, backlog, backlogGhostsAt: backlog.length, active: [], activeGhostsAt: 0, ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [] };
 }
 
 const showView = vi.fn();

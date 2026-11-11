@@ -9,6 +9,7 @@ import { cardIdOf, rendererFor } from "@/components/board/card-registry";
 import { Column } from "@/components/board/column";
 import "@/components/board/default-cards";
 import { GhostCard } from "@/components/board/ghost-card";
+import { MotionList, type MotionItem } from "@/components/board/motion-list";
 import { CardId } from "@/components/card-id";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { GuardedButton } from "@/components/guarded-button";
@@ -38,35 +39,25 @@ function ghostColumn(ghost: Ghost): ColumnName {
   return ghost.kind === "task" ? "active" : "backlog";
 }
 
-function CardList({ cards }: { cards: readonly BoardCard[] }) {
-  return (
-    <ul className="flex flex-col gap-3">
-      {cards.map((card) => (
-        <li key={cardIdOf(card)}>
-          <CardOf card={card} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** One card through the renderer of its kind. */
 function CardOf({ card }: { card: BoardCard }) {
   const { Card } = rendererFor(card);
   return <Card card={card} />;
 }
 
-function GhostList({ ghosts }: { ghosts: readonly Ghost[] }) {
-  if (ghosts.length === 0) return null;
-  return (
-    <ul className="flex flex-col gap-3">
-      {ghosts.map((ghost) => (
-        <li key={ghost.id}>
-          <GhostCard ghost={ghost} />
-        </li>
-      ))}
-    </ul>
-  );
+/**
+ * What a column shows, in the order of the snapshot: its cards as the backend ordered them, with
+ * its ghosts inserted at the place the snapshot gives (`ghostsAt` cards before them). Nothing is
+ * sorted here.
+ */
+function columnItems(cards: readonly BoardCard[], ghosts: readonly Ghost[], ghostsAt: number): MotionItem[] {
+  const place = Math.min(Math.max(ghostsAt, 0), cards.length);
+  const cardItem = (card: BoardCard): MotionItem => ({ key: `card:${cardIdOf(card)}`, node: <CardOf card={card} /> });
+  return [
+    ...cards.slice(0, place).map(cardItem),
+    ...ghosts.map((ghost): MotionItem => ({ key: `ghost:${ghost.id}`, node: <GhostCard ghost={ghost} /> })),
+    ...cards.slice(place).map(cardItem),
+  ];
 }
 
 interface DetailsProps {
@@ -178,6 +169,15 @@ export function BoardView() {
     }
     return all;
   }, [snapshot]);
+  // The cards and ghosts of each column in the order of the snapshot; a new array only with a new picture.
+  const backlogItems = useMemo(
+    () => columnItems(snapshot?.backlog ?? [], (snapshot?.ghosts ?? []).filter((ghost) => ghostColumn(ghost) === "backlog"), snapshot?.backlogGhostsAt ?? 0),
+    [snapshot],
+  );
+  const activeItems = useMemo(
+    () => columnItems(snapshot?.active ?? [], (snapshot?.ghosts ?? []).filter((ghost) => ghostColumn(ghost) === "active"), snapshot?.activeGhostsAt ?? 0),
+    [snapshot],
+  );
   const gatheredCards = useMemo(() => new Map((snapshot?.gathered ?? []).map((card) => [cardIdOf(card), card] as const)), [snapshot]);
   const openCard = opened ? (cards.get(opened.id) ?? (opened.gathered ? gatheredCards.get(opened.id) : undefined) ?? null) : null;
 
@@ -312,20 +312,20 @@ export function BoardView() {
             tone="lavender"
             count={snapshot.backlog.length}
             empty={<EmptyBacklog />}
-            cards={<CardList cards={snapshot.backlog} />}
             ghostCount={backlogGhosts.length}
-            ghosts={<GhostList ghosts={backlogGhosts} />}
-          />
+          >
+            <MotionList items={backlogItems} />
+          </Column>
           <Column
             ref={activeRef}
             title="Active"
             tone="sky"
             count={snapshot.active.length}
             empty={<p className="py-4 text-center text-muted-foreground">Nothing active</p>}
-            cards={<CardList cards={snapshot.active} />}
             ghostCount={activeGhosts.length}
-            ghosts={<GhostList ghosts={activeGhosts} />}
-          />
+          >
+            <MotionList items={activeItems} />
+          </Column>
         </div>
         <CardDetails
           card={openCard}

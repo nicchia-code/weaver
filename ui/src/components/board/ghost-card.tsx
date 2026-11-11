@@ -68,8 +68,8 @@ function Placeholders({ kind }: { kind: Ghost["kind"] }) {
 }
 
 /**
- * A card a job announced and has not filed yet: a skeleton at the bottom of its column (dashed
- * border, 70% opacity). The known part (kind, title, phase line, the job's latest note on one
+ * A card a job announced and has not filed yet: a skeleton in its column, at the place the Board
+ * snapshot gives (dashed border, 70% opacity). The known part (kind, title, phase line, the job's latest note on one
  * line) is still; only the placeholders of what the real card will have shimmer. The whole ghost
  * is one button that opens the job's conversation in Jobs.
  */

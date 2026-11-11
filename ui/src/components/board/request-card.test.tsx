@@ -34,7 +34,7 @@ let failure: unknown = null;
 
 async function show(cards: BoardCard[]) {
   commands.length = 0;
-  const snapshot: BoardSnapshot = { projectId: PROJECT, revision: 1, backlog: cards, active: [], ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [] };
+  const snapshot: BoardSnapshot = { projectId: PROJECT, revision: 1, backlog: cards, backlogGhostsAt: cards.length, active: [], activeGhostsAt: 0, ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [] };
   vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as unknown as typeof on);
   vi.mocked(call).mockImplementation((async (name: string, args: unknown) => {
     if (name === "board_snapshot") return snapshot;

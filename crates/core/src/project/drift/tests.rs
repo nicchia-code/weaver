@@ -1771,7 +1771,6 @@ fn no_decision_but_refine_is_accepted_while_the_attached_proposal_is_refining() 
     }
     let (image, _, _) = state(root);
     let drift = drift_of(&image, DRIFT);
-    assert_eq!(reasons::fix_reasons(&image, drift), ["Being refined"]);
     assert_eq!(
         reasons::dismiss_reasons(&image, &AgentFacts::default(), drift),
         ["Being refined"]

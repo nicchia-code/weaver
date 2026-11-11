@@ -49,7 +49,7 @@ function statusOf(revision: number, merge?: MergeStatus): ProjectStatus {
 }
 
 function board(patch: Partial<BoardSnapshot> = {}): BoardSnapshot {
-  return { projectId: PROJECT, revision: 1, backlog: [], active: [], ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [], ...patch };
+  return { projectId: PROJECT, revision: 1, backlog: [], backlogGhostsAt: 0, active: [], activeGhostsAt: 0, ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [], ...patch };
 }
 
 function task(runReasons: string[]): BoardCard {

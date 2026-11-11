@@ -346,7 +346,8 @@ impl RequestsService {
         Ok(())
     }
 
-    /// The requests being written, as the cards of the Backlog, oldest first. `ghost_jobs` are the
+    /// The requests being written, oldest first; the Board places them among its cards with the
+    /// core function of the Board order. `ghost_jobs` are the
     /// jobs the same Board shows a ghost for: a request sent to a job that works is no draft, and
     /// one sent to a job that finished and shows no ghost is a draft that came back, even before
     /// the end of the job was recorded in its file, so that its card is in the very picture in

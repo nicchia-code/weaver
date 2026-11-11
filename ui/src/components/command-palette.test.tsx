@@ -137,6 +137,14 @@ describe("the palette", () => {
     expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual(["Untitled requestRequest"]);
   });
 
+  it("lists the Cards in the order of the Board, Backlog then Active, as the backend gave them", async () => {
+    renderPalette(controls());
+    await userEvent.setup().type(screen.getByRole("combobox"), "r");
+    const cards = within(screen.getByRole("group", { name: "Cards" })).getAllByRole("option");
+    // Backlog (a Proposal, then the drafts) and then Active (a Task); none starts with the text.
+    expect(cards.map((row) => row.textContent)).toEqual(["Add a cartP1", "Dark mode Cart themeRequest", "Untitled requestRequest", "Cart total taskT1"]);
+  });
+
   it("shows at most 8 rows of Cards, drafts included, those that start with the text first", async () => {
     renderPalette(controls());
     await userEvent.setup().type(screen.getByRole("combobox"), "mobile");
