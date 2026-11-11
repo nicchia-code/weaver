@@ -31,10 +31,6 @@ function drift(view: Partial<DriftView> = {}, agentFinishing = false): BoardCard
       refs: ["order/Paid"],
       happens: "It ships twice.",
       should: "It ships once.",
-      options: [
-        { title: "Deduplicate", text: "Keep one shipment." },
-        { title: "Lock", text: "Lock the order." },
-      ],
       whereInCode: "`src/ship.rs:42`",
       places: [{ file: "src/ship.rs", line: 42 }],
       ...view,
@@ -47,7 +43,7 @@ const decisions: { name: string; args: unknown }[] = [];
 
 async function show(cards: BoardCard[], patch: Partial<BoardSnapshot> = {}, actions: BoardActions = {}) {
   decisions.length = 0;
-  snapshot = { projectId: PROJECT, revision: 1, backlog: cards, active: [], ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [], ...patch };
+  snapshot = { projectId: PROJECT, revision: 1, backlog: cards, backlogGhostsAt: cards.length, active: [], activeGhostsAt: 0, ghosts: [], gathered: [], runAllReasons: [], doneSinceLastScan: 0, warnings: [], ...patch };
   vi.mocked(on).mockImplementation((() => Promise.resolve(() => {})) as unknown as typeof on);
   vi.mocked(call).mockImplementation(((name: string, args: unknown) => {
     if (name === "board_snapshot") return Promise.resolve(snapshot);
@@ -185,56 +181,32 @@ describe("the details of a Drift", () => {
     expect(askMore).toHaveBeenCalledWith({ kind: "drift", id: "dddddddd" });
   });
 
-  it("shows chips, the two sides, numbered options with the first recommended, and where in the code", async () => {
+  it("shows chips, the two sides and where in the code", async () => {
     const { user, dialog } = await open(drift());
     expect(within(dialog).getByRole("list", { name: "References" })).toHaveTextContent("order/Paid");
     expect(within(dialog).getByText("What happens")).toBeInTheDocument();
     expect(within(dialog).getByText("It ships once.")).toBeInTheDocument();
-    const options = within(within(dialog).getByRole("region", { name: "Fix options" })).getAllByRole("listitem");
-    expect(options[0]).toHaveTextContent("Deduplicate");
-    expect(options[0]).toHaveTextContent("recommended");
-    expect(options[1]).not.toHaveTextContent("recommended");
     expect(within(dialog).getAllByText("src/ship.rs:42").length).toBeGreaterThan(0);
     await user.click(within(dialog).getByRole("button", { name: "Open in editor" }));
     expect(vi.mocked(call)).toHaveBeenCalledWith("open_in_editor", { file: "src/ship.rs", line: 42, projectId: PROJECT });
     expect(dialog).toHaveTextContent("Found while working on T1 Ship");
   });
 
-  it("fixes the code with the recommended option preselected, the chosen one and the note", async () => {
-    const { user, dialog } = await open(drift());
-    expect(within(dialog).getByRole("radio", { name: "Deduplicate" })).toBeChecked();
-    await user.click(within(dialog).getByRole("radio", { name: "Lock" }));
-    await user.type(within(dialog).getByRole("textbox", { name: "Note" }), "Mind the lock");
-    await user.click(within(dialog).getByRole("button", { name: "Fix the code" }));
-    expect(decisions).toEqual([{ name: "fix_drift_code", args: { projectId: PROJECT, driftId: "dddddddd", option: 2, note: "Mind the lock" } }]);
+  it("has no fix decision and no fix options: no choice of option, no Note, no Fix the code", async () => {
+    const { dialog } = await open(drift());
+    expect(within(dialog).queryByRole("region", { name: "Fix options" })).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("Deduplicate");
+    expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("textbox", { name: "Note" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Fix the code" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("No code change can respect both the Model and the Requirements.")).not.toBeInTheDocument();
   });
 
-  it("puts the agent first on Fix the code", async () => {
-    const { dialog } = await open(drift({}, true));
-    const fix = within(dialog).getByRole("button", { name: "Fix the code" });
-    expect(fix).toHaveAttribute("aria-disabled", "true");
-    expect(reasonsOf(fix)).toEqual(["The agent is still finishing"]);
-  });
-
-  it("on a Drift from a merge marks Accept Proposal as the recommended one, preselects no option and keeps Fix the code disabled until one is chosen", async () => {
-    const { user, dialog } = await open(drift({ merge: true, attached: attachedProposal() }));
-    const options = within(within(dialog).getByRole("region", { name: "Fix options" })).getAllByRole("listitem");
-    expect(options[0]).toHaveTextContent("Deduplicate");
-    expect(options.map((option) => option.textContent)).toEqual(["DeduplicateKeep one shipment.", "LockLock the order."]);
-    expect(within(within(dialog).getByRole("region", { name: "Fix options" })).queryByText("recommended")).not.toBeInTheDocument();
+  it("on a Drift from a merge marks Accept Proposal as the recommended one", async () => {
+    const { dialog } = await open(drift({ merge: true, attached: attachedProposal() }));
     const accept = within(dialog).getByRole("button", { name: "Accept Proposal" });
     expect(accept.parentElement).toHaveTextContent("recommended");
     expect(within(dialog).getAllByText("recommended")).toHaveLength(1);
-
-    expect(within(dialog).getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked && radio.getAttribute("aria-checked") !== "true")).toBe(true);
-    const fix = within(dialog).getByRole("button", { name: "Fix the code" });
-    expect(fix).toHaveAttribute("aria-disabled", "true");
-    await user.click(fix);
-    expect(decisions).toEqual([]);
-    await user.click(within(dialog).getByRole("radio", { name: "Lock" }));
-    expect(within(dialog).getByRole("button", { name: "Fix the code" })).not.toHaveAttribute("aria-disabled");
-    await user.click(within(dialog).getByRole("button", { name: "Fix the code" }));
-    expect(decisions).toEqual([{ name: "fix_drift_code", args: { projectId: PROJECT, driftId: "dddddddd", option: 2, note: null } }]);
   });
 
   it("shows the merge badge, with its tooltip, in the details of a Drift from a merge", async () => {
@@ -244,15 +216,13 @@ describe("the details of a Drift", () => {
     expect((await screen.findAllByText("Found by the scan after a merge")).length).toBeGreaterThan(0);
   });
 
-  it("replaces the options by a sentence without Fix the code, and Accept Proposal lists the Proposal's reasons", async () => {
+  it("lists the Proposal's reasons on a disabled Accept Proposal", async () => {
     const attached = attachedProposal({
       body: "The Model says what the code does.",
       files: { added: [], changed: ["model/shop/order.md"], removed: [] },
       acceptReasons: ["A run is in progress", "Not approved yet"],
     });
-    const { user, dialog } = await open(drift({ options: [], attached }));
-    expect(within(dialog).getByText("No code change can respect both the Model and the Requirements.")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: "Fix the code" })).not.toBeInTheDocument();
+    const { user, dialog } = await open(drift({ attached }));
     expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
     expect(dialog).toHaveTextContent("Paid orders");
     expect(dialog).toHaveTextContent("Open");
@@ -337,29 +307,25 @@ describe("the details of a Drift", () => {
     expect(decisions).toEqual([{ name: "discard_drift_proposal", args: { projectId: PROJECT, driftId: "dddddddd" } }]);
   });
 
-  it("shows `Refining`, and while it lasts Accept Proposal, Fix the code, Resolve and Dismiss Drift say `Being refined`", async () => {
+  it("shows `Refining`, and while it lasts Accept Proposal, Resolve and Dismiss Drift say `Being refined`", async () => {
     const attached = attachedProposal({ state: "Refining", stale: true, acceptReasons: ["Being refined"] });
-    const { user, dialog } = await open(
+    const { dialog } = await open(
       drift({
         attached,
-        fixReasons: ["Being refined"],
         resolveReasons: ["Being refined"],
         dismissReasons: ["Being refined"],
       }),
     );
     expect(dialog).toHaveTextContent("Refining");
     expect(within(dialog).queryByRole("button", { name: "Refine" })).not.toBeInTheDocument();
-    for (const name of ["Accept Proposal", "Fix the code"]) {
-      const button = within(dialog).getByRole("button", { name });
-      expect(button).toHaveAttribute("aria-disabled", "true");
-      expect(reasonsOf(button)).toEqual(["Being refined"]);
-    }
+    const accept = within(dialog).getByRole("button", { name: "Accept Proposal" });
+    expect(accept).toHaveAttribute("aria-disabled", "true");
+    expect(reasonsOf(accept)).toEqual(["Being refined"]);
     for (const name of ["Resolve", "Dismiss Drift"]) {
       for (const button of within(dialog).getAllByRole("button", { name })) {
         expect(reasonsOf(button)).toEqual(["Being refined"]);
       }
     }
-    await user.click(within(dialog).getByRole("button", { name: "Fix the code" }));
     expect(decisions).toEqual([]);
   });
 

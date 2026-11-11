@@ -31,8 +31,6 @@ export interface BoardState {
   chooseProposalModel: (proposalId: string, label: string, model: string | null) => Promise<void>;
   /** `Resolve` on a Drift. */
   resolveDrift: (driftId: string, label: string) => Promise<void>;
-  /** `Fix the code`: the fix option (null without options) and the optional note. */
-  fixDriftCode: (driftId: string, label: string, option: number | null, note: string | null) => Promise<void>;
   /** `Accept Proposal` on a Drift. */
   acceptDriftProposal: (driftId: string, label: string) => Promise<void>;
   /** `Refine` on a Drift whose attached Proposal is stale or was left half-way by a refinement; the Drift is not decided. */
@@ -163,11 +161,6 @@ export function BoardProvider({ projectId, children }: { projectId: string; chil
     (driftId: string, label: string) => decide("resolve", label, () => call("resolve_drift", { projectId, driftId })),
     [projectId, decide],
   );
-  const fixDriftCode = useCallback(
-    (driftId: string, label: string, option: number | null, note: string | null) =>
-      decide("fix the code of", label, () => call("fix_drift_code", { projectId, driftId, option, note })),
-    [projectId, decide],
-  );
   const acceptDriftProposal = useCallback(
     (driftId: string, label: string) => decide("accept the Proposal of", label, () => call("accept_drift_proposal", { projectId, driftId })),
     [projectId, decide],
@@ -199,13 +192,12 @@ export function BoardProvider({ projectId, children }: { projectId: string; chil
       discardProposal,
       chooseProposalModel,
       resolveDrift,
-      fixDriftCode,
       acceptDriftProposal,
       refineDriftProposal,
       discardDriftProposal,
       dismissDrift,
     }),
-    [snapshot, loadError, notices, closeNotice, addNotice, reload, deleteTask, approveProposal, rejectProposal, discardProposal, chooseProposalModel, resolveDrift, fixDriftCode, acceptDriftProposal, refineDriftProposal, discardDriftProposal, dismissDrift],
+    [snapshot, loadError, notices, closeNotice, addNotice, reload, deleteTask, approveProposal, rejectProposal, discardProposal, chooseProposalModel, resolveDrift, acceptDriftProposal, refineDriftProposal, discardDriftProposal, dismissDrift],
   );
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;
 }

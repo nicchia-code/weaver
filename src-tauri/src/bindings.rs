@@ -17,7 +17,7 @@ use crate::board::{
     BoardCard, BoardSnapshot, CardHead, CardRef, ProposalStanding, ResolutionDrift, TitledRef,
 };
 use crate::commands::{AppInfo, CommandName};
-use crate::drift_view::{AttachedProposal, CodePlace, DriftView, FixOption};
+use crate::drift_view::{AttachedProposal, CodePlace, DriftView};
 use crate::error::{AppError, ErrorCode};
 use crate::events::{EventName, Notice, ProjectChanged};
 use crate::file_tabs::wire::{
@@ -139,7 +139,6 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     ResolutionDrift::export_all_to(dir)?;
     ProposalView::export_all_to(dir)?;
     DriftView::export_all_to(dir)?;
-    FixOption::export_all_to(dir)?;
     CodePlace::export_all_to(dir)?;
     AttachedProposal::export_all_to(dir)?;
     ProposalTask::export_all_to(dir)?;

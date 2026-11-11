@@ -196,8 +196,6 @@ export interface Commands {
   choose_proposal_model: { args: { projectId: string; proposalId: string; model: string | null }; result: null };
   /** **Resolve** on a Drift: a round of the prepared question, or a resolve job; `refused` carries the notice. */
   resolve_drift: { args: { projectId: string; driftId: string }; result: null };
-  /** **Fix the code** on a Drift: the fix option (required when it offers some) and the note. */
-  fix_drift_code: { args: { projectId: string; driftId: string; option: number | null; note: string | null }; result: null };
   /** **Accept Proposal** on a Drift with an attached Proposal. */
   accept_drift_proposal: { args: { projectId: string; driftId: string }; result: null };
   /** **Refine** on a Drift whose attached Proposal is stale or was left half-way: a refinement job adapts it; the Drift is not decided. */

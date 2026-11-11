@@ -1,5 +1,5 @@
 //! What the card of a Drift and its details dialog show, worked out in the core and sent whole:
-//! the two sides, the fix options, the files, the earlier Drift it repeats, the attached Proposal
+//! the two sides, the files, the earlier Drift it repeats, the attached Proposal
 //! and the reasons each control is disabled for, in the fixed order of the control
 //! (`requirements/ui#drift`). The UI never decides anything: it shows these.
 
@@ -26,15 +26,6 @@ use crate::proposal_view::{
 
 /// The reason `Accept Proposal` lists while the attached Proposal is still a Draft.
 pub const REASON_PROPOSAL_IS_DRAFT: &str = "The attached Proposal is still a Draft";
-
-/// One way to fix the code.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct FixOption {
-    pub title: String,
-    /// Markdown.
-    pub text: String,
-}
 
 /// A file named under `Where in the code`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -86,9 +77,6 @@ pub struct DriftView {
     pub happens: String,
     /// Markdown.
     pub should: String,
-    /// The fix options, the recommended first; none when no change of the code can respect both
-    /// the Model and the Requirements.
-    pub options: Vec<FixOption>,
     /// The text of `Where in the code`, Markdown.
     pub where_in_code: String,
     /// The files that text names, one row each.
@@ -100,15 +88,12 @@ pub struct DriftView {
     /// A valid prepared question: `Resolve` asks it at once (`prepared`).
     pub prepared: bool,
     /// The Drift comes from a merge (`merge` badge, tooltip `Found by the scan after a merge`):
-    /// `recommended` marks `Accept Proposal`, not the first fix option.
+    /// `recommended` marks `Accept Proposal`.
     pub merge: bool,
     /// Why `Resolve` is disabled, one per line in the fixed order; empty = it works.
     pub resolve_reasons: Vec<String>,
     /// Why `Dismiss Drift` is disabled, one per line in the fixed order; empty = it works.
     pub dismiss_reasons: Vec<String>,
-    /// Why `Fix the code` is disabled besides the agent still finishing, one per line in the fixed
-    /// order (`Being refined` while the attached Proposal is Refining); empty = it works.
-    pub fix_reasons: Vec<String>,
     pub attached: Option<AttachedProposal>,
 }
 
@@ -230,13 +215,6 @@ pub fn view(
         refs: drift::refs_of(drift),
         happens: drift::section_text(&drift.body, drift::HAPPENS),
         should: drift::section_text(&drift.body, drift::SHOULD),
-        options: drift::drift_options(drift)
-            .into_iter()
-            .map(|o| FixOption {
-                title: o.title,
-                text: o.text,
-            })
-            .collect(),
         places: places(&where_in_code)
             .into_iter()
             .map(|p| CodePlace {
@@ -253,7 +231,6 @@ pub fn view(
         merge: drift::is_merge(drift),
         resolve_reasons: reasons::resolve_reasons(image, facts, &name, drift),
         dismiss_reasons: reasons::dismiss_reasons(image, facts, drift),
-        fix_reasons: reasons::fix_reasons(image, drift),
         attached: attached(image, folders, numbers, facts, drift),
     }
 }
@@ -430,7 +407,6 @@ mod tests {
             attached.accept_reasons[..2],
             ["A run is in progress", "Being refined"]
         );
-        assert_eq!(view.fix_reasons, ["Being refined"]);
         assert_eq!(
             view.resolve_reasons,
             ["A run is in progress", "Being refined"]

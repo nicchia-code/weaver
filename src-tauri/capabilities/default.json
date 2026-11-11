@@ -20,7 +20,6 @@
     "allow-discard-proposal",
     "allow-choose-proposal-model",
     "allow-resolve-drift",
-    "allow-fix-drift-code",
     "allow-accept-drift-proposal",
     "allow-refine-drift-proposal",
     "allow-discard-drift-proposal",

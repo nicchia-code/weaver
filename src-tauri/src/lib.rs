@@ -142,7 +142,6 @@ pub fn run() {
             proposals::discard_proposal,
             proposals::choose_proposal_model,
             drifts::resolve_drift,
-            drifts::fix_drift_code,
             drifts::accept_drift_proposal,
             drifts::refine_drift_proposal,
             drifts::discard_drift_proposal,

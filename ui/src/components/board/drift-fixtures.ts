@@ -7,7 +7,6 @@ export function driftView(patch: Partial<DriftView> = {}): DriftView {
     refs: [],
     happens: "",
     should: "",
-    options: [],
     whereInCode: "",
     places: [],
     previous: null,
@@ -16,7 +15,6 @@ export function driftView(patch: Partial<DriftView> = {}): DriftView {
     merge: false,
     resolveReasons: [],
     dismissReasons: [],
-    fixReasons: [],
     attached: null,
     ...patch,
   };

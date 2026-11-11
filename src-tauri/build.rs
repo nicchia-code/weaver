@@ -21,7 +21,6 @@ const COMMANDS: &[&str] = &[
     "discard_proposal",
     "choose_proposal_model",
     "resolve_drift",
-    "fix_drift_code",
     "accept_drift_proposal",
     "refine_drift_proposal",
     "discard_drift_proposal",

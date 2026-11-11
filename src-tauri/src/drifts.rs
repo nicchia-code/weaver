@@ -72,7 +72,7 @@ fn now() -> Result<String, MutationError<weaver_core::project::board::Refused>> 
         .map_err(|e| MutationError::Refused(refused(format!("the clock gives no valid time: {e}"))))
 }
 
-/// `Fix the code`, `Accept Proposal` and `Dismiss Drift`, applied under the project lock.
+/// `Accept Proposal`, `Refine`, `Discard` and `Dismiss Drift`, applied under the project lock.
 /// Returns the new revision.
 pub async fn decide_drift(
     state: &AppState,
@@ -618,29 +618,6 @@ pub async fn resolve_drift(
         .resolve(&project_id, &drift_id)
         .await
         .map_err(|notice| AppError::new(ErrorCode::Refused, notice))
-}
-
-/// **Fix the code**: the fix option (required when the Drift offers some) and the developer's note.
-#[tauri::command]
-pub async fn fix_drift_code(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    project_id: String,
-    drift_id: String,
-    option: Option<u32>,
-    note: Option<String>,
-) -> Result<(), AppError> {
-    let note = note.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty());
-    announce(
-        &app,
-        decide_drift(
-            &state,
-            &project_id,
-            &drift_id,
-            Decision::FixCode { option, note },
-        )
-        .await?,
-    )
 }
 
 /// **Accept Proposal**: approves the Proposal attached to the Drift.
@@ -1305,32 +1282,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fixing_the_code_is_applied_in_the_queue_and_publishes_the_picture() {
-        let f = fixture();
-        let base = tempfile::tempdir().unwrap();
-        let (state, id) = open(&f, base.path()).await;
-        state
-            .agent_work
-            .set(Arc::new(Working(AtomicBool::new(false))));
-        let revision = decide_drift(
-            &state,
-            &id,
-            &f.id,
-            Decision::FixCode {
-                option: Some(2),
-                note: Some("Mind the lock".into()),
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(revision.map(|r| r.revision), Some(2));
-        let image = state.pictures.get(&id).unwrap().image;
-        let drift = image.card(CardKind::Drift, &f.id).unwrap();
-        assert_eq!(drift.str_key("status"), Some("code-to-be-fixed"));
-        assert_eq!(image.cards_of(CardKind::Task).count(), 1, "the fix Task");
-    }
-
-    #[tokio::test]
     async fn a_decision_refused_when_applied_names_the_drift_and_writes_nothing() {
         let f = fixture();
         let base = tempfile::tempdir().unwrap();
@@ -1362,10 +1313,6 @@ mod tests {
             .set(Arc::new(Working(AtomicBool::new(true))));
         for decision in [
             Decision::Dismiss,
-            Decision::FixCode {
-                option: Some(1),
-                note: None,
-            },
             Decision::AcceptProposal,
         ] {
             let error = decide_drift(&state, &id, &f.id, decision)
