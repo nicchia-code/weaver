@@ -87,6 +87,7 @@ use weaver_core::settings::{
     SettingField, SettingIssue, SettingKey, Settings, SettingsSnapshot, SystemCertificatesSettings,
     Theme,
 };
+use weaver_core::shell_command::{ShellCommandOutcome, ShellCommandResult};
 use weaver_core::system_certificates::{
     Phase as SystemCertificatesPhase, Status as SystemCertificatesStatus,
 };
@@ -272,6 +273,8 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     NotesTrashRefusal::export_all_to(dir)?;
     NotesTrashed::export_all_to(dir)?;
     NotesFlush::export_all_to(dir)?;
+    ShellCommandResult::export_all_to(dir)?;
+    ShellCommandOutcome::export_all_to(dir)?;
     Ok(())
 }
 

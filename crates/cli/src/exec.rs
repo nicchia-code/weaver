@@ -84,6 +84,9 @@ impl Authority for NoJobs {
 /// The failure of a command refused for its caller.
 pub fn access_failure(command: &Command) -> Failure {
     let who = match command.access {
+        Access::Developer => {
+            return Failure::refused(weaver_core::open::AGENT_REFUSAL);
+        }
         Access::General => {
             "the agent of the General or of an Ask more conversation that Weaver started for this project"
         }
@@ -239,6 +242,8 @@ pub fn execute(
 
     let allowed = match command.access {
         Access::Anyone => true,
+        // Never run in the app or in this process as a command: `weaver open` has its own request.
+        Access::Developer => false,
         Access::Job => caller
             .job
             .as_deref()
@@ -283,7 +288,7 @@ pub fn execute(
             let given = request.card.as_deref().expect("checked by check_words");
             Some(resolve_card(&image, kind, given).map_err(|e| Failure::refused(e.to_string()))?)
         }
-        Arg::Reference | Arg::Job => request.card.clone(),
+        Arg::Reference | Arg::Job | Arg::Folder => request.card.clone(),
     };
     // The handler sees what the app knows about the agent's work, at the moment it runs, and who
     // the app vouches the caller is: an identity it does not accept counts as none.

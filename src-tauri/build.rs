@@ -134,6 +134,9 @@ const COMMANDS: &[&str] = &[
     "notes_add_dropped",
     "notes_trash",
     "notes_flushed",
+    "shell_command_status",
+    "shell_command_install",
+    "shell_command_remove",
 ];
 
 fn main() {

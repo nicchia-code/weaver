@@ -152,6 +152,9 @@ pub enum CommandName {
     NotesAddDropped,
     NotesTrash,
     NotesFlushed,
+    ShellCommandStatus,
+    ShellCommandInstall,
+    ShellCommandRemove,
 }
 
 impl CommandName {
@@ -285,6 +288,9 @@ impl CommandName {
         CommandName::NotesAddDropped,
         CommandName::NotesTrash,
         CommandName::NotesFlushed,
+        CommandName::ShellCommandStatus,
+        CommandName::ShellCommandInstall,
+        CommandName::ShellCommandRemove,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -418,6 +424,9 @@ impl CommandName {
             CommandName::NotesAddDropped => "notes_add_dropped",
             CommandName::NotesTrash => "notes_trash",
             CommandName::NotesFlushed => "notes_flushed",
+            CommandName::ShellCommandStatus => "shell_command_status",
+            CommandName::ShellCommandInstall => "shell_command_install",
+            CommandName::ShellCommandRemove => "shell_command_remove",
         }
     }
 }

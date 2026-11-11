@@ -942,6 +942,113 @@ describe("the solo field of project new, project edit and project show", { skip:
   });
 });
 
+// ---------------------------------------------------------------------------------------------
+// `weaver open [<folder>]` (requirements/cli#developer.OPEN_PROJECT): the one command with no verb. No
+// app runs in these tests, so what reaches the app is covered by the unit tests of the crates; here:
+// the words, the help, what is refused before the app is contacted, and that the app is never started.
+
+describe("weaver open", () => {
+  const NOT_RUNNING = /^error: `weaver open` needs Weaver, and Weaver is not running\.$/m;
+
+  test("`weaver --help` lists `open [<folder>]` among the objects and `weaver open --help` is its own help", async () => {
+    const cwd = emptyFolder();
+    const top = await exec(["--help"], { cwd });
+    assert.match(top.stdout, /^\s+open\s+\[<folder>\]$/m);
+
+    for (const args of [["open", "--help"], ["open", "-h"], ["open", "x", "--help"]]) {
+      const result = await exec(args, { cwd, stdin: "open" });
+      assert.equal(result.timedOut, false, "--help waited for stdin");
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Usage: weaver open \[<folder>\] \[--json\]/);
+      assert.match(result.stdout, /Example:\n\s+weaver open /);
+      assert.doesNotMatch(result.stdout, /is not an object/);
+      assert.equal(result.stderr, "");
+    }
+    assert.deepEqual(entries(cwd), []);
+  });
+
+  test("--help --json prints {command, input, output} JSON Schemas (2020-12) with no verb", async () => {
+    const result = await exec(["open", "--help", "--json"], { cwd: emptyFolder() });
+    assert.equal(result.status, 0, result.stderr);
+    const help = parseJson(result.stdout);
+    assert.deepEqual(Object.keys(help).sort(), ["command", "input", "output"]);
+    for (const key of ["command", "input", "output"]) assert.match(String(help[key].$schema), /2020-12/);
+    assert.equal(help.command.properties.object.const, "open");
+    assert.equal(help.command.properties.verb, undefined);
+    assert.equal(help.command.properties.folder.type, "string");
+  });
+
+  test("`weaver` with no words stays a usage error with the help, which lists open", async () => {
+    const result = await exec([], { cwd: emptyFolder() });
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /a command is needed/);
+    assert.match(result.stderr, /^\s+open\s+\[<folder>\]$/m);
+  });
+
+  test("it is not in the command reference of the installed skills", async () => {
+    const root = await newProject(environment);
+    const reference = readFileSync(path.join(root, ".agents", "skills", "weaver-design", "COMMANDS.md"), "utf8");
+    assert.doesNotMatch(reference, /weaver open/);
+    assert.doesNotMatch(reference, /^\| `open` \|/m);
+  });
+
+  test("a second folder, --root and --input are wrong usage (exit 2) and name what is wrong", async () => {
+    const cwd = emptyFolder();
+    for (const [args, named] of [
+      [["open", "a", "b"], /at most one folder/],
+      [["open", "--root", cwd], /`--root`/],
+      [["open", "--input", "{}"], /`--input`/],
+    ]) {
+      const result = await exec(args, { cwd });
+      assert.equal(result.status, 2, `${args}: ${result.stdout}${result.stderr}`);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, named);
+    }
+    assert.deepEqual(entries(cwd), []);
+  });
+
+  test("an agent is refused with exit 1 and the code `refused`, and nothing is sent", async () => {
+    const cwd = emptyFolder();
+    for (const variable of ["WEAVER_JOB", "WEAVER_GENERAL", "WEAVER_ASK"]) {
+      const env = { ...environment.env, [variable]: "abcd1234" };
+      const result = await run(["open", cwd, "--json"], { cwd, env });
+      assert.equal(result.status, 1, `${variable}: ${result.stdout}${result.stderr}`);
+      const failure = parseJson(result.stdout).error;
+      assert.equal(failure.code, "refused");
+      assert.equal(failure.message, "`weaver open` is for the developer's terminal: an agent cannot open folders in Weaver.");
+      assert.match(result.stderr, /^error: `weaver open` is for the developer's terminal/);
+    }
+  });
+
+  test("a folder that does not exist or is not a folder is told with its path, exit 1", async () => {
+    const cwd = emptyFolder();
+    const missing = await exec(["open", "nope"], { cwd });
+    assert.equal(missing.status, 1);
+    assert.equal(missing.stderr, `error: \`${path.join(cwd, "nope")}\` does not exist.\n`);
+    writeFileSync(path.join(cwd, "file.txt"), "x");
+    const file = await exec(["open", "file.txt"], { cwd });
+    assert.equal(file.status, 1);
+    assert.equal(file.stderr, `error: \`${path.join(cwd, "file.txt")}\` is not a folder.\n`);
+    assert.deepEqual(entries(cwd), ["file.txt"]);
+  });
+
+  test("with no app running it says so, exit 1 and code `app-not-running`, for a folder and for none; it needs no project", async () => {
+    const cwd = emptyFolder();
+    makeFolder(cwd, "model"); // A folder named like an object is a folder.
+    for (const args of [["open", cwd], ["open", "model"], ["open"]]) {
+      const result = await exec(args, { cwd });
+      assert.equal(result.status, 1, `${args}: ${result.stdout}${result.stderr}`);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, NOT_RUNNING);
+    }
+    const json = await exec(["open", "--json"], { cwd });
+    assert.equal(json.status, 1);
+    assert.equal(parseJson(json.stdout).error.code, "app-not-running");
+    assert.deepEqual(entries(cwd), ["model"], "nothing is written, and no app is started");
+  });
+});
+
 test("the binary under test is the one this run located", () => {
   assert.ok(existsSync(WEAVER_CLI), WEAVER_CLI);
 });

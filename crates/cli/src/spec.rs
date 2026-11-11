@@ -177,6 +177,9 @@ pub enum Access {
     /// Only the agent of the project's live Chat (`WEAVER_GENERAL`, accepted by the app) during one
     /// of its turns; an Ask more conversation and a job are refused.
     Chat,
+    /// Only the developer's own terminal: refused (exit 1, nothing sent) whenever `WEAVER_JOB`,
+    /// `WEAVER_GENERAL` or `WEAVER_ASK` is set (`weaver open`).
+    Developer,
 }
 
 /// Where a command runs.
@@ -200,6 +203,8 @@ pub enum Arg {
     Reference,
     /// A job identity. Optional.
     Job,
+    /// A folder. Optional.
+    Folder,
 }
 
 /// What a handler may use.
@@ -427,25 +432,47 @@ impl Command {
         self
     }
 
-    /// `object verb`.
+    /// `object verb`; the object alone for a command with no verb (`open`).
     pub fn name(&self) -> String {
-        format!("{} {}", self.object, self.verb)
+        if self.is_verbless() {
+            self.object.to_owned()
+        } else {
+            format!("{} {}", self.object, self.verb)
+        }
+    }
+
+    /// Whether the command has no verb: `weaver open [<folder>]` is the only one, the exception to
+    /// `weaver <object> <verb>` (`requirements/cli#General`).
+    pub fn is_verbless(&self) -> bool {
+        self.verb.is_empty()
+    }
+
+    /// Whether the agent can run it: the commands of the developer's terminal are not in the
+    /// command reference of the installed skills.
+    pub fn is_for_agents(&self) -> bool {
+        self.access != Access::Developer
     }
 
     /// The usage line: `weaver <object> <verb> [<id>] ...`.
     pub fn usage(&self) -> String {
-        let mut usage = format!("weaver {} {}", self.object, self.verb);
+        let mut usage = format!("weaver {}", self.name());
         match self.arg {
             Arg::None => {}
             Arg::Card(_) => usage.push_str(" <id>"),
             Arg::Reference => usage.push_str(" [<ref>]"),
             Arg::Job => usage.push_str(" [<id>]"),
+            Arg::Folder => usage.push_str(" [<folder>]"),
         }
         if !self.states.is_empty() {
             usage.push(' ');
             usage.push_str(&self.states.join("|"));
         }
-        usage.push_str(" [--input <json>|-] [--root <dir>] [--json]");
+        if self.access == Access::Developer {
+            // The developer's terminal takes no input and no root: only the output format.
+            usage.push_str(" [--json]");
+        } else {
+            usage.push_str(" [--input <json>|-] [--root <dir>] [--json]");
+        }
         usage
     }
 
