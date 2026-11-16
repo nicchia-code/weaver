@@ -132,7 +132,7 @@ export function WelcomeWindow() {
         <UpdateBanner />
         <SystemCertificatesBanners />
         <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-          <header className="flex items-end gap-3">
+          <header className="flex shrink-0 items-end gap-3">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
               <Logo size={48} />
               <div className="min-w-0">
@@ -147,27 +147,30 @@ export function WelcomeWindow() {
           </header>
 
           {failure ? (
-            <Alert variant="error">
+            <Alert variant="error" className="shrink-0">
               <TriangleAlert aria-hidden />
               <p className="min-w-0 flex-1">{failure}</p>
             </Alert>
           ) : null}
 
-          <section aria-labelledby="recent-projects-title" className="flex min-h-0 flex-col gap-1">
-            <h2 id="recent-projects-title" className="text-sm font-semibold">
+          <section aria-labelledby="recent-projects-title" className="flex min-h-36 flex-col gap-1">
+            <h2 id="recent-projects-title" className="shrink-0 text-sm font-semibold">
               Recent projects
             </h2>
             {state && state.recent.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
+              <p className="shrink-0 text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
             ) : null}
-            <ul className="flex flex-col">
+            {/* Only the list scrolls (the section never gets below its title and two rows: when omp setup alone fills the window, the panel scrolls); the side padding keeps the focus ring of a row from being cut by the overflow. */}
+            <ul className="-mx-1 flex min-h-0 flex-col overflow-y-auto px-1">
               {state?.recent.map((entry) => (
                 <RecentProject key={entry.path} entry={entry} onOpen={open} onRemove={remove} />
               ))}
             </ul>
           </section>
 
-          <OmpSetup place="elsewhere" providers="when-needed" />
+          <div className="shrink-0 empty:hidden">
+            <OmpSetup place="elsewhere" providers="when-needed" />
+          </div>
         </main>
       </div>
     </div>
