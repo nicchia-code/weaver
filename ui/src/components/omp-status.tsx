@@ -302,11 +302,11 @@ export function providersShown(status: OmpStatus | null): status is OmpStatus {
 /** One row per provider of the fixed list, in its order: its state, `Log in` and, when connected, `Log out`. */
 export function Providers({ status, place }: { status: OmpStatus; place: Place }) {
   return (
-    <section aria-labelledby="omp-providers-title" className="flex flex-col gap-1">
+    <section aria-labelledby="omp-providers-title" className="flex min-h-0 flex-col gap-1">
       <h3 id="omp-providers-title" className="text-sm font-semibold">
         Providers
       </h3>
-      <ul className="divide-y divide-border">
+      <ul className="-mx-1 min-h-0 divide-y divide-border overflow-y-auto px-1">
         {status.providers.map((row) => (
           <ProviderRowView key={row.id} status={status} row={row} place={place} />
         ))}
@@ -334,7 +334,7 @@ export function OmpSetup({
   const needed = status?.state === "notConnected" || status?.state === "loggingIn";
   const show = providersShown(status) && (providers === "always" || needed);
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-col gap-4">
       <OmpStatusBox status={status} place={place} />
       {show ? <Providers status={status} place={place} /> : null}
       {systemCertificates ? <SystemCertificatesSetting place={place} /> : null}

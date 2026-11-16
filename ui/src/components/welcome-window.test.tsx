@@ -261,6 +261,42 @@ describe("welcome window", () => {
     expect(await screen.findByRole("switch", { name: "System Certificates" })).not.toBeChecked();
   });
 
+  it("keeps the header and the omp setup in view with no provider: only the recents and the providers scroll, each in its own area", async () => {
+    answers.omp_status = () => ({
+      revision: 1,
+      state: "notConnected",
+      ompPath: "",
+      version: "18.15.0",
+      minVersion: "18.15.0",
+      models: [],
+      providers: [
+        { id: "anthropic", name: "Anthropic", plan: "Claude Pro or Max", connected: false },
+        { id: "openai", name: "OpenAI", plan: "ChatGPT Plus or Pro", connected: false },
+      ],
+      reason: null,
+      updateTarget: null,
+      updateFailure: null,
+      loginProvider: null,
+      terminalProblem: null,
+      logout: null,
+      waitingForExport: false,
+      installerFailure: null,
+    });
+    render_();
+    const providers = await screen.findByRole("heading", { name: "Providers" });
+    const main = providers.closest("main")!;
+    // The panel itself never scrolls.
+    expect(main).toHaveClass("overflow-hidden");
+    expect(main).not.toHaveClass("overflow-auto");
+    // The providers scroll in their own list, which can shrink below its content.
+    expect(providers.closest("section")).toHaveClass("min-h-0");
+    expect(providers.closest("section")!.querySelector("ul")).toHaveClass("overflow-y-auto", "min-h-0");
+    // The recents keep the heading and two rows, and scroll in their own list.
+    const recents = screen.getByRole("heading", { name: "Recent projects" }).closest("section")!;
+    expect(recents).toHaveClass("min-h-[8.5rem]");
+    expect(recents.querySelector("ul")).toHaveClass("overflow-y-auto");
+  });
+
   it("tells a project of the last session that could not open", async () => {
     const failure: StartupFailure = { projectId: "aaaa", projectName: "Acme", step: "project window", reason: "no display" };
     answers.startup_failures = () => [failure];

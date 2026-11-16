@@ -131,10 +131,11 @@ export function WelcomeWindow() {
         <StartupBanner allProjects />
         <UpdateBanner />
         <SystemCertificatesBanners />
-        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-          <header className="flex shrink-0 items-end gap-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <Logo size={48} />
+        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
+          {/* The logo beside the name keeps the header short, so the omp setup and two recent projects fit the 480 px window. */}
+          <header className="flex shrink-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+              <Logo size={48} className="shrink-0" />
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold tracking-title">{state?.name ?? "Weaver"}</h1>
                 {state ? <p className="text-sm text-muted-foreground">{`Version ${state.version}`}</p> : null}
@@ -153,14 +154,15 @@ export function WelcomeWindow() {
             </Alert>
           ) : null}
 
-          <section aria-labelledby="recent-projects-title" className="flex min-h-36 flex-col gap-1">
+          {/* Takes what the header, the Alert and the omp setup leave, never less than the heading and two rows. */}
+          <section aria-labelledby="recent-projects-title" className="flex min-h-[8.5rem] flex-1 basis-0 flex-col gap-1">
             <h2 id="recent-projects-title" className="shrink-0 text-sm font-semibold">
               Recent projects
             </h2>
             {state && state.recent.length === 0 ? (
               <p className="shrink-0 text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
             ) : null}
-            {/* Only the list scrolls (the section never gets below its title and two rows: when omp setup alone fills the window, the panel scrolls); the side padding keeps the focus ring of a row from being cut by the overflow. */}
+            {/* Only the list scrolls; the side padding keeps the focus ring of a row from being cut by the overflow. */}
             <ul className="-mx-1 flex min-h-0 flex-col overflow-y-auto px-1">
               {state?.recent.map((entry) => (
                 <RecentProject key={entry.path} entry={entry} onOpen={open} onRemove={remove} />
@@ -168,7 +170,8 @@ export function WelcomeWindow() {
             </ul>
           </section>
 
-          <div className="shrink-0 empty:hidden">
+          {/* The omp setup keeps its status row in view; its provider list scrolls in its own area when room is short. */}
+          <div className="flex min-h-0 flex-col empty:hidden">
             <OmpSetup place="elsewhere" providers="when-needed" />
           </div>
         </main>
