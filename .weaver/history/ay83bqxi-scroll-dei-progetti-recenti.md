@@ -1,10 +1,11 @@
 ---
 created: 2026-11-16T15:28:10.719Z
-updated: 2026-11-16T15:46:58.565Z
+updated: 2026-11-16T19:27:47.517Z
 summary: Nella finestra di benvenuto scorre solo la lista dei progetti recenti, con la propria barra; intestazione, titolo, errore e stato di omp restano sempre visibili.
 tasks:
 - xwg76q3f
 - 38fs730d
+- 7lpa4uby
 cleared:
   xwg76q3f:
     title: Scroll dei progetti recenti
@@ -58,7 +59,33 @@ cleared:
       ## Where in the code
 
       ui/src/components/welcome-window.tsx, `WelcomeWindow` (`main` e `section` dei recenti); `OmpSetup` con `providers="when-needed"` in ui/src/components/omp-status.tsx
+  7lpa4uby:
+    title: 'Fix the code: Provider nascosti con errore'
+    refs:
+    - requirements/ui#window
+    technical: true
+    finished: 2026-11-16T19:26:27.210Z
+    body: |-
+      ## What happens
+
+      Con omp **non collegato a nessun provider** e un messaggio di errore di apertura mostrato nella finestra di benvenuto (640 × 480), l'**elenco dei provider si riduce a 0 px**: scompare del tutto e non si può fare il login.
+
+      Intestazione, errore, almeno due righe di recenti e riga di stato di omp restano in vista; il pannello non scorre. Senza il messaggio di errore l'elenco dei provider è alto circa 52 px e scorre da solo.
+
+      ## What should happen
+
+      La finestra di benvenuto tiene sempre in vista intestazione, `Alert` e riga di stato di omp con la sua configurazione, e scorre solo la lista dei recenti. Con omp senza provider l'elenco dei provider fa parte di quella configurazione e deve restare raggiungibile, anche con l'`Alert` di errore mostrato. Nello spazio di 480 px le due richieste non valgono insieme.
+
+      ## Chosen option
+
+      ### Recenti ridotti col messaggio
+
+      Con un messaggio di errore mostrato la lista dei recenti cede spazio e scende a una sola riga, così l'elenco dei provider mantiene un'altezza utilizzabile. Il minimo di due righe vale solo senza messaggio. Cambia solo il layout, nessun comportamento.
+
+      ## Where in the code
+
+      ui/src/components/welcome-window.tsx, `WelcomeWindow` (`Alert` di errore, `section` dei recenti con altezza minima); `OmpSetup` con `providers="when-needed"` in ui/src/components/omp-status.tsx
 ---
 # Scroll dei progetti recenti
 
-La lista dei progetti recenti (fino a 10) non esce più dalla propria area e non copre la riga di stato di omp, anche con banner in cima alla finestra. Con pochi progetti la finestra resta come prima, senza barra di scorrimento. Le righe sono invariate, restano raggiungibili da tastiera e il focus di una riga fuori vista la porta in vista, con l'anello di focus non tagliato. Con omp senza provider collegato il logo sta accanto a nome e versione, i recenti mostrano sempre almeno due righe e l'elenco dei provider scorre in una propria area, quindi intestazione, avviso e stato di omp restano in vista e il pannello non scorre.
+La lista dei progetti recenti (fino a 10) non esce più dalla propria area e non copre la riga di stato di omp, anche con banner in cima alla finestra. Con pochi progetti la finestra resta come prima, senza barra di scorrimento. Le righe sono invariate, restano raggiungibili da tastiera e il focus di una riga fuori vista la porta in vista, con l'anello di focus non tagliato. Con omp senza provider collegato il logo sta accanto a nome e versione, i recenti mostrano sempre almeno due righe e l'elenco dei provider scorre in una propria area, quindi intestazione, avviso e stato di omp restano in vista e il pannello non scorre. Con anche un messaggio di errore di apertura mostrato, i recenti scendono a una sola riga e l'elenco dei provider resta utilizzabile.

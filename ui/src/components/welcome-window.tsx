@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { UpdateBanner } from "@/components/update-banner";
 import { call, isAppError, on } from "@/lib/backend";
+import { cn } from "@/lib/utils";
 
 function failureText(action: string, error: unknown): string {
   return `${action}: ${isAppError(error) ? error.message : "unknown error"}`;
@@ -154,8 +155,11 @@ export function WelcomeWindow() {
             </Alert>
           ) : null}
 
-          {/* Takes what the header, the Alert and the omp setup leave, never less than the heading and two rows. */}
-          <section aria-labelledby="recent-projects-title" className="flex min-h-[8.5rem] flex-1 basis-0 flex-col gap-1">
+          {/* Takes what the header, the Alert and the omp setup leave; never less than the heading and two rows, or the heading and one row while an error is shown, so the providers keep a usable height. */}
+          <section
+            aria-labelledby="recent-projects-title"
+            className={cn("flex flex-1 basis-0 flex-col gap-1", failure ? "min-h-[5rem]" : "min-h-[8.5rem]")}
+          >
             <h2 id="recent-projects-title" className="shrink-0 text-sm font-semibold">
               Recent projects
             </h2>
