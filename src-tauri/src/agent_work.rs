@@ -13,7 +13,9 @@
 //!   that has no announced ghost on the Board has one ghost of its own, made by Weaver, with the
 //!   identity `job:<job id>`; it is listed in the place it would have if it had been announced
 //!   when the job was created, and it leaves in the same step in which the first announced ghost
-//!   of the job comes;
+//!   of the job comes. A Run that took a Task and holds none has, in the same way, a cleanup
+//!   ghost (kind Task, identity `job:<job id>`) whenever the picture it is worked out against
+//!   shows no Task in To do or In progress and the jobs have no announced ghost of a Task;
 //! * after any change of what these methods answer, the jobs call
 //!   [`crate::board::publish_agent_change`] so that the Board is sent again.
 
@@ -22,6 +24,7 @@ use std::sync::{Arc, RwLock};
 use serde::Serialize;
 use ts_rs::TS;
 use weaver_core::project::board::AgentFacts;
+use weaver_core::project::image::ProjectImage;
 
 /// The kind of card a job is preparing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -33,7 +36,7 @@ pub enum GhostKind {
 }
 
 /// How far the job is: the UI words it (`Preparing`, `Writing`, `Waiting for your answers`,
-/// `Being refined`).
+/// `Being refined`, `Finishing up`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum GhostPhase {
@@ -45,6 +48,8 @@ pub enum GhostPhase {
     WaitingForAnswers,
     /// A refinement of an existing Proposal.
     BeingRefined,
+    /// A Run that took its Tasks and holds none now: it finishes the work that follows them.
+    FinishingUp,
 }
 
 /// A card an agent job announced and has not filed yet.
@@ -60,11 +65,15 @@ pub struct Ghost {
     pub phase: GhostPhase,
     /// The job's latest note, when there is one.
     pub note: Option<String>,
+    /// For the cleanup ghost of a Run (`requirements/ui#work`): the name of the Run, which the
+    /// accessible name of the ghost carries. `None` for every other ghost.
+    pub cleanup_of: Option<String>,
 }
 
 pub trait AgentWork: Send + Sync {
-    /// The ghosts of a project, in announcement order.
-    fn ghosts(&self, project_id: &str) -> Vec<Ghost>;
+    /// The ghosts of a project in order, worked out against `image`, the picture the Board is
+    /// made of: the cleanup ghost of a Run depends on which Tasks it shows.
+    fn ghosts(&self, project_id: &str, image: &ProjectImage) -> Vec<Ghost>;
     /// What is known about the work of the agent in a project.
     fn facts(&self, project_id: &str) -> AgentFacts;
 }
@@ -73,7 +82,7 @@ pub trait AgentWork: Send + Sync {
 pub struct NoAgentWork;
 
 impl AgentWork for NoAgentWork {
-    fn ghosts(&self, _project_id: &str) -> Vec<Ghost> {
+    fn ghosts(&self, _project_id: &str, _image: &ProjectImage) -> Vec<Ghost> {
         Vec::new()
     }
 

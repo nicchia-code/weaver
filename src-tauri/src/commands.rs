@@ -39,7 +39,6 @@ pub enum CommandName {
     DiscardProposal,
     ChooseProposalModel,
     ResolveDrift,
-    FixDriftCode,
     AcceptDriftProposal,
     RefineDriftProposal,
     DiscardDriftProposal,
@@ -152,6 +151,9 @@ pub enum CommandName {
     NotesAddDropped,
     NotesTrash,
     NotesFlushed,
+    ShellCommandStatus,
+    ShellCommandInstall,
+    ShellCommandRemove,
 }
 
 impl CommandName {
@@ -172,7 +174,6 @@ impl CommandName {
         CommandName::DiscardProposal,
         CommandName::ChooseProposalModel,
         CommandName::ResolveDrift,
-        CommandName::FixDriftCode,
         CommandName::AcceptDriftProposal,
         CommandName::RefineDriftProposal,
         CommandName::DiscardDriftProposal,
@@ -285,6 +286,9 @@ impl CommandName {
         CommandName::NotesAddDropped,
         CommandName::NotesTrash,
         CommandName::NotesFlushed,
+        CommandName::ShellCommandStatus,
+        CommandName::ShellCommandInstall,
+        CommandName::ShellCommandRemove,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -305,7 +309,6 @@ impl CommandName {
             CommandName::DiscardProposal => "discard_proposal",
             CommandName::ChooseProposalModel => "choose_proposal_model",
             CommandName::ResolveDrift => "resolve_drift",
-            CommandName::FixDriftCode => "fix_drift_code",
             CommandName::AcceptDriftProposal => "accept_drift_proposal",
             CommandName::RefineDriftProposal => "refine_drift_proposal",
             CommandName::DiscardDriftProposal => "discard_drift_proposal",
@@ -418,6 +421,9 @@ impl CommandName {
             CommandName::NotesAddDropped => "notes_add_dropped",
             CommandName::NotesTrash => "notes_trash",
             CommandName::NotesFlushed => "notes_flushed",
+            CommandName::ShellCommandStatus => "shell_command_status",
+            CommandName::ShellCommandInstall => "shell_command_install",
+            CommandName::ShellCommandRemove => "shell_command_remove",
         }
     }
 }

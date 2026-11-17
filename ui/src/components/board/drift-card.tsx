@@ -1,4 +1,4 @@
-import { Ban, CheckCheck, Sparkles, Trash2, WandSparkles, Wrench } from "lucide-react";
+import { Ban, CheckCheck, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { useState } from "react";
 
 import { AskMoreButton } from "@/components/ask/ask-button";
@@ -12,16 +12,10 @@ import { cardReasons, GuardedButton } from "@/components/guarded-button";
 import { Markdown } from "@/components/markdown";
 import { OpenInEditor } from "@/components/open-in-editor";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TONE_STRIPE } from "@/lib/tones";
 
 type DriftCardData = BoardCardOf<"drift">;
-
-/** Why `Fix the code` waits on a Drift from a merge, which has no fix option chosen. */
-const CHOOSE_AN_OPTION = "Choose a fix option";
 
 /** How a card is named in a sentence: its short number, else its permanent id. */
 function nameOf(ref: { id: string; shortNumber: string | null }): string {
@@ -104,45 +98,19 @@ function DriftCard({ card }: { card: DriftCardData }) {
 }
 
 /**
- * The fix decision: the options (the recommended one preselected, except on a Drift from a merge,
- * which has none chosen: its `Accept Proposal` is the recommended one), the note and `Fix the
- * code`; with an attached Proposal `Accept Proposal`, replaced by `Refine` when it is stale and
- * Open, or by `Refine` and `Discard` when a refinement left it half-way. Every reason comes from
- * the backend.
+ * The decision on the attached Proposal: `Accept Proposal`, replaced by `Refine` when it is stale
+ * and Open, or by `Refine` and `Discard` when a refinement left it half-way; `recommended` marks
+ * `Accept Proposal` on a Drift from a merge. The code is not fixed here: that is answered in the
+ * question `Resolve` asks. Every reason comes from the backend.
  */
 function DecisionForm({ card }: { card: DriftCardData }) {
-  const { fixDriftCode, acceptDriftProposal, refineDriftProposal, discardDriftProposal } = useBoard();
+  const { acceptDriftProposal, refineDriftProposal, discardDriftProposal } = useBoard();
   const { head, view } = card;
-  const [option, setOption] = useState(view.merge ? "" : "1");
-  const [note, setNote] = useState("");
   const [discarding, setDiscarding] = useState(false);
   const name = nameOf(head);
-  const fixReasons = cardReasons(head.agentFinishing, [...view.fixReasons, option === "" && CHOOSE_AN_OPTION]);
   const attached = view.attached;
   return (
     <section aria-label="Decision" className="space-y-3">
-      {view.options.length > 0 ? (
-        <>
-          <RadioGroup value={option} onValueChange={setOption} aria-label="Fix option">
-            {view.options.map((item, index) => (
-              <div key={item.title} className="flex items-center gap-2">
-                <RadioGroupItem value={String(index + 1)} id={`${head.id}-option-${index + 1}`} />
-                <Label htmlFor={`${head.id}-option-${index + 1}`}>{item.title}</Label>
-              </div>
-            ))}
-          </RadioGroup>
-          <div className="space-y-1">
-            <Label htmlFor={`${head.id}-note`}>Note</Label>
-            <Textarea id={`${head.id}-note`} value={note} onChange={(event) => setNote(event.target.value)} />
-          </div>
-          <GuardedButton size="sm" reasons={fixReasons} onClick={() => void fixDriftCode(head.id, name, Number(option), note.trim() || null)}>
-            <Wrench aria-hidden />
-            Fix the code
-          </GuardedButton>
-        </>
-      ) : (
-        <p className="text-muted-foreground">No code change can respect both the Model and the Requirements.</p>
-      )}
       {attached?.refine ? (
         <div className="flex flex-wrap gap-2">
           <GuardedButton
@@ -204,7 +172,7 @@ function Side({ title, text }: { title: string; text: string }) {
   );
 }
 
-/** The details: id and badges, references, the two sides, options, where in the code, origin, attached Proposal, decision. */
+/** The details: id and badges, references, the two sides, where in the code, origin, attached Proposal, decision. */
 function DriftDetails({ card }: { card: DriftCardData }) {
   const { view, origin } = card;
   return (
@@ -223,20 +191,6 @@ function DriftDetails({ card }: { card: DriftCardData }) {
         <Side title="What happens" text={view.happens} />
         <Side title="What should happen" text={view.should} />
       </div>
-      {view.options.length > 0 ? (
-        <section aria-label="Fix options" className="space-y-2">
-          <h3 className="text-sm font-semibold">Fix options</h3>
-          <ol className="list-decimal space-y-2 pl-5">
-            {view.options.map((option, index) => (
-              <li key={option.title}>
-                <span className="font-medium">{option.title}</span>
-                {index === 0 && !view.merge ? <Badge variant="lavender" className="ml-2">recommended</Badge> : null}
-                <Markdown holderHeadingLevel={3}>{option.text}</Markdown>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
       <section aria-label="Where in the code" className="space-y-2">
         <h3 className="text-sm font-semibold">Where in the code</h3>
         <Markdown holderHeadingLevel={3}>{view.whereInCode}</Markdown>

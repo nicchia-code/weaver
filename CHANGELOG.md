@@ -6,9 +6,23 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-17
+
+### Added
+
+- A Run that has finished its Tasks but is still working (the checks, the History entry, the questions on Drifts, the final review) no longer leaves Active empty: the Board shows a ghost of its own, `Cleaning up: <job name>`, with the phase `Finishing up` or `Waiting for your answers` and the job's latest note, which opens the job's conversation. It shows only while Active has no Task and no announced ghost, and while the Run has no announced ghost on the Board; each Run of a Run all has its own, and it comes back after Weaver restarts.
+- `weaver open <folder>` opens a folder in the running Weaver, and `weaver open` alone shows its welcome window, from your own terminal; it never starts Weaver, and the agent cannot use it.
+- Settings has a `Command line` group that installs the `weaver` command in your terminal (a link in `/usr/local/bin` on macOS, in `~/.local/bin` on Linux, the folder added to your user `Path` on Windows) and removes it, only when you ask, and never touches a `weaver` that is not Weaver's.
+
 ### Changed
 
 - The commits of Atomic commits no longer name Weaver as co-author: their message is only the one the agent wrote, with or without Solo mode.
+- The Board now puts in each column what you can act on first and, after it, what you cannot: a card that other cards wait on (a Drift that blocks a Task, a fix Task, a Proposal that another one requires, a resolution that holds back the other Drifts) comes before the others, the Tasks in progress follow the Tasks you can run, the ghosts of the agent's work sit between the two groups, and a card moves as soon as what stops it changes; the order in which the agent carries out the Tasks does not change. `weaver project show` lists the cards in the same order.
+- On the Board a card or a ghost that changes place now slides to its new place in 150 ms, one that arrives fades in and one that leaves fades out (and cannot be clicked or focused while it does), the empty state of a column fades in as its last card leaves, a card that moves keeps the focus, and nothing moves under reduced motion; ghosts now sit in the column at the place the Board gives them instead of at the bottom, and the palette lists the cards in the order of the Board.
+
+### Removed
+
+- The details of a Drift no longer show the fix options, the `Note` field or the `Fix the code` button: the code is no longer fixed from the details of a Drift but by answering the question that `Resolve` asks.
 
 ## [0.5.0] - 2026-11-08
 

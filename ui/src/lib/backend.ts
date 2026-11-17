@@ -56,6 +56,7 @@ import type { WelcomeState } from "@/bindings/WelcomeState";
 import type { ProjectGit } from "@/bindings/ProjectGit";
 import type { ProjectSwitcher } from "@/bindings/ProjectSwitcher";
 import type { SystemCertificatesStatus } from "@/bindings/SystemCertificatesStatus";
+import type { ShellCommandResult } from "@/bindings/ShellCommandResult";
 import type { AskClosed } from "@/bindings/AskClosed";
 import type { AskEntries } from "@/bindings/AskEntries";
 import type { AskRow } from "@/bindings/AskRow";
@@ -195,8 +196,6 @@ export interface Commands {
   choose_proposal_model: { args: { projectId: string; proposalId: string; model: string | null }; result: null };
   /** **Resolve** on a Drift: a round of the prepared question, or a resolve job; `refused` carries the notice. */
   resolve_drift: { args: { projectId: string; driftId: string }; result: null };
-  /** **Fix the code** on a Drift: the fix option (required when it offers some) and the note. */
-  fix_drift_code: { args: { projectId: string; driftId: string; option: number | null; note: string | null }; result: null };
   /** **Accept Proposal** on a Drift with an attached Proposal. */
   accept_drift_proposal: { args: { projectId: string; driftId: string }; result: null };
   /** **Refine** on a Drift whose attached Proposal is stale or was left half-way: a refinement job adapts it; the Drift is not decided. */
@@ -435,6 +434,12 @@ export interface Commands {
   notes_trash: { args: { projectId: string; names: string[] }; result: NotesTrashed };
   /** The answer to `notes-flush`: the sheet's waiting text (none when nothing waits) and the images to trash after it is written. */
   notes_flushed: { args: { projectId: string; text: string | null; trash: string[] }; result: null };
+  /** `shell-command`: what the terminal finds now (installed or not, and where), read off the main thread. */
+  shell_command_status: { args: Record<string, never>; result: ShellCommandResult };
+  /** `developer.INSTALL_COMMAND`: makes Weaver's copy of the command line reachable from the terminals opened afterwards. The result carries the outcome: done, refused (something else takes the place), cancelled (the administrator password request on macOS) or failed. Another action in progress is refused with an error. */
+  shell_command_install: { args: Record<string, never>; result: ShellCommandResult };
+  /** `developer.REMOVE_COMMAND`: undoes what the installation made, with the same outcomes. */
+  shell_command_remove: { args: Record<string, never>; result: ShellCommandResult };
 }
 
 // Compile-time proof that the maps above cover exactly the generated names.

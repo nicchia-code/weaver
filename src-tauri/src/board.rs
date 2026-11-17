@@ -11,6 +11,7 @@
 //! event names the slice `board`; the `revision` it carries lets it drop an answer older than one
 //! it already shows.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ use weaver_core::project::history;
 use weaver_core::project::image::ProjectImage;
 use weaver_core::project::proposal::files::{self, Folders};
 use weaver_core::project::proposal::models::ProposalModels;
+use weaver_core::project::rank::{self, DraftFact, RankedBacklog};
 use weaver_core::project::requests::RequestStore;
 use weaver_core::project::shortnum::{self, ShortNumbers};
 use weaver_core::project::tasks::{self, Blocking};
@@ -184,10 +186,15 @@ pub struct BoardSnapshot {
     /// shown is dropped.
     #[ts(type = "number")]
     pub revision: u64,
-    /// Open Proposals, resolutions and Drifts in one creation order, oldest first.
+    /// Open Proposals, resolutions, Drifts and the drafts of requests, in the Board order
+    /// (`requirements/rules#work`): the UI never sorts.
     pub backlog: Vec<BoardCard>,
-    /// Tasks in To do and In progress, blocked ones included, oldest first.
+    /// How many cards of `backlog` come before its ghosts.
+    pub backlog_ghosts_at: u32,
+    /// Tasks in To do and In progress, blocked ones included, in the Board order.
     pub active: Vec<BoardCard>,
+    /// How many cards of `active` come before its ghosts.
+    pub active_ghosts_at: u32,
     /// Cards the jobs announced and have not filed, in announcement order.
     pub ghosts: Vec<Ghost>,
     /// The Drifts a resolution gathers: not cards of the Board (they are not counted and have no
@@ -372,8 +379,8 @@ fn active_card(
 }
 
 /// The Board of `image`, worked out whole. `root` is where the short-number cache is read (it is
-/// never written here). `drafts` are the requests being written: their cards come last in
-/// Backlog, after the Proposals and the Drifts, in the order given.
+/// never written here). `drafts` are the requests being written: they are ranked with the other
+/// cards of Backlog by [`rank::rank`], which also says where the ghosts of each column go.
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot(
     project_id: &str,
@@ -388,26 +395,42 @@ pub fn snapshot(
     let numbers = shortnum::peek(root, image.cards());
     let computed = board::compute(image, facts);
     let folders = files::read_folders(root, image);
-    BoardSnapshot {
-        project_id: project_id.to_owned(),
-        revision,
-        backlog: computed
-            .backlog
-            .iter()
-            .filter_map(|e| backlog_card(image, &numbers, facts, &folders, models, e))
-            .chain(drafts.into_iter().map(|draft| BoardCard::Request {
+    let draft_facts: Vec<DraftFact> = drafts
+        .iter()
+        .map(|draft| DraftFact {
+            id: draft.id.clone(),
+            empty: draft.empty,
+        })
+        .collect();
+    let ranked = rank::rank(&computed, image, facts, &folders, &draft_facts);
+    let mut drafts: HashMap<String, Draft> = drafts
+        .into_iter()
+        .map(|draft| (draft.id.clone(), draft))
+        .collect();
+    let (backlog, backlog_ghosts_at) = placed(&ranked.backlog, ranked.backlog_ghosts_at, |item| {
+        match item {
+            RankedBacklog::Card(entry) => {
+                backlog_card(image, &numbers, facts, &folders, models, entry)
+            }
+            RankedBacklog::Draft(id) => drafts.remove(id).map(|draft| BoardCard::Request {
                 id: draft.id,
                 title: draft.title,
                 created: draft.created,
                 empty: draft.empty,
                 returned: draft.returned,
-            }))
-            .collect(),
-        active: computed
-            .active
-            .iter()
-            .filter_map(|e| active_card(image, &numbers, facts, e))
-            .collect(),
+            }),
+        }
+    });
+    let (active, active_ghosts_at) = placed(&ranked.active, ranked.active_ghosts_at, |entry| {
+        active_card(image, &numbers, facts, entry)
+    });
+    BoardSnapshot {
+        project_id: project_id.to_owned(),
+        revision,
+        backlog,
+        backlog_ghosts_at,
+        active,
+        active_ghosts_at,
         ghosts,
         gathered: gathered_cards(image, &numbers, facts, &folders, &computed.backlog),
         run_all_reasons: computed
@@ -418,6 +441,26 @@ pub fn snapshot(
         done_since_last_scan: facts.done_since_last_scan,
         warnings: history_warnings(image, &numbers),
     }
+}
+
+/// The cards of a ranked column, and how many of them come before the column's ghosts: an entry
+/// that has no card is left out and does not count.
+fn placed<T>(
+    ranked: &[T],
+    ghosts_at: usize,
+    mut card: impl FnMut(&T) -> Option<BoardCard>,
+) -> (Vec<BoardCard>, u32) {
+    let mut cards = Vec::with_capacity(ranked.len());
+    let mut before = 0;
+    for (index, item) in ranked.iter().enumerate() {
+        if let Some(card) = card(item) {
+            cards.push(card);
+            if index < ghosts_at {
+                before += 1;
+            }
+        }
+    }
+    (cards, before)
 }
 
 /// `Could not record T3 in History: …` for every cited Task that is still a file.
@@ -465,7 +508,7 @@ pub async fn board_snapshot(
     blocking::disk_named("board snapshot", name, move || {
         let _gate = service.board_read();
         let facts = work.facts(&project_id);
-        let ghosts = work.ghosts(&project_id);
+        let ghosts = work.ghosts(&project_id, &picture.image);
         let ghost_jobs = ghosts.iter().map(|ghost| ghost.job_id.clone()).collect();
         let drafts = match service.drafts(
             &project_id,
@@ -546,6 +589,7 @@ mod tests {
             title: "Coming".into(),
             phase: GhostPhase::Writing,
             note: Some("Reading the Model".into()),
+            cleanup_of: None,
         };
 
         let board = snapshot(
@@ -560,6 +604,11 @@ mod tests {
         );
         assert_eq!((board.revision, board.done_since_last_scan), (7, 2));
         assert_eq!(board.ghosts, vec![ghost]);
+        assert_eq!(
+            (board.backlog_ghosts_at, board.active_ghosts_at),
+            (1, 1),
+            "the ghosts go after what can be acted on and the Tasks In progress"
+        );
 
         let [BoardCard::Drift { head, origin, view }] = board.backlog.as_slice() else {
             panic!("{:?}", board.backlog)
@@ -576,17 +625,17 @@ mod tests {
         );
 
         let [BoardCard::Task {
+            head: second,
+            doing: true,
+            held_by: second_holder,
+            delete_reasons: none,
+            ..
+        }, BoardCard::Task {
             head: first,
             blocked_by,
             delete_reasons,
             doing: false,
             held_by: first_holder,
-            ..
-        }, BoardCard::Task {
-            head: second,
-            doing: true,
-            held_by: second_holder,
-            delete_reasons: none,
             ..
         }] = board.active.as_slice()
         else {
@@ -711,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn the_drafts_come_last_in_backlog_oldest_first_and_serialize_as_request_cards() {
+    fn the_drafts_with_text_come_before_the_ghosts_and_serialize_as_request_cards() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "drifts/dddddddd-a-drift.md", DRIFT);
         let image = ProjectImage::load(dir.path());
@@ -745,6 +794,10 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, ["drift", "request", "request"]);
+        assert_eq!(
+            board.backlog_ghosts_at, 2,
+            "the ghosts go after the Drift and the draft with text, before the empty draft"
+        );
         let json = serde_json::to_value(&board).unwrap();
         assert_eq!(
             json["backlog"][1],

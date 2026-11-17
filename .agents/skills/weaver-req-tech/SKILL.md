@@ -77,6 +77,14 @@ Sections: `assets`, `asset-view`
 
 File: `assets.md`
 
+## Command line in the terminal
+
+Use when building, inside the app, `weaver open` and the welcome window it shows, or the installation of the `weaver` command in the developer's terminal.
+
+Sections: `developer.OPEN_PROJECT`, `developer.SHOW_WELCOME`, `shell-command`
+
+File: `command-line.md`
+
 ## Files
 
 Use when building the File view's backend: listing, watching, reading and saving code files, tree actions and the agent lock.

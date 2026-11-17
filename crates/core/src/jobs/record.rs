@@ -113,6 +113,11 @@ pub struct JobRecord {
     /// shows its `Started <name>` line again when the conversation is reloaded.
     #[serde(default, skip_serializing_if = "is_false")]
     pub by_chat: bool,
+    /// Only for a Run: it took a Task at least once. Written the first time it takes one and
+    /// never removed, so that its cleanup ghost (`requirements/ui#work`) comes back after a
+    /// restart.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub took_task: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -368,6 +373,7 @@ mod tests {
             running: None,
             running_incomplete: false,
             by_chat: false,
+            took_task: false,
         }
     }
 
@@ -386,6 +392,26 @@ mod tests {
         store.delete("jjjjjjjj").unwrap();
         assert_eq!(store.read("jjjjjjjj").unwrap(), None);
         store.delete("jjjjjjjj").unwrap();
+    }
+
+    #[test]
+    fn took_task_is_written_only_once_it_is_true_and_older_records_read_as_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::in_dir(dir.path().join("jobs"));
+        let mut run = record("jjjjjjjj", "/p", JobState::Running, None);
+        store.write(&run).unwrap();
+        let text = std::fs::read_to_string(store.file("jjjjjjjj")).unwrap();
+        assert!(
+            !text.contains("tookTask"),
+            "a Run that took nothing stores nothing"
+        );
+        assert!(!store.read("jjjjjjjj").unwrap().unwrap().took_task);
+
+        run.took_task = true;
+        store.write(&run).unwrap();
+        let text = std::fs::read_to_string(store.file("jjjjjjjj")).unwrap();
+        assert!(text.contains("\"tookTask\": true"));
+        assert!(store.read("jjjjjjjj").unwrap().unwrap().took_task);
     }
 
     #[test]

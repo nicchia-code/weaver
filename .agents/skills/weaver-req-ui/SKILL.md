@@ -65,7 +65,7 @@ lucide-react, 16 px, in the colour of the text, decorative (hidden from assistiv
 | Refine | `Sparkles` |
 | Reject, Close, Clear | `X` |
 | Dismiss Drift | `Ban` |
-| Fix the code / Accept Proposal | `Wrench` / `CheckCheck` |
+| Accept Proposal | `CheckCheck` |
 | Delete | `Trash2` |
 | Model badge / model control of a Proposal | `Cpu` / `Settings` |
 | Open in editor | `SquareArrowOutUpRight` |
@@ -142,17 +142,17 @@ File: `assets.md`
 
 ## Board
 
-Use when building or changing the Board: columns, footers, ghosts, notices, Task cards and their details dialogs.
+Use when building or changing the Board: columns, header, ghosts, notices and details dialogs.
 
-Sections: `work`, `task`
+Sections: `work`
 
 File: `board.md`
 
 ## Board decision cards
 
-Use when building or changing the Proposal and Drift cards on the Board: badges, Approve, Refine, Reject, decision controls and their details dialogs.
+Use when building or changing the Task, Proposal and Drift cards on the Board: badges, Run, Approve, Refine, Reject, decision controls and their details dialogs.
 
-Sections: `proposal`, `drift`
+Sections: `proposal`, `drift`, `task`
 
 File: `board-cards.md`
 
@@ -224,7 +224,7 @@ File: `rounds.md`
 
 Use when building or changing Get Started, import exclusions, omp status and login, or Settings.
 
-Sections: `project`, `omp-setup`, `developer.CHANGE_SETTINGS`
+Sections: `project`, `omp-setup`, `developer.CHANGE_SETTINGS`, `shell-command`
 
 File: `setup.md`
 

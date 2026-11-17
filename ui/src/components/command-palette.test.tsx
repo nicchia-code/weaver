@@ -33,7 +33,7 @@ vi.mock("@/components/board/board-state", () => ({
       backlog: [card("p1", "P1", "Add a cart"), draft("r1", "Dark mode Cart theme"), draft("r2", "Untitled request"), ...Array.from({ length: 9 }, (_, index) => draft(`m${index}`, `Mobile ${index}`))],
       active: [card("t1", "T1", "Cart total task")],
       // Ghosts are not cards: the palette never lists them.
-      ghosts: [{ id: "g1", jobId: "j1", kind: "proposal", title: "Cart ghost", phase: "preparing", note: null }],
+      ghosts: [{ id: "g1", jobId: "j1", kind: "proposal", title: "Cart ghost", phase: "preparing", note: null, cleanupOf: null }],
     },
   }),
 }));
@@ -135,6 +135,14 @@ describe("the palette", () => {
     await user.clear(screen.getByRole("combobox"));
     await user.type(screen.getByRole("combobox"), "untitled");
     expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual(["Untitled requestRequest"]);
+  });
+
+  it("lists the Cards in the order of the Board, Backlog then Active, as the backend gave them", async () => {
+    renderPalette(controls());
+    await userEvent.setup().type(screen.getByRole("combobox"), "r");
+    const cards = within(screen.getByRole("group", { name: "Cards" })).getAllByRole("option");
+    // Backlog (a Proposal, then the drafts) and then Active (a Task); none starts with the text.
+    expect(cards.map((row) => row.textContent)).toEqual(["Add a cartP1", "Dark mode Cart themeRequest", "Untitled requestRequest", "Cart total taskT1"]);
   });
 
   it("shows at most 8 rows of Cards, drafts included, those that start with the text first", async () => {

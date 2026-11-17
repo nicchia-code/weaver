@@ -163,6 +163,10 @@ impl Authority for AppAuthority {
     fn task_finished(&self, root: &Path) {
         self.jobs.task_finished(root);
     }
+
+    fn task_taken(&self, root: &Path, job: &str) {
+        self.jobs.task_taken(root, job);
+    }
 }
 
 fn reply(markdown: String, json: Value) -> CommandReply {

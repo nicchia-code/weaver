@@ -88,6 +88,20 @@ pub fn resolve_reasons(
     if facts.merge_in_progress {
         reasons.push(REASON_MERGE_IN_PROGRESS.to_owned());
     }
+    reasons.extend(own_resolve_reasons(image, facts, name, drift));
+    reasons
+}
+
+/// The reasons `Resolve` has of its own, in the same order: `Being refined`, `This Drift is being
+/// resolved`, `Another resolution is being written` and the resolutions awaiting a decision. The
+/// others (the agent still finishing, a Run, a merge) stop every card at once.
+fn own_resolve_reasons(
+    image: &ProjectImage,
+    facts: &AgentFacts,
+    name: &dyn Fn(CardKind, &str) -> String,
+    drift: &Card,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
     if attached_being_refined(image, drift) {
         reasons.push(REASON_BEING_REFINED.to_owned());
     }
@@ -110,6 +124,12 @@ pub fn resolve_reasons(
     reasons
 }
 
+/// Whether `Resolve` has none of its own reasons (the Board order's `actionable`): the agent
+/// still finishing, a Run and a merge never count, as they stop every card at once.
+pub fn resolve_is_actionable(image: &ProjectImage, facts: &AgentFacts, drift: &Card) -> bool {
+    own_resolve_reasons(image, facts, &|_, id| id.to_owned(), drift).is_empty()
+}
+
 /// Why `Dismiss Drift` is disabled, in order: `The agent is still finishing`, `Being refined` (its
 /// attached Proposal is Refining), `This Drift is in a resolution`.
 pub fn dismiss_reasons(image: &ProjectImage, facts: &AgentFacts, drift: &Card) -> Vec<String> {
@@ -122,16 +142,6 @@ pub fn dismiss_reasons(image: &ProjectImage, facts: &AgentFacts, drift: &Card) -
     }
     if in_resolution(image, &drift.id) {
         reasons.push(REASON_IN_RESOLUTION.to_owned());
-    }
-    reasons
-}
-
-/// Why `Fix the code` is disabled besides the agent still finishing: `Being refined` (its attached
-/// Proposal is Refining).
-pub fn fix_reasons(image: &ProjectImage, drift: &Card) -> Vec<String> {
-    let mut reasons = Vec::new();
-    if attached_being_refined(image, drift) {
-        reasons.push(REASON_BEING_REFINED.to_owned());
     }
     reasons
 }

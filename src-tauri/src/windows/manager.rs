@@ -8,6 +8,7 @@
 //! | Event | Where |
 //! |-------|-------|
 //! | `developer.OPEN_PROJECT` | [`WindowManager::open_project`]: opens the project, or brings its window forward (back from the background when it was there) |
+//! | `developer.OPEN_PROJECT` from a terminal (`weaver open <folder>`), `developer.SHOW_WELCOME` | [`WindowManager::open_for_terminal`]: the same opening, a failure only in the answer; no folder shows the welcome window ([`WindowManager::try_show_welcome`]) |
 //! | `desktop.APP_STARTED` | [`WindowManager::restore`]: reopens the projects of the last session |
 //! | `notification.CLICKED` | [`WindowManager::focus_project`]: the window comes forward showing [`ShowRequest`] |
 //! | `developer.REOPEN_APP` | [`WindowManager::reopen_app`]: every window in the background comes back |
@@ -41,6 +42,7 @@ use std::time::Duration;
 use serde::Serialize;
 use ts_rs::TS;
 use weaver_core::paths;
+use weaver_core::open::{OpenRequest, AGENT_REFUSAL};
 use weaver_core::project::clock::{now_instant, Clock};
 
 use super::jobs::{BoxFuture, CloseReason, NoJobs, OpenReason, WindowJobs, WindowOpened};
@@ -508,6 +510,54 @@ impl WindowManager {
         root: PathBuf,
         reason: OpenReason,
     ) -> Result<OpenOutcome, AppError> {
+        self.open_folder(root, reason, false).await
+    }
+
+    /// `developer.OPEN_PROJECT` asked from the developer's terminal (`weaver open <folder>`): the
+    /// same opening, but a failure goes only into the answer. The welcome window is not opened
+    /// because of it; the failure is logged as a warning, path included.
+    pub async fn open_from_terminal(&self, root: PathBuf) -> Result<OpenOutcome, AppError> {
+        let given = root.clone();
+        let outcome = self.open_folder(root, OpenReason::Developer, true).await;
+        if let Err(error) = &outcome {
+            log_warn!(
+                "`weaver open` could not open {}: {}",
+                given.display(),
+                error.message
+            );
+        }
+        outcome
+    }
+
+    /// What the app does for a request `open` (`requirements/tech#developer.OPEN_PROJECT`,
+    /// `developer.SHOW_WELCOME`): a path opens that folder, no path shows the welcome window. The
+    /// answer comes once the window is open or at the front, or is the reason it could not be.
+    /// A request that comes from an agent (`from_agent`, or an identity of the Chat in the
+    /// request) is refused and opens nothing.
+    pub async fn open_for_terminal(
+        &self,
+        request: OpenRequest,
+        from_agent: bool,
+    ) -> Result<(), String> {
+        if from_agent || request.general.is_some() || request.ask.is_some() {
+            return Err(AGENT_REFUSAL.to_owned());
+        }
+        match request.path {
+            Some(path) => self
+                .open_from_terminal(PathBuf::from(path))
+                .await
+                .map(|_| ())
+                .map_err(|error| error.message),
+            None => self.try_show_welcome(),
+        }
+    }
+
+    async fn open_folder(
+        &self,
+        root: PathBuf,
+        reason: OpenReason,
+        from_terminal: bool,
+    ) -> Result<OpenOutcome, AppError> {
         let given = root.clone();
         let canonical = blocking::disk(move || canonical_folder(&root)).await??;
         let id = paths::project_hash_of_canonical(&canonical);
@@ -523,10 +573,13 @@ impl WindowManager {
         let outcome = self.open_reserved(&id, &canonical, reason).await;
         if let Err(error) = &outcome {
             self.registry().abort_open(&id);
-            log_warn!("{} could not open: {}", folder_name(&given), error.message);
-            // While the last session is restored the welcome window waits for the end of it.
-            if !self.registry().is_restoring() {
-                self.ensure_a_window();
+            // From the terminal, only the terminal hears of it: no welcome window appears.
+            if !from_terminal {
+                log_warn!("{} could not open: {}", folder_name(&given), error.message);
+                // While the last session is restored the welcome window waits for the end of it.
+                if !self.registry().is_restoring() {
+                    self.ensure_a_window();
+                }
             }
         }
         outcome.map(|()| OpenOutcome::Opened)
@@ -690,9 +743,18 @@ impl WindowManager {
 
     /// The welcome window comes to the front; it is created when it is not there.
     pub fn show_welcome(&self) {
-        if let Err(why) = self.shell.show_welcome() {
-            log_warn!("the welcome window could not be shown: {why}");
+        if let Err(why) = self.try_show_welcome() {
+            log_warn!("{why}");
         }
+    }
+
+    /// The welcome window comes to the front (`show()`, `unminimize()`, `set_focus()`) or is
+    /// created, also while project windows are open; they stay as they are, the ones in the
+    /// background included. The reason when it could not be shown.
+    pub fn try_show_welcome(&self) -> Result<(), String> {
+        self.shell
+            .show_welcome()
+            .map_err(|why| format!("the welcome window could not be shown: {why}"))
     }
 
     /// The window of `order` used most recently comes to the front (`order` lists labels, the
@@ -1778,6 +1840,170 @@ mod tests {
                 .unwrap(),
             OpenOutcome::Opened
         );
+    }
+
+    fn terminal(path: Option<&Path>) -> OpenRequest {
+        OpenRequest::new(path.map(|p| p.to_string_lossy().into_owned()))
+    }
+
+    #[tokio::test]
+    async fn from_the_terminal_a_folder_opens_its_window_and_only_that_one_comes_back() {
+        let f = fixture();
+        let (_a, alpha, alpha_id) = project("alpha");
+        let (_b, beta, beta_id) = project("beta");
+        f.manager
+            .open_for_terminal(terminal(Some(&alpha)), false)
+            .await
+            .unwrap();
+        f.manager
+            .open_for_terminal(terminal(Some(&beta)), false)
+            .await
+            .unwrap();
+        assert_eq!(
+            f.shell.windows(),
+            [label_of(&alpha_id), label_of(&beta_id)],
+            "a window for each folder"
+        );
+        assert_eq!(f.jobs.events(), [format!("opened {alpha_id} Developer"), format!("opened {beta_id} Developer")]);
+
+        // Both go to the background; opening alpha again brings back alpha alone.
+        assert_eq!(f.manager.send_to_background(&alpha_id), BackgroundOutcome::Hidden);
+        assert_eq!(f.manager.send_to_background(&beta_id), BackgroundOutcome::Hidden);
+        f.shell.log.lock().unwrap().clear();
+        f.manager
+            .open_for_terminal(terminal(Some(&alpha)), false)
+            .await
+            .unwrap();
+        assert!(!f.manager.is_background(&alpha_id));
+        assert!(f.manager.is_background(&beta_id), "the other window stays as it was");
+        assert_eq!(f.shell.log(), [format!("focus {}", label_of(&alpha_id))]);
+        assert_eq!(f.shell.hidden.lock().unwrap().as_slice(), [label_of(&beta_id)]);
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_fails_to_open_from_the_terminal_is_told_only_to_the_terminal() {
+        let f = fixture();
+        let dir = tempfile::tempdir().unwrap();
+
+        let reason = f
+            .manager
+            .open_for_terminal(terminal(Some(&dir.path().join("missing"))), false)
+            .await
+            .unwrap_err();
+        assert_eq!(reason, "the folder does not exist");
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        let reason = f
+            .manager
+            .open_for_terminal(terminal(Some(&file)), false)
+            .await
+            .unwrap_err();
+        assert_eq!(reason, "it is not a folder");
+
+        *f.shell.fail_windows.lock().unwrap() = true;
+        let (_keep, root, _) = project("alpha");
+        let reason = f
+            .manager
+            .open_for_terminal(terminal(Some(&root)), false)
+            .await
+            .unwrap_err();
+        assert!(reason.contains("no display"), "{reason}");
+
+        assert!(f.shell.windows().is_empty(), "no welcome window because of a failure: {:?}", f.shell.log());
+        assert!(f.shell.log().is_empty(), "nothing shown: {:?}", f.shell.log());
+        assert!(f.failures.lock().unwrap().is_empty(), "no startup-failed report");
+        assert_eq!(f.manager.take_welcome_failure(), None, "no menu-open-failed for the welcome window");
+        assert!(f.manager.open_projects().is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_a_folder_the_welcome_window_shows_beside_the_project_windows_which_stay_as_they_are() {
+        let f = fixture();
+        let (_a, alpha, alpha_id) = project("alpha");
+        let (_b, beta, beta_id) = project("beta");
+        f.manager.open_project(alpha, OpenReason::Developer).await.unwrap();
+        f.manager.open_project(beta, OpenReason::Developer).await.unwrap();
+        assert_eq!(f.manager.send_to_background(&beta_id), BackgroundOutcome::Hidden);
+        f.shell.log.lock().unwrap().clear();
+
+        f.manager.open_for_terminal(terminal(None), false).await.unwrap();
+        assert_eq!(f.shell.log(), ["create welcome"]);
+        assert!(f.shell.windows().contains(&"welcome".to_owned()));
+        assert!(f.manager.is_background(&beta_id), "a window in the background stays there");
+        assert!(!f.manager.is_background(&alpha_id));
+        assert_eq!(f.manager.open_projects().len(), 2, "both projects stay open");
+
+        // Asked again, the one that is open comes to the front: never a second one.
+        f.manager.open_for_terminal(terminal(None), false).await.unwrap();
+        assert_eq!(f.shell.log(), ["create welcome", "focus welcome"]);
+        assert_eq!(f.shell.windows().iter().filter(|w| *w == "welcome").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_welcome_window_shown_from_the_terminal_closes_when_a_project_opens_from_it() {
+        let f = fixture();
+        f.manager.open_for_terminal(terminal(None), false).await.unwrap();
+        assert_eq!(f.shell.windows(), ["welcome"]);
+        let (_keep, root, id) = project("alpha");
+        f.manager.open_project(root, OpenReason::Developer).await.unwrap();
+        assert_eq!(f.shell.windows(), [label_of(&id)]);
+        assert!(f.shell.log().contains(&"close welcome".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_request_from_an_agent_opens_nothing_and_says_why() {
+        let f = fixture();
+        let (_keep, root, _) = project("alpha");
+        let refusal = weaver_core::open::AGENT_REFUSAL;
+        assert_eq!(
+            f.manager.open_for_terminal(terminal(Some(&root)), true).await.unwrap_err(),
+            refusal
+        );
+        for request in [
+            OpenRequest { general: Some("g".into()), ..terminal(Some(&root)) },
+            OpenRequest { ask: Some("a".into()), ..terminal(Some(&root)) },
+            OpenRequest { general: Some("g".into()), ..terminal(None) },
+        ] {
+            assert_eq!(f.manager.open_for_terminal(request, false).await.unwrap_err(), refusal);
+        }
+        assert_eq!(f.manager.open_for_terminal(terminal(None), true).await.unwrap_err(), refusal);
+        assert!(f.shell.windows().is_empty());
+        assert!(f.shell.log().is_empty());
+        assert!(f.manager.open_projects().is_empty());
+    }
+
+    #[test]
+    fn the_answer_to_a_request_open_is_empty_on_success_and_the_reason_on_failure() {
+        use weaver_core::protocol::Request;
+        let f = fixture();
+        let (_keep, root, id) = project("alpha");
+        let ask = |payload: serde_json::Value, job: Option<&str>| {
+            let mut request = Request::new("secret", weaver_core::open::KIND, payload);
+            request.job = job.map(str::to_owned);
+            crate::cli_handler::open_response(&f.manager, request)
+        };
+
+        let missing = ask(serde_json::json!({ "path": root.join("missing") }), None);
+        let error = missing.error.unwrap();
+        assert_eq!((error.code.as_str(), error.message.as_str()), ("refused", "the folder does not exist"));
+        assert!(f.shell.windows().is_empty(), "no welcome window for the failure");
+
+        let agent = ask(serde_json::json!({ "path": root }), Some("job1"));
+        assert_eq!(agent.error.unwrap().message, weaver_core::open::AGENT_REFUSAL);
+        assert!(f.shell.windows().is_empty());
+
+        let garbled = ask(serde_json::json!({ "path": 3 }), None);
+        assert_eq!(garbled.error.unwrap().code, "invalid-input");
+
+        let opened = ask(serde_json::json!({ "path": root }), None);
+        assert!(opened.error.is_none(), "{:?}", opened.error);
+        assert_eq!(opened.payload, serde_json::json!({}));
+        assert_eq!(f.shell.windows(), [label_of(&id)]);
+
+        let welcome = ask(serde_json::json!({}), None);
+        assert!(welcome.error.is_none());
+        assert_eq!(welcome.payload, serde_json::json!({}));
+        assert!(f.shell.windows().contains(&"welcome".to_owned()));
     }
 
     #[tokio::test]

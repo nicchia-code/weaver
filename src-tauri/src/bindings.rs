@@ -17,7 +17,7 @@ use crate::board::{
     BoardCard, BoardSnapshot, CardHead, CardRef, ProposalStanding, ResolutionDrift, TitledRef,
 };
 use crate::commands::{AppInfo, CommandName};
-use crate::drift_view::{AttachedProposal, CodePlace, DriftView, FixOption};
+use crate::drift_view::{AttachedProposal, CodePlace, DriftView};
 use crate::error::{AppError, ErrorCode};
 use crate::events::{EventName, Notice, ProjectChanged};
 use crate::file_tabs::wire::{
@@ -87,6 +87,7 @@ use weaver_core::settings::{
     SettingField, SettingIssue, SettingKey, Settings, SettingsSnapshot, SystemCertificatesSettings,
     Theme,
 };
+use weaver_core::shell_command::{ShellCommandOutcome, ShellCommandResult};
 use weaver_core::system_certificates::{
     Phase as SystemCertificatesPhase, Status as SystemCertificatesStatus,
 };
@@ -138,7 +139,6 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     ResolutionDrift::export_all_to(dir)?;
     ProposalView::export_all_to(dir)?;
     DriftView::export_all_to(dir)?;
-    FixOption::export_all_to(dir)?;
     CodePlace::export_all_to(dir)?;
     AttachedProposal::export_all_to(dir)?;
     ProposalTask::export_all_to(dir)?;
@@ -272,6 +272,8 @@ pub fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     NotesTrashRefusal::export_all_to(dir)?;
     NotesTrashed::export_all_to(dir)?;
     NotesFlush::export_all_to(dir)?;
+    ShellCommandResult::export_all_to(dir)?;
+    ShellCommandOutcome::export_all_to(dir)?;
     Ok(())
 }
 

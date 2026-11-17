@@ -60,7 +60,7 @@ lucide-react, 16 px, in the colour of the text, decorative (hidden from assistiv
 | Refine | `Sparkles` |
 | Reject, Close, Clear | `X` |
 | Dismiss Drift | `Ban` |
-| Fix the code / Accept Proposal | `Wrench` / `CheckCheck` |
+| Accept Proposal | `CheckCheck` |
 | Delete | `Trash2` |
 | Model badge / model control of a Proposal | `Cpu` / `Settings` |
 | Open in editor | `SquareArrowOutUpRight` |

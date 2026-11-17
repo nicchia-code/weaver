@@ -21,7 +21,6 @@ const COMMANDS: &[&str] = &[
     "discard_proposal",
     "choose_proposal_model",
     "resolve_drift",
-    "fix_drift_code",
     "accept_drift_proposal",
     "refine_drift_proposal",
     "discard_drift_proposal",
@@ -134,6 +133,9 @@ const COMMANDS: &[&str] = &[
     "notes_add_dropped",
     "notes_trash",
     "notes_flushed",
+    "shell_command_status",
+    "shell_command_install",
+    "shell_command_remove",
 ];
 
 fn main() {

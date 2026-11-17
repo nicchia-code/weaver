@@ -6,6 +6,7 @@ import type { SettingKey } from "@/bindings/SettingKey";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { GuardedButton } from "@/components/guarded-button";
+import { ShellCommandSetting } from "@/components/shell-command-setting";
 import { ViewHeader } from "@/components/view-header";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
@@ -495,7 +496,7 @@ export function SystemCertificatesSetting({ place }: { place: Place }) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The Settings view: one centred column of about 720 px, six groups in order. Titles, descriptions,
+ * The Settings view: one centred column of about 720 px, seven groups in order. Titles, descriptions,
  * defaults and choices come from the schema the backend sends; setting keys are never shown. A
  * value is saved at once, without confirmation: selects on choice, text and numbers on blur or
  * Enter. The status box of omp and `Providers` go in `ompSlot`, `Update skills` in `projectSlot`.
@@ -560,6 +561,10 @@ export function SettingsView({ ompSlot, projectSlot, modelCatalog }: SettingsVie
       <Group title="Editor">
         <SelectSetting settingKey="editor.preset" />
         {preset === "custom" ? <TextSetting settingKey="editor.command" mono placeholder="code --goto {file}:{line}" /> : null}
+      </Group>
+
+      <Group title="Command line">
+        <ShellCommandSetting />
       </Group>
 
       <Group title="Appearance">

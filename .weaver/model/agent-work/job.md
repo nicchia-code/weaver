@@ -4,6 +4,8 @@ One piece of work Weaver gives the agent: a setup, a design on a written request
 
 When a design, a rework, a refinement or a Run ends, whatever the way it ends, Weaver measures it on the developer's computer, so that the developer can compare jobs before and after a change of the way the agent works: how long it lasted, how long the agent actually worked (without the waits for the developer, the queue and the suspensions), how many files the agent read and how many distinct files, how many searches it made, and how many tokens it used, for the main agent, its sub-agents and the advisors of a Run separately. When Weaver stopped unexpectedly while the job worked, the time the agent worked before that stop and after its last change of state is unknown: it is not counted, and the measure says the worked time is incomplete. When what omp kept of the session cannot be read, the job is still measured, with its durations and its end, and the rest marked as not available with the reason. The measure never delays the end of the job nor changes it, is never removed by Weaver, and can be read with the command line.
 
+A Run that has taken at least one Task and now holds none is cleaning up: its agent finishes the work that follows its Tasks, such as the checks, the History entry, the questions on Drifts and the advisor's final review. While a Run is cleaning up and has not ended, suspended included, Weaver shows its own cleanup ghost of that Run in Active, but only while Active holds no Task and no announced ghost, and while none of the cards that Run announced is still awaited on the Board. Each Run of a Run all has its own cleanup ghost, and the cleanup ghosts of several Runs never hide one another. Weaver remembers outside the project that a Run has taken a Task, so the ghost comes back after a restart.
+
 ## States
 
 ### Not started (initial)
@@ -34,7 +36,10 @@ Created, waiting for omp to be ready and for the omp process to open its session
 ### Running
 The agent works on the instruction.
 - `agent.DECLARE_NOTE` → Running: the note shows on the job and on its ghosts, with the earlier ones.
-- `agent.ANNOUNCE_CARD` → Running: a ghost of the card appears on the Board until the card arrives or the job ends; for a setup, design or import, Weaver's own ghost of the job leaves in the same picture, and comes back when every card it announced has arrived, while the job has not ended.
+- `agent.ANNOUNCE_CARD` → Running: a ghost of the card appears on the Board until the card arrives or the job ends; for a setup, design or import, and for a Run that is cleaning up, Weaver's own ghost of the job leaves in the same picture, and comes back when every card it announced has arrived, while the job has not ended.
+- `agent.TAKE_TASK` → Running: only for a Run; Weaver remembers that the Run has taken a Task, and its cleanup ghost, if shown, leaves in the same picture.
+- `agent.FINISH_TASK` → Running: only for a Run that holds no other Task: the Run starts cleaning up, and its cleanup ghost appears in the same picture in which the Task leaves the Board, when Active allows it.
+- `agent.CLOSE_TASK_UNCHANGED` → Running: as when the Run finishes a Task.
 - `developer.SEND_MESSAGE` → Running: the agent receives it while it works, without stopping.
 - `question-round.OPENED` → Waiting for the developer: only a round of this job.
 - `omp.PERMISSION_REQUESTED` → Waiting for the developer
@@ -57,7 +62,7 @@ The agent waits for the answers of a round or for a permission. It still counts 
 - `window.CLOSED` → Suspended
 
 ### Suspended
-The project's window was closed, or Weaver quit or stopped unexpectedly, while the job worked. omp was ended; Weaver kept, outside the project, what it needs to resume the session, including which of the cards it announced have already arrived. The Tasks it holds and its ghosts stay, Weaver's own ghost of a setup, design or import included.
+The project's window was closed, or Weaver quit or stopped unexpectedly, while the job worked. omp was ended; Weaver kept, outside the project, what it needs to resume the session, including which of the cards it announced have already arrived. The Tasks it holds and its ghosts stay, Weaver's own ghost of a setup, design or import and the cleanup ghost of a Run included.
 - `window.OPENED` → Suspended: Weaver starts omp again and reloads the session.
 - `omp.SESSION_RESUMED` → Running: the agent is told that Weaver stopped and that it must continue from where it stopped.
 - `omp.SESSION_NOT_RESUMED` → Failed: the session could not be resumed.

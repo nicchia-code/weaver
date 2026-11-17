@@ -203,6 +203,7 @@ mod tests {
             running: None,
             running_incomplete: false,
             by_chat: false,
+            took_task: false,
         }
     }
 

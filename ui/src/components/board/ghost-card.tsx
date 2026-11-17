@@ -9,6 +9,7 @@ const PHASES: Record<GhostPhase, string> = {
   writing: "Writing",
   "waiting-for-answers": "Waiting for your answers",
   "being-refined": "Being refined",
+  "finishing-up": "Finishing up",
 };
 
 /** The phase line of a ghost. */
@@ -67,8 +68,8 @@ function Placeholders({ kind }: { kind: Ghost["kind"] }) {
 }
 
 /**
- * A card a job announced and has not filed yet: a skeleton at the bottom of its column (dashed
- * border, 70% opacity). The known part (kind, title, phase line, the job's latest note on one
+ * A card a job announced and has not filed yet: a skeleton in its column, at the place the Board
+ * snapshot gives (dashed border, 70% opacity). The known part (kind, title, phase line, the job's latest note on one
  * line) is still; only the placeholders of what the real card will have shimmer. The whole ghost
  * is one button that opens the job's conversation in Jobs.
  */
@@ -76,11 +77,13 @@ export function GhostCard({ ghost }: { ghost: Ghost }) {
   const { openJob } = useProject();
   const kind = kindLabel(ghost.kind);
   const phase = phaseText(ghost.phase);
+  // The cleanup ghost of a Run is a Task being tidied up after, not a card being prepared.
+  const name = ghost.cleanupOf === null ? `${kind} being prepared by the agent: ${ghost.title}, ${phase}` : `Agent cleaning up after its Tasks: ${ghost.cleanupOf}, ${phase}`;
   return (
     <button
       type="button"
       data-ghost-id={ghost.id}
-      aria-label={`${kind} being prepared by the agent: ${ghost.title}, ${phase}`}
+      aria-label={name}
       onClick={() => openJob(ghost.jobId)}
       className="flex w-full flex-col gap-1 rounded-xl border border-dashed bg-card p-3.5 text-left text-card-foreground opacity-70 transition-colors duration-150 hover:bg-accent/40 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >

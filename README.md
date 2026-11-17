@@ -12,6 +12,18 @@ Download the build for your system from the [Releases](https://github.com/nicchi
 > * **Windows** (`Weaver_<version>_x64-setup.exe`): when SmartScreen shows "Windows protected your PC", choose **More info** and then **Run anyway**.
 > * **Linux** (`Weaver_<version>_amd64.AppImage`, or `Weaver_<version>_amd64.deb`): make the AppImage executable with `chmod +x Weaver_<version>_amd64.AppImage` and run it; install the deb with `sudo apt install ./Weaver_<version>_amd64.deb`.
 
+## Command line
+
+`weaver open <folder>` opens a folder in the Weaver that is running, and `weaver open` alone shows its welcome window. Weaver must already be running: the command never starts it.
+
+Install the `weaver` command from Settings › Command line › **Install weaver command**. Weaver never installs it by itself.
+
+* **macOS.** A link `/usr/local/bin/weaver` to Weaver's own copy of its command line. When `/usr/local/bin` is missing or you cannot write in it, macOS asks for an administrator password; if you cancel the request, nothing changes.
+* **Linux.** A link `~/.local/bin/weaver`, made without any privilege. `~/.local/bin` must be on your `PATH`; Settings warns when it may not be. With the `.deb`, `/usr/bin/weaver` is the app itself, so the link wins only where `~/.local/bin` comes before `/usr/bin` in the `PATH` of your terminal.
+* **Windows.** Weaver's folder (`%LOCALAPPDATA%\dev.nicchia.weaver\bin`) is added to your user `Path`. Terminals opened afterwards find `weaver`; the ones already open do not.
+
+The command always reaches the copy Weaver keeps in its own data folder and renews at every start, never a file inside the app, so an update of Weaver leaves an installed command working. **Remove**, in the same place, undoes what the installation did. Neither of them touches a `weaver` that is not Weaver's: Weaver says which file is there and changes nothing.
+
 ## Behind a corporate proxy
 
 A corporate proxy that inspects HTTPS traffic (Zscaler, for example) re-signs the connections with its own certificate authority. omp does not trust that authority, so it fails to install or to reach its model provider.

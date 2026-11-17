@@ -36,6 +36,7 @@
 //! | [`windows`]   | The Machine `window`: one window per project, the welcome window, restore at start, close and quit confirmations, `Open in editor` |
 //! | [`system_certificates`] | The Machine `system-certificates`: the export of the certificates the system trusts, the status the windows show, the variables of omp processes |
 //! | [`file_tabs`] | The Machine `file-tab`: the files open in the tabs of the File view, what each read, its watch, its saving; the events of the tabs and of the agent lock |
+//! | [`shell_command`] | The Machine `shell-command`: the commands of the settings that read, install and remove the `weaver` command in the developer's terminal |
 //! | [`file_lock`] | The Machine `file-lock`: which files open in a tab an agent of the project is changing, from the live updates of its conversations |
 //! | [`assets`]    | The Assets view: the name and size of each open project's assets, the commands that copy in, rename, delete and drag them out |
 //! | [`notes`]     | The Notes view: the project's Markdown sheet and its images, the commands that read, write, copy in and trash them, the flush before a window closes, the watcher's events |
@@ -77,6 +78,7 @@ pub mod rounds;
 pub mod server;
 pub mod settings;
 pub mod shell;
+pub mod shell_command;
 pub mod sidecar;
 pub mod startup;
 pub mod state;
@@ -119,6 +121,7 @@ pub fn run() {
         .manage(AppState::new(dirs.clone()))
         .manage(omp::OmpSetup::new())
         .manage(system_certificates::SystemCertificates::new())
+        .manage(shell_command::ShellCommandBusy::default())
         .menu(windows::menu::build)
         .on_menu_event(|app, event| windows::menu::on_event(app, event.id().as_ref()))
         .manage(StartupReport::default())
@@ -139,7 +142,6 @@ pub fn run() {
             proposals::discard_proposal,
             proposals::choose_proposal_model,
             drifts::resolve_drift,
-            drifts::fix_drift_code,
             drifts::accept_drift_proposal,
             drifts::refine_drift_proposal,
             drifts::discard_drift_proposal,
@@ -251,7 +253,10 @@ pub fn run() {
             file_view::commands::files_delete,
             windows::unsaved::files_close_key,
             rounds::commands::question_round_get,
-            rounds::commands::question_round_act
+            rounds::commands::question_round_act,
+            shell_command::shell_command_status,
+            shell_command::shell_command_install,
+            shell_command::shell_command_remove
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

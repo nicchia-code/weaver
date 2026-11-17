@@ -109,7 +109,7 @@ fn root(title: String, description: &str, mut body: Map<String, Value>) -> Value
 /// The schema of the input object.
 pub fn input_schema(command: &Command) -> Value {
     root(
-        format!("weaver {} {} input", command.object, command.verb),
+        format!("weaver {} input", command.name()),
         "",
         properties(&command.input, true),
     )
@@ -118,7 +118,7 @@ pub fn input_schema(command: &Command) -> Value {
 /// The schema of the `--json` output.
 pub fn output_schema(command: &Command) -> Value {
     root(
-        format!("weaver {} {} output", command.object, command.verb),
+        format!("weaver {} output", command.name()),
         "",
         properties(&command.output, false),
     )
@@ -128,8 +128,11 @@ pub fn output_schema(command: &Command) -> Value {
 pub fn command_schema(command: &Command) -> Value {
     let mut props = Map::new();
     props.insert("object".into(), json!({ "const": command.object }));
-    props.insert("verb".into(), json!({ "const": command.verb }));
-    let mut required = vec!["object", "verb"];
+    let mut required = vec!["object"];
+    if !command.is_verbless() {
+        props.insert("verb".into(), json!({ "const": command.verb }));
+        required.push("verb");
+    }
     match command.arg {
         Arg::None => {}
         Arg::Card(_) => {
@@ -149,6 +152,12 @@ pub fn command_schema(command: &Command) -> Value {
             props.insert(
                 "id".into(),
                 json!({ "type": "string", "description": "A job identity." }),
+            );
+        }
+        Arg::Folder => {
+            props.insert(
+                "folder".into(),
+                json!({ "type": "string", "description": "The folder to open, joined to the current folder. Without it, the welcome window is shown." }),
             );
         }
     }

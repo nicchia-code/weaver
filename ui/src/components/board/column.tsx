@@ -1,5 +1,6 @@
-import { forwardRef, useId, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useState, type ReactNode } from "react";
 
+import { FadeIn } from "@/components/board/motion-list";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TONE_DOT, type Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
@@ -10,12 +11,12 @@ export interface ColumnProps {
   tone: Tone;
   /** The number of real cards; ghosts never count and a resolution counts once. */
   count: number;
-  /** What an empty column shows, also above ghosts. */
+  /** What an empty column shows: only with no real card and no ghost. */
   empty: ReactNode;
-  /** The cards, already in the order the backend gave. */
-  cards: ReactNode;
-  /** The ghosts, after the cards. */
-  ghosts?: ReactNode;
+  /** The number of ghosts; they hide the empty state like a card but never count. */
+  ghostCount: number;
+  /** The cards and the ghosts, already in the order the backend gave (`MotionList`). */
+  children?: ReactNode;
 }
 
 /**
@@ -24,8 +25,12 @@ export interface ColumnProps {
  * title and the number of real cards in Muted. It scrolls on its own, and takes the focus (it is a
  * focus target, not a tab stop) when a details dialog closes because its card left the Board.
  */
-export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, cards, ghosts }, ref) {
+export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ title, tone, count, empty, ghostCount, children }, ref) {
   const headingId = useId();
+  // The empty state that is there when the column first shows does not fade; one that comes back
+  // after the last card or ghost left fades in while that one fades out.
+  const [shown, setShown] = useState(false);
+  useEffect(() => setShown(true), []);
   return (
     <section
       ref={ref}
@@ -42,9 +47,8 @@ export const Column = forwardRef<HTMLElement, ColumnProps>(function Column({ tit
       </div>
       <ScrollArea className="-mx-1.5 min-h-0 flex-1">
         <div className="flex flex-col gap-3 px-1.5 pb-2">
-          {count === 0 ? empty : null}
-          {cards}
-          {ghosts}
+          {count === 0 && ghostCount === 0 ? <FadeIn animate={shown}>{empty}</FadeIn> : null}
+          {children}
         </div>
       </ScrollArea>
     </section>

@@ -2,7 +2,7 @@
 
 ## General
 
-- Shape: `weaver <object> <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>] [--json]`; `-h`/`--help` prints help. No other option exists.
+- Shape: `weaver <object> <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>] [--json]`; the one exception is `weaver open [<folder>] [--json]`, which has no verb (`requirements/cli#developer.OPEN_PROJECT`). `-h`/`--help` prints help. No other option exists. `weaver` with no words keeps its usage error with the help (exit 2).
 
 ```
 model         show, list, check
@@ -15,10 +15,11 @@ announcement  new
 job           new, show, list, edit
 question      new
 request       new
+open          [<folder>]
 ```
 
-- One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. No aliases for removed names; an existing command never answers "unknown command".
-- `--root <dir>` uses `<dir>/.weaver`, default the current folder, never a parent. Without `.weaver/`, every command but `project new` and help fails with exit 1 saying to initialise the project, also when `<dir>/.trama` exists; a `.trama` folder is never read or written.
+- One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. `open` is in the help and the JSON Schemas but never in the command reference of the installed skills, since agents cannot run it. No aliases for removed names; an existing command never answers "unknown command".
+- `--root <dir>` uses `<dir>/.weaver`, default the current folder, never a parent. Without `.weaver/`, every command but `project new`, `open` and help fails with exit 1 saying to initialise the project, also when `<dir>/.trama` exists; a `.trama` folder is never read or written.
 - The command is named `weaver` in help, usage, examples and messages, whatever the name of the file it runs from (`weaver-cli` in the build and in the app bundle).
 - Help: `weaver --help` lists objects and verbs; `<object> <verb> --help` prints usage, fields with types and limits, an example and the output fields; `--help --json` prints `{command, input, output}` JSON Schemas (2020-12). Help reads no stdin or file and contacts no app.
 - Input: one camelCase JSON object, inline or from stdin with `--input -` (UTF-8, leading BOM accepted), validated whole first: unknown field, wrong type, value outside its list or range, missing required field → exit 2 listing every problem with its JSON path (`questions[0].options[1].label`). A command without fields accepts only `{}` or no input.
@@ -32,7 +33,7 @@ request       new
 
 - `project new {force?, solo?}`: `solo` is `off` (default), `folders` or `files`. Refused, creating nothing, when `.weaver/` exists, when an agent file to install differs (all listed) unless `force: true`, or when `solo` is not `off` and Solo mode cannot be turned on (exit 1 with the reason). Prints `solo` too.
 - `project edit {solo?}`: with `solo`, changes only Solo mode and prints `solo`; without, Update skills: prints `changed`, `areas` and `generated`, the structured result the app shows too.
-- `project show {}`: the Board: `toDecide` (open Proposals and Drifts), `inWriting` (Drafts with their job), `todo`, `doing` (holder and blockers); and `solo` (`requirements/tech#solo-mode`).
+- `project show {}`: the Board: `toDecide` (open Proposals and Drifts), `inWriting` (Drafts with their job), `todo`, `doing` (holder and blockers); and `solo` (`requirements/tech#solo-mode`). `toDecide`, `todo` and `doing` list their cards in the order they have on the Board (`requirements/rules#work`).
 
 ## proposal
 
@@ -58,3 +59,20 @@ request       new
 - `list {all?, refs?, job?, currentJob?, unprepared?}`: open only unless `all`; `refs` as Task blocking; `currentJob` uses `WEAVER_JOB` (nothing outside a job); `unprepared`: open, no valid prepared question, in no resolution being written or open.
 - `edit <id> {prepared?, proposal?}`: `prepared: {question, decisions}` is a `question new` question (`id` the Drift identity, `multi: false`) with one decision per option: every fix option once as `fix-code` + `option`, plus one `proposal` or `dismissed` (both when there are no fix options). Weaver adds fingerprint and instant. `proposal` attaches a Proposal to a Drift that has none.
 - `move <id> code-to-be-fixed {option?, note?}` (option from 1, required when options exist), `proposal-accepted`, `dismissed`: decisions.
+
+## developer.OPEN_PROJECT
+
+- `weaver open <folder>` asks the running app to open the folder as `developer.OPEN_PROJECT`; `weaver open` with no folder asks it to show the welcome window (`requirements/cli#developer.SHOW_WELCOME`). Both are for the developer's terminal only.
+- **Arguments:** at most one folder; a second word is wrong usage (exit 2). `--root` and `--input` are wrong usage (exit 2, naming the option); `--json` is accepted. After `open` any word is a folder, also one named like an object: `weaver open model` opens the folder `model`.
+- **Agents:** refused (exit 1, code `refused`, nothing sent) whenever `WEAVER_JOB`, `WEAVER_GENERAL` or `WEAVER_ASK` is set, with `` `weaver open` is for the developer's terminal: an agent cannot open folders in Weaver. ``
+- **Folder checks, before contacting the app:** the path is joined to the current folder and made canonical as the project identity (`requirements/tech#window`). A path that does not exist: exit 1, `` `<path>` does not exist. ``; one that is not a folder: exit 1, `` `<path>` is not a folder. ``. A folder without `.weaver/` is accepted: its window opens on Get Started.
+- **Request:** sent to the running app as the request kind `open` (`requirements/tech#developer.OPEN_PROJECT`), payload `{path?}` with the canonical path. The app is never started:
+  - no app answers: exit 1, code `app-not-running`, `` `weaver open` needs Weaver, and Weaver is not running. ``;
+  - the app answers `unsupported`: exit 1, `This version of Weaver cannot open folders from the command line; update Weaver.`;
+  - no reply within 30 s: exit 1, `Weaver did not answer within 30 s; the folder may still open.`
+- **Result:** the app replies once the project window is open or at the front (or the welcome window is shown), or with the reason it could not open the folder, which the CLI prints (exit 1, code `refused`). On success nothing is printed (exit 0); with `--json`, `{}`.
+- **Help:** `weaver --help` lists `open [<folder>]`; `weaver open --help` prints its usage, the two forms and an example, like every command.
+
+## developer.SHOW_WELCOME
+
+- `weaver open` with no folder: the same arguments, agent refusal, request, waiting and results as `requirements/cli#developer.OPEN_PROJECT`, with no `path` in the payload; it succeeds once the welcome window is shown.

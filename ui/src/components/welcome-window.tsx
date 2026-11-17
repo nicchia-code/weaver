@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { UpdateBanner } from "@/components/update-banner";
 import { call, isAppError, on } from "@/lib/backend";
+import { cn } from "@/lib/utils";
 
 function failureText(action: string, error: unknown): string {
   return `${action}: ${isAppError(error) ? error.message : "unknown error"}`;
@@ -131,10 +132,11 @@ export function WelcomeWindow() {
         <StartupBanner allProjects />
         <UpdateBanner />
         <SystemCertificatesBanners />
-        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-          <header className="flex items-end gap-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <Logo size={48} />
+        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
+          {/* The logo beside the name keeps the header short, so the omp setup and two recent projects fit the 480 px window. */}
+          <header className="flex shrink-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+              <Logo size={48} className="shrink-0" />
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold tracking-title">{state?.name ?? "Weaver"}</h1>
                 {state ? <p className="text-sm text-muted-foreground">{`Version ${state.version}`}</p> : null}
@@ -147,27 +149,35 @@ export function WelcomeWindow() {
           </header>
 
           {failure ? (
-            <Alert variant="error">
+            <Alert variant="error" className="shrink-0">
               <TriangleAlert aria-hidden />
               <p className="min-w-0 flex-1">{failure}</p>
             </Alert>
           ) : null}
 
-          <section aria-labelledby="recent-projects-title" className="flex min-h-0 flex-col gap-1">
-            <h2 id="recent-projects-title" className="text-sm font-semibold">
+          {/* Takes what the header, the Alert and the omp setup leave; never less than the heading and two rows, or the heading and one row while an error is shown, so the providers keep a usable height. */}
+          <section
+            aria-labelledby="recent-projects-title"
+            className={cn("flex flex-1 basis-0 flex-col gap-1", failure ? "min-h-[5rem]" : "min-h-[8.5rem]")}
+          >
+            <h2 id="recent-projects-title" className="shrink-0 text-sm font-semibold">
               Recent projects
             </h2>
             {state && state.recent.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
+              <p className="shrink-0 text-sm text-muted-foreground">No recent projects. Open a folder to start.</p>
             ) : null}
-            <ul className="flex flex-col">
+            {/* Only the list scrolls; the side padding keeps the focus ring of a row from being cut by the overflow. */}
+            <ul className="-mx-1 flex min-h-0 flex-col overflow-y-auto px-1">
               {state?.recent.map((entry) => (
                 <RecentProject key={entry.path} entry={entry} onOpen={open} onRemove={remove} />
               ))}
             </ul>
           </section>
 
-          <OmpSetup place="elsewhere" providers="when-needed" />
+          {/* The omp setup keeps its status row in view; its provider list scrolls in its own area when room is short. */}
+          <div className="flex min-h-0 flex-col empty:hidden">
+            <OmpSetup place="elsewhere" providers="when-needed" />
+          </div>
         </main>
       </div>
     </div>

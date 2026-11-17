@@ -17,4 +17,9 @@ jobId: string, kind: GhostKind, title: string, phase: GhostPhase,
 /**
  * The job's latest note, when there is one.
  */
-note: string | null, };
+note: string | null, 
+/**
+ * For the cleanup ghost of a Run (`requirements/ui#work`): the name of the Run, which the
+ * accessible name of the ghost carries. `None` for every other ghost.
+ */
+cleanupOf: string | null, };

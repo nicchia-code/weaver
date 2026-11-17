@@ -1,9 +1,12 @@
-//! The app side of the request kinds `command` and `question.new`.
+//! The app side of the request kinds `command`, `open` and `question.new`.
 //!
 //! `command` is a `weaver` command the CLI sent instead of running it itself. It runs in the queue
 //! of its project, under the OS project lock, with the same function the CLI uses when no app
 //! answers (`weaver_cli::exec::execute`), so the checks are the same in both places. The identities
 //! it carries (`WEAVER_JOB`, `WEAVER_GENERAL`) are vouched for by the authority of the jobs.
+//!
+//! `open` is `weaver open [<folder>]` from the developer's terminal: the window manager opens the
+//! folder or shows the welcome window ([`open_response`]); it is for the developer only.
 //!
 //! `question.new` is a round of questions ([`crate::rounds`]).
 
@@ -21,6 +24,7 @@ use crate::error::ErrorCode;
 use crate::mutations::MutationQueues;
 use crate::server::Handler;
 use crate::state::AppState;
+use crate::windows::WindowManager;
 
 /// The notice of the Board for a History entry a job wrote and Weaver did not commit
 /// (`requirements/ui#atomic-commits`): `History entry "<title>" was not committed: <reason>.` A
@@ -52,6 +56,17 @@ pub fn not_committed_notice(
 pub fn handler(app: AppHandle) -> Handler {
     let authority: Arc<dyn Authority + Send + Sync> = Arc::new(crate::jobs::app_authority(&app));
     Arc::new(move |request, peer| {
+        // `weaver open`: the window manager answers once the window is open or at the front. It
+        // never goes through a project's queue: the folder need not be a project.
+        if request.kind == weaver_core::open::KIND {
+            return match crate::windows::manager_of(&app) {
+                Some(manager) => open_response(&manager, request),
+                None => Response::failure(
+                    code::REFUSED,
+                    "Weaver is still starting; try again in a moment.",
+                ),
+            };
+        }
         // A round waits for the developer with no time limit: it never goes through the project's
         // queue, and the closing of its connection withdraws it.
         if request.kind == weaver_core::question::KIND {
@@ -78,6 +93,27 @@ pub fn handler(app: AppHandle) -> Handler {
         }
         response
     })
+}
+
+/// Answers a request `open`: opens the folder, or shows the welcome window when the payload has no
+/// path. The reason of a failure is the answer's message and nothing else shows it in Weaver. A
+/// request that carries the identity of a job or of the Chat opens nothing.
+pub fn open_response(manager: &WindowManager, request: Request) -> Response {
+    let from_agent = request.job.is_some() || request.general.is_some();
+    let open: weaver_core::open::OpenRequest = match serde_json::from_value(request.payload) {
+        Ok(open) => open,
+        Err(e) => {
+            return Response::failure(
+                code::INVALID_INPUT,
+                format!("the request cannot be read: {e}"),
+            )
+        }
+    };
+    // This runs on the blocking pool, never on the main thread or the thread that serves Tauri IPC.
+    match tauri::async_runtime::block_on(manager.open_for_terminal(open, from_agent)) {
+        Ok(()) => Response::ok(serde_json::json!({})),
+        Err(reason) => Response::failure(code::REFUSED, reason),
+    }
 }
 
 /// Answers one request: runs the command in its project's queue.

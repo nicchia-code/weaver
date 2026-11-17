@@ -1,0 +1,23 @@
+# Command line in the terminal
+
+## developer.OPEN_PROJECT
+
+- **Request `open`:** a new request kind of the CLI ↔ app channel (`requirements/tech#General`), its types in `weaver-core` beside the other kinds, with the same envelope and protocol version; payload `{path?}`, the canonical project path. The app's dispatcher routes it beside `question.new`, on the blocking pool; an older app answers it `unsupported`.
+- The app refuses, with the CLI's reason (`requirements/cli#developer.OPEN_PROJECT`), a request that carries a job or Chat identity, and opens nothing.
+- With a path, it runs the same opening as the `open_project` command (`developer.OPEN_PROJECT`): a new project window opens, or an open one comes to the front, back from the background when it was there and alone. No window counts as the one the folder was chosen from: every other window stays as it was.
+- The reply is sent once the window is open or focused, or carries the reason of the failure (the same sentences as the other openings, such as "the folder does not exist"). A failure goes only into the reply: no toast, banner, `Alert`, `startup-failed` or `menu-open-failed` event and no welcome window; it is logged as a warning, path included.
+
+## developer.SHOW_WELCOME
+
+- The request `open` without `path` opens the welcome window, or brings it to the front (`show()`, `unminimize()`, `set_focus()`) when it is open, also while project windows are open; project windows, the background ones included, stay as they are. The reply is sent once it is shown, or carries the reason it could not be.
+- The welcome window shown this way behaves as always: it closes once a project window opens from it, and closing it never quits while a project window is open (`requirements/tech#window`, **Last window**).
+
+## shell-command
+
+- **What is installed:** always the stable copy `<app local data>/bin/weaver` (`weaver.exe` on Windows) that Weaver refreshes at every start (`requirements/tech#General`), never a file inside the app bundle or the AppImage mount, so an update keeps the command working.
+- **macOS:** a symbolic link `/usr/local/bin/weaver` to the copy. When `/usr/local/bin` is missing or not writable, the folder and the link are made with administrator rights through `/usr/bin/osascript` running `do shell script … with administrator privileges`, started with `weaver_core::process::command`; the paths go as arguments (`on run argv`) quoted with `quoted form of`, never inside the script text. A cancelled password request (AppleScript error `-128`) is not a failure: nothing changes and nothing is shown. Removing works the same way.
+- **Linux:** a symbolic link `~/.local/bin/weaver` to the copy, creating `~/.local/bin` when missing; never asks for privileges. After installing, when `~/.local/bin` is not in the app's own `PATH`, the result carries the PATH warning (`requirements/ui#shell-command`). Packages stay as they are: with the `.deb`, `/usr/bin/weaver` remains the app's executable, and the link wins only where `~/.local/bin` comes before `/usr/bin` in the terminal's `PATH`.
+- **Windows:** adds the folder `<app local data>\bin` to the user's `Path` in `HKEY_CURRENT_USER\Environment`, keeping its value type (`REG_EXPAND_SZ` stays expandable) and every other entry, then broadcasts `WM_SETTINGCHANGE` with `Environment` (`SendMessageTimeoutW`), through `windows-sys`; terminals opened afterwards find `weaver`. Removing deletes only that entry. The machine-wide `Path` is never read or written.
+- **Status:** on macOS and Linux, installed when the place is a symbolic link that resolves to the copy; not installed when the place is empty or holds anything else. On Windows, installed when the user `Path` holds the folder, compared after expanding variables, case-insensitively and ignoring a trailing `\`. Read off the main thread each time Settings shows, and after each action.
+- **Something else in the place** (macOS and Linux): installing refuses when the place holds a file, a folder or a link that does not resolve to the copy, and touches nothing; removing deletes the link only when it still resolves to the copy, otherwise touches nothing; both report the path found.
+- **Commands:** Tauri commands for the status, installing and removing, each returning one structured result (installed or not, the place, the outcome: done, refused with the path found, cancelled, failed with the reason, and the PATH warning on Linux). One action at a time in the whole app; another call meanwhile is refused. A failure is logged as a warning, as the other failures of the app. No `shell` or `fs` plugin: plain `std` and `weaver_core::process::command`.

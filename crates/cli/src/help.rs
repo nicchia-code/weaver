@@ -112,6 +112,9 @@ fn access_text(command: &Command) -> Option<&'static str> {
         Access::Chat => Some(
             "Only the agent of the project's Chat during one of its turns can run it (Weaver sets `WEAVER_GENERAL` in the environment of that agent). Any other caller, an Ask more conversation and a job included, is refused with exit 1 and nothing is written.",
         ),
+        Access::Developer => Some(
+            "Only the developer's own terminal can run it. It is refused with exit 1, and nothing is sent, whenever `WEAVER_JOB`, `WEAVER_GENERAL` or `WEAVER_ASK` is set.",
+        ),
     }
 }
 
@@ -122,6 +125,7 @@ fn argument_lines(command: &Command) -> Vec<String> {
         Arg::Card(_) => lines.push("`<id>`: the card, by identity, unique identity prefix or short number (`P3`, `t3`: a letter and digits is always a short number, and its letter must match the type).".to_owned()),
         Arg::Reference => lines.push("`<ref>`: a Model element (`order`, `order/Paid`, `user.CANCEL`, `order/Paid/user.CANCEL`), `system`, a Requirement (`requirements/<area>`, `requirements/<area>#General`, `requirements/<area>#<element>`) or the Specs (`specs`, `specs#<field>`). Without it, the System is shown.".to_owned()),
         Arg::Job => lines.push("`<id>`: a job identity. Without it, the job of the caller is shown.".to_owned()),
+        Arg::Folder => lines.push("`<folder>`: the folder to open, joined to the current folder and made canonical. Without it, the welcome window is shown.".to_owned()),
     }
     if !command.states.is_empty() {
         let states: Vec<String> = command.states.iter().map(|s| format!("`{s}`")).collect();
@@ -134,17 +138,33 @@ fn argument_lines(command: &Command) -> Vec<String> {
     lines
 }
 
+/// What the second column of the table of objects says: the verbs, or for `open`, which has none,
+/// its argument.
+fn verbs_column(commands: &[&Command]) -> String {
+    match commands.iter().find(|command| command.is_verbless()) {
+        Some(command) => match command.arg {
+            Arg::Folder => "[<folder>]".to_owned(),
+            _ => String::new(),
+        },
+        None => commands
+            .iter()
+            .map(|c| c.verb)
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
 /// `weaver --help`.
 pub fn top_help() -> String {
     let mut text = String::new();
     text.push_str("weaver: the command line of Weaver. It is how the agent reaches Weaver; it also works without the app for every command not bound to a job.\n\n");
     text.push_str(&format!(
-        "Usage: {SHAPE}\n       weaver <object> <verb> --help [--json]\n\n"
+        "Usage: {SHAPE}\n       weaver <object> <verb> --help [--json]\n       {}\n\n",
+        registry::open().usage()
     ));
     text.push_str("Objects and verbs:\n");
     for (object, commands) in registry::objects() {
-        let verbs: Vec<&str> = commands.iter().map(|c| c.verb).collect();
-        text.push_str(&format!("  {object:<14}{}\n", verbs.join(", ")));
+        text.push_str(&format!("  {object:<14}{}\n", verbs_column(&commands)));
     }
     text.push_str("\nOptions:\n");
     for (name, doc) in OPTIONS {
@@ -161,6 +181,9 @@ pub fn object_help(object: &str) -> Option<String> {
         .into_iter()
         .find(|(name, _)| *name == object)?
         .1;
+    if commands.iter().any(|command| command.is_verbless()) {
+        return None;
+    }
     let mut text = format!("weaver {object}: ");
     let verbs: Vec<&str> = commands.iter().map(|c| c.verb).collect();
     text.push_str(&format!("{}\n\nUsage: weaver {object} <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>] [--json]\n\nVerbs:\n", verbs.join(", ")));
@@ -194,14 +217,18 @@ pub fn command_help(command: &Command) -> String {
             text.push_str(&format!("  {line}\n"));
         }
     }
-    text.push_str("\nInput (a JSON object):\n");
-    if command.input.is_empty() {
-        text.push_str("  none: only `{}` or no input is accepted.\n");
+    if command.access == Access::Developer {
+        text.push_str("\nInput: none. `--input` and `--root` are not accepted.\n");
     } else {
-        let mut lines = Vec::new();
-        field_lines(&command.input, 1, &mut lines);
-        for line in lines {
-            text.push_str(&format!("{line}\n"));
+        text.push_str("\nInput (a JSON object):\n");
+        if command.input.is_empty() {
+            text.push_str("  none: only `{}` or no input is accepted.\n");
+        } else {
+            let mut lines = Vec::new();
+            field_lines(&command.input, 1, &mut lines);
+            for line in lines {
+                text.push_str(&format!("{line}\n"));
+            }
         }
     }
     text.push_str("\nOutput (the object printed with `--json`):\n");
@@ -227,12 +254,27 @@ pub fn command_help(command: &Command) -> String {
 impl Command {
     /// `weaver <object> <verb>`.
     pub fn name_with_prefix(&self) -> String {
-        format!("weaver {} {}", self.object, self.verb)
+        format!("weaver {}", self.name())
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // The command reference of the installed skills
+
+/// The objects whose commands an agent can run: `open` is for the developer's terminal and is
+/// never in the reference.
+fn agent_objects() -> Vec<(&'static str, Vec<&'static Command>)> {
+    registry::objects()
+        .into_iter()
+        .filter_map(|(object, commands)| {
+            let commands: Vec<&Command> = commands
+                .into_iter()
+                .filter(|command| command.is_for_agents())
+                .collect();
+            (!commands.is_empty()).then_some((object, commands))
+        })
+        .collect()
+}
 
 /// The Markdown reference of every command, installed with the `weaver-design` skill as
 /// `COMMANDS.md`: LF, with a final newline. A test of this crate fails when it differs from the
@@ -245,11 +287,11 @@ pub fn command_reference() -> String {
         "Shape: `{SHAPE}`. `-h` and `--help` print help (with `--json`, the JSON Schemas of the command); no other option exists. Input is one camelCase JSON object, inline or from standard input with `--input -`; a field marked optional may be left out, and a command without fields takes only `{{}}` or nothing. Cards are named by identity, unique identity prefix or short number. Output is Markdown, or one JSON object with `--json`. Exit codes: `0` done, `1` refused or failed, `2` wrong usage or invalid input.\n\n"
     ));
     text.push_str("| Object | Verbs |\n|---|---|\n");
-    for (object, commands) in registry::objects() {
+    for (object, commands) in agent_objects() {
         let verbs: Vec<String> = commands.iter().map(|c| format!("`{}`", c.verb)).collect();
         text.push_str(&format!("| `{object}` | {} |\n", verbs.join(", ")));
     }
-    for (object, commands) in registry::objects() {
+    for (object, commands) in agent_objects() {
         text.push_str(&format!("\n## {object}\n"));
         for command in commands {
             text.push_str(&format!(
@@ -309,12 +351,16 @@ mod tests {
         let help = top_help();
         assert!(help.contains("Usage: weaver <object> <verb>"));
         for (object, commands) in registry::objects() {
-            let verbs: Vec<&str> = commands.iter().map(|c| c.verb).collect();
             assert!(
-                help.contains(&format!("  {object:<14}{}\n", verbs.join(", "))),
+                help.contains(&format!("  {object:<14}{}\n", verbs_column(&commands))),
                 "{object}"
             );
         }
+        assert!(
+            help.contains("  open          [<folder>]\n"),
+            "open is in the table of objects with its argument"
+        );
+        assert!(help.contains("weaver open [<folder>] [--json]"));
         assert!(help.contains("-h, --help"));
         assert!(!help.contains(" I "), "no first person");
     }
@@ -342,5 +388,27 @@ mod tests {
     fn an_unknown_object_has_no_help() {
         assert!(object_help("nothing").is_none());
         assert!(object_help("task").unwrap().contains("move"));
+    }
+
+    #[test]
+    fn open_has_help_of_its_own_with_the_two_forms_and_an_example() {
+        let help = command_help(registry::open());
+        assert!(help.starts_with("weaver open: "));
+        assert!(help.contains("Usage: weaver open [<folder>] [--json]\n"));
+        assert!(help.contains("`weaver open <folder>`"));
+        assert!(help.contains("`weaver open` with no folder shows the welcome window"));
+        assert!(help.contains("Example:\n  weaver open ~/projects/shop"));
+        assert!(help.contains("Only the developer's own terminal can run it."));
+        assert!(!help.contains("--input <json>"), "it takes no input");
+        assert!(object_help("open").is_none(), "open has no verbs to list");
+    }
+
+    #[test]
+    fn the_command_reference_of_the_skills_has_no_open() {
+        let reference = command_reference();
+        assert!(!reference.contains("weaver open"));
+        assert!(!reference.contains("| `open` |"), "no row in the table of objects");
+        assert!(!reference.contains("\n## open\n"), "no section");
+        assert!(!reference.contains("<folder>"));
     }
 }

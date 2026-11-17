@@ -34,6 +34,8 @@
 //! | [`solo_mode`] | Solo mode: the state of the working copy, the block in git's local exclusions, the tracked files it cannot hide |
 //! | [`solo_merge`] | Merge in Solo mode: availability, the branches, the git steps of a merge, `merge/merge.json` and the check of a merge in progress |
 //! | [`git_info`] | What a project window shows of git: the branch, git's HEAD file of the working copy, the user's name |
+//! | [`shell_command`] | The `weaver` command in the developer's own terminal (Machine `shell-command`): status, install and remove, per system |
+//! | [`open`] | The request kind `open`: `weaver open [<folder>]` asks the running app to open a folder or show its welcome window |
 
 pub mod agent_files;
 pub mod assets;
@@ -53,6 +55,7 @@ pub mod lock;
 pub mod notes;
 pub mod notification;
 pub mod omp;
+pub mod open;
 pub mod paths;
 pub mod process;
 pub mod process_group;
@@ -62,6 +65,7 @@ pub mod protocol;
 pub mod question;
 pub mod runtime;
 pub mod settings;
+pub mod shell_command;
 pub mod solo_merge;
 pub mod solo_mode;
 pub mod system_certificates;

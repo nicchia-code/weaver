@@ -38,7 +38,7 @@ description: "Use when building windows, their closing and quitting, or system n
   - A tray icon that cannot be created is logged as a warning and changes nothing else: launching Weaver again still brings the windows back.
 - **Last window:**
   - Closing the last project window opens the welcome window. A project window in the background counts as open: closing the last window on the screen while others are in the background opens nothing.
-  - Closing the welcome window quits on Windows and Linux, unless a project window is in the background. On macOS the app stays in the Dock with no window, and `RunEvent::Reopen` shows the welcome window.
+  - Closing the welcome window quits on Windows and Linux, unless a project window is open, on the screen or in the background (`weaver open` can show it beside project windows, `requirements/tech#developer.SHOW_WELCOME`). On macOS the app stays in the Dock with no window, and `RunEvent::Reopen` shows the welcome window.
   - Quit is `Cmd+Q` on macOS, `Ctrl+Q` and File › Quit elsewhere, and `Quit` in the tray menu on Windows and Linux.
 - **File menu:**
   - Weaver keeps one app menu, shared by every window (`Builder::menu`, events in `on_menu_event`). On macOS `Open Folder…`, the `Open Recent` submenu and a separator are inserted at the top of the File submenu of Tauri's default menu, above `Close Window`; on Windows and Linux at the top of Weaver's own File menu, above `Close Window` and `Quit`.

@@ -1,10 +1,11 @@
 //! The Board of a project: what it shows, worked out from the image and a few facts only the app
 //! knows (which jobs work, whether a Run works).
 //!
-//! * `Backlog`: open Proposals and open Drifts in one creation order, oldest first. A resolution
-//!   gathers the Drifts it lists into one card; a Proposal attached to a Drift is never shown on
-//!   its own; a Draft is shown only when a refinement left it half-way.
-//! * `Active`: Tasks in To do and In progress, blocked ones included, oldest first.
+//! * `Backlog`: open Proposals and open Drifts in creation order, oldest first (the order the
+//!   Board shows is [`super::rank::rank`]'s). A resolution gathers the Drifts it lists into one
+//!   card; a Proposal attached to a Drift is never shown on its own; a Draft is shown only when
+//!   a refinement left it half-way.
+//! * `Active`: Tasks in To do and In progress, blocked ones included, oldest first (likewise).
 //! * Blocking is never stored: an open Drift that names a Task as its origin or concerns the
 //!   same thing blocks it ([`concerns`]); the origin of a Drift whose code is to be fixed waits
 //!   for the fix Task.
@@ -215,6 +216,18 @@ pub fn is_being_written(card: &Card) -> bool {
 /// is being refined (shared by the Drift and the Proposal controls).
 pub const REASON_BEING_REFINED: &str = "Being refined";
 
+/// Where a card stands in creation order: its `created` and identity. A Proposal that reworks a
+/// rejected one takes the place of the rejected one; a refined Proposal keeps its own.
+pub(crate) fn place_of(image: &ProjectImage, card: &Card) -> (String, String) {
+    let rejected = card
+        .str_key("reworks")
+        .and_then(|id| image.card(CardKind::Proposal, id));
+    let (created, id) = rejected.map_or((created_of(card), card.id.as_str()), |old| {
+        (created_of(old), old.id.as_str())
+    });
+    (created.to_owned(), id.to_owned())
+}
+
 /// Computes the Board of `image`.
 pub fn compute(image: &ProjectImage, facts: &AgentFacts) -> Board {
     let drifts: Vec<&Card> = image.cards_of(CardKind::Drift).collect();
@@ -272,17 +285,7 @@ pub fn compute(image: &ProjectImage, facts: &AgentFacts) -> Board {
             ));
         }
     }
-    // A Proposal that reworks a rejected one takes its place in the order of the Board.
-    let place = |card: &Card| -> (String, String) {
-        let rejected = card
-            .str_key("reworks")
-            .and_then(|id| image.card(CardKind::Proposal, id));
-        let (created, id) = rejected.map_or((created_of(card), card.id.as_str()), |old| {
-            (created_of(old), old.id.as_str())
-        });
-        (created.to_owned(), id.to_owned())
-    };
-    entries.sort_by_cached_key(|(card, _)| place(card));
+    entries.sort_by_cached_key(|(card, _)| place_of(image, card));
     let backlog: Vec<BacklogEntry> = entries.into_iter().map(|(_, entry)| entry).collect();
 
     // --- Active ---

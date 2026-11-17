@@ -3,7 +3,7 @@
 ## design-request
 
 - **Name:** every text of the interface calls it a request (`Request`, `New Request`, `Untitled request`, `Setup request`, `Design request`), never a work item; so do the texts Weaver gives agents when they point the developer to the Board's control (`New Request` in the Board header, next to `Run all`).
-- **Draft card:** each request being written is a card of the Backlog (`requirements/ui#work`), after the open Proposals and Drifts and before the ghosts, oldest first. It has the look of the other cards (`requirements/ui#proposal`): Surface, Line ring and the soft shadow of a card on a lane, radius 12 px, controls in a footer after a `#EFEDE7` rule. Top to bottom:
+- **Draft card:** each request being written is a card of the Backlog (`requirements/ui#work`), at the place `requirements/rules#work` gives it: a draft that is not empty after the Proposals and Drifts that can be acted on and before the ghosts, an empty one among the cards that cannot be acted on; oldest first within its group. It has the look of the other cards (`requirements/ui#proposal`): Surface, Line ring and the soft shadow of a card on a lane, radius 12 px, controls in a footer after a `#EFEDE7` rule. Top to bottom:
   1. the tag `Request` where the other cards show their id;
   2. the title, 15 px semibold, at most 3 lines then `…`: the first heading, else the first line, else `Untitled request`;
   3. `Not sent · <created>` in Muted, the creation time as the Jobs list writes times: `HH:MM` today, else `D MMM HH:MM`;

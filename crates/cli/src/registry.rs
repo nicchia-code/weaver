@@ -13,11 +13,19 @@ pub fn all() -> &'static [Command] {
     &REGISTRY
 }
 
-/// The command `weaver <object> <verb>`.
+/// The command `weaver <object> <verb>`. The one command with no verb is [`open`].
 pub fn find(object: &str, verb: &str) -> Option<&'static Command> {
     REGISTRY
         .iter()
-        .find(|c| c.object == object && c.verb == verb)
+        .find(|c| !c.is_verbless() && c.object == object && c.verb == verb)
+}
+
+/// `weaver open [<folder>]`, the one command with no verb.
+pub fn open() -> &'static Command {
+    REGISTRY
+        .iter()
+        .find(|c| c.is_verbless())
+        .expect("the registry holds `open`")
 }
 
 /// The commands grouped by object, in registry order.
@@ -51,7 +59,7 @@ mod tests {
     use super::*;
 
     /// The objects and verbs of `requirements/cli#General`.
-    const TABLE: [(&str, &[&str]); 10] = [
+    const TABLE: [(&str, &[&str]); 11] = [
         ("model", &["show", "list", "check"]),
         ("project", &["new", "edit", "show"]),
         ("proposal", &["new", "show", "list", "edit", "move"]),
@@ -62,13 +70,15 @@ mod tests {
         ("job", &["new", "show", "list", "edit"]),
         ("question", &["new"]),
         ("request", &["new"]),
+        // The one command with no verb: `weaver open [<folder>]`.
+        ("open", &[]),
     ];
 
     #[test]
     fn the_registry_has_exactly_the_commands_of_the_requirements() {
         let found: Vec<(&str, Vec<&str>)> = objects()
             .into_iter()
-            .map(|(o, cs)| (o, cs.into_iter().map(|c| c.verb).collect()))
+            .map(|(o, cs)| (o, cs.into_iter().map(|c| c.verb).filter(|v| !v.is_empty()).collect()))
             .collect();
         let expected: Vec<(&str, Vec<&str>)> =
             TABLE.iter().map(|(o, vs)| (*o, vs.to_vec())).collect();
@@ -83,10 +93,14 @@ mod tests {
             assert!(
                 command
                     .example
-                    .starts_with(&format!("weaver {} {}", command.object, command.verb)),
+                    .starts_with(&format!("weaver {}", command.name())),
                 "{name}: example"
             );
-            assert!(!command.output.is_empty(), "{name}: output fields");
+            // `open` prints nothing: with `--json` an object with no fields.
+            assert!(
+                !command.output.is_empty() || !command.is_for_agents(),
+                "{name}: output fields"
+            );
             let mut texts = vec![command.summary.to_owned()];
             texts.extend(command.notes.iter().map(|n| (*n).to_owned()));
             for text in texts {

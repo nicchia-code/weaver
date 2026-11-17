@@ -5,13 +5,16 @@ The person who owns the project, looks at it in Weaver and decides. Every decisi
 ## Events
 
 ### OPEN_PROJECT
-The developer opens a folder in Weaver, from the welcome window, from the File menu of any window, or from the project switcher or the palette of a project window, choosing a folder, one of the recent projects or another open project. A folder already open only comes to the front.
+The developer opens a folder in Weaver, from the welcome window, from the File menu of any window, or from the project switcher or the palette of a project window, choosing a folder, one of the recent projects or another open project; or from his own terminal, naming the folder to the `weaver` command line while Weaver is running. A folder already open only comes to the front. From the terminal, a path that does not exist or is not a folder never reaches Weaver: only the terminal says why; when Weaver is not running, it is not started and the terminal says so; the terminal waits for the window to be open or at the front, or for the reason it could not open; and the agents of jobs, Chat and Ask more are refused, since only the developer opens folders.
 
 ### CLOSE_WINDOW
 The developer closes the window of a project. When agent jobs of that project are working, or files of its File view have unsaved changes, he confirms first; with unsaved changes he chooses to save them all or to discard them all. When only agent jobs are working, he can also choose to keep them working with the window in the background.
 
 ### REOPEN_APP
 The developer brings Weaver back: he clicks its icon in the Dock on macOS, launches it again without naming a folder, or chooses to show it from its icon in the tray on Windows and Linux. Every project window in the background comes back and the one used most recently gets the focus; with no project window in the background, the window used most recently comes to the front, and with no project window open, the welcome window.
+
+### SHOW_WELCOME
+The developer asks, from his own terminal, with the `weaver` command line and no folder, to see Weaver's welcome window while Weaver is running. The welcome window opens, or comes to the front when it is already open, also while project windows are open, which stay as they were; while a project window is open, closing the welcome window only closes it, and it still closes once a project opens from it. When Weaver is not running, it is not started and the terminal says so. The agents of jobs, Chat and Ask more are refused.
 
 ### QUIT_APP
 The developer quits Weaver, also from its icon in the tray on Windows and Linux. When agent jobs are working in any project, or files of a File view have unsaved changes, he confirms first; with unsaved changes he chooses, for each window, to save them all or to discard them all.
@@ -27,6 +30,12 @@ The developer asks the agent to describe the code already in the project, option
 
 ### INSTALL_OMP
 The developer asks Weaver to install omp with its official installer or, when that fails, from omp's GitHub releases.
+
+### INSTALL_COMMAND
+The developer asks Weaver, from the settings, to make its `weaver` command line reachable from his own terminal.
+
+### REMOVE_COMMAND
+The developer asks Weaver, from the settings, to undo what the installation of the `weaver` command in his terminal did.
 
 ### LOG_IN_PROVIDER
 The developer asks to connect omp to a model provider, or to connect it again.
@@ -107,7 +116,7 @@ The developer asks the agent to compare the whole System with the code, after a 
 The developer asks to decide one open Drift.
 
 ### FIX_DRIFT_CODE
-The developer decides that the Model and the Requirements are right and the code must change, choosing one of the Drift's fix options and optionally adding a note.
+The developer decides that the Model and the Requirements are right and the code must change, choosing one of the Drift's fix options and optionally adding a note. The app offers no control for it: there the developer chooses a code fix by answering the question of `RESOLVE_DRIFT`, and this Event comes only from an agent the developer explicitly asked for that decision in a conversation.
 
 ### ACCEPT_DRIFT_PROPOSAL
 The developer decides that the code is right and accepts the Proposal attached to the Drift.

@@ -346,7 +346,8 @@ impl RequestsService {
         Ok(())
     }
 
-    /// The requests being written, as the cards of the Backlog, oldest first. `ghost_jobs` are the
+    /// The requests being written, oldest first; the Board places them among its cards with the
+    /// core function of the Board order. `ghost_jobs` are the
     /// jobs the same Board shows a ghost for: a request sent to a job that works is no draft, and
     /// one sent to a job that finished and shows no ghost is a draft that came back, even before
     /// the end of the job was recorded in its file, so that its card is in the very picture in
@@ -588,10 +589,11 @@ fn remember_now(
     work: &dyn AgentWork,
     project_id: &str,
     root: &Path,
+    image: &ProjectImage,
 ) -> Result<bool, RequestError> {
     let _board = service.board_read();
     let ghost_jobs = work
-        .ghosts(project_id)
+        .ghosts(project_id, image)
         .into_iter()
         .map(|ghost| ghost.job_id)
         .collect();
@@ -619,15 +621,21 @@ async fn refresh_board(app: &AppHandle, project_id: &str, root: &Path) {
     if let Err(error) = reconciled {
         log_warn!("the requests of a project were not reconciled: {error}");
     }
+    // A project whose window closed meanwhile has no picture: nothing to tell.
+    let Ok(picture) = state.pictures.get(project_id) else {
+        return;
+    };
     let (work, project, root) = (
         state.agent_work.get(),
         project_id.to_owned(),
         root.to_path_buf(),
     );
-    let changed = blocking::disk(move || remember_now(&service, work.as_ref(), &project, &root))
-        .await
-        .map_err(|error| error.message)
-        .and_then(|outcome| outcome.map_err(|error| error.to_string()));
+    let changed = blocking::disk(move || {
+        remember_now(&service, work.as_ref(), &project, &root, &picture.image)
+    })
+    .await
+    .map_err(|error| error.message)
+    .and_then(|outcome| outcome.map_err(|error| error.to_string()));
     match changed {
         // A project whose window closed meanwhile has no picture: nothing to tell.
         Ok(true) => {
@@ -661,7 +669,14 @@ pub fn project_opened(app: &AppHandle, project_id: &str, root: &Path) {
         let state = app.state::<AppState>();
         let service = app.state::<Arc<RequestsService>>().inner().clone();
         let work = state.agent_work.get();
-        match blocking::disk(move || remember_now(&service, work.as_ref(), &project, &root)).await {
+        let Ok(picture) = state.pictures.get(&project) else {
+            return;
+        };
+        match blocking::disk(move || {
+            remember_now(&service, work.as_ref(), &project, &root, &picture.image)
+        })
+        .await
+        {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => log_warn!("the drafts of a project were not read: {error}"),
             Err(error) => log_warn!("the drafts of a project were not read: {}", error.message),
@@ -1709,20 +1724,21 @@ mod tests {
         let root = f.project.path();
         let store = RequestStore::new(root);
         let work = crate::agent_work::NoAgentWork;
+        let image = ProjectImage::empty(root);
         let id = store
             .create(&LocalTime::parse("2026-11-02T09:30:00").unwrap())
             .unwrap();
-        assert!(remember_now(&f.service, &work, P, root).unwrap(), "a new request");
+        assert!(remember_now(&f.service, &work, P, root, &image).unwrap(), "a new request");
         store.save(&id, "# Cart").unwrap();
-        assert!(remember_now(&f.service, &work, P, root).unwrap(), "title and emptiness");
+        assert!(remember_now(&f.service, &work, P, root, &image).unwrap(), "title and emptiness");
         store.save(&id, "# Cart\n\nmore").unwrap();
-        assert!(!remember_now(&f.service, &work, P, root).unwrap(), "same title, still not empty");
+        assert!(!remember_now(&f.service, &work, P, root, &image).unwrap(), "same title, still not empty");
         store.save(&id, "# Cart\n\nmore and more").unwrap();
-        assert!(!remember_now(&f.service, &work, P, root).unwrap());
+        assert!(!remember_now(&f.service, &work, P, root, &image).unwrap());
         store.save(&id, "").unwrap();
-        assert!(remember_now(&f.service, &work, P, root).unwrap(), "empty again");
+        assert!(remember_now(&f.service, &work, P, root, &image).unwrap(), "empty again");
         store.discard(&id).unwrap();
-        assert!(remember_now(&f.service, &work, P, root).unwrap(), "discarded");
+        assert!(remember_now(&f.service, &work, P, root, &image).unwrap(), "discarded");
     }
 
     #[test]

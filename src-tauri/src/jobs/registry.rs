@@ -25,6 +25,7 @@ use weaver_core::jobs::{
 use weaver_core::project::board::AgentFacts;
 use weaver_core::project::clock::{now_instant, Clock, SystemClock};
 use weaver_core::project::ids;
+use weaver_core::project::image::ProjectImage;
 use weaver_core::project::random::OsRandom;
 use weaver_core::project::requests::store::UNTITLED;
 use weaver_core::project::requests::RequestStore;
@@ -497,12 +498,28 @@ impl Jobs {
     }
 
     /// The cards the jobs of the project announced and that have not arrived, in announcement order,
-    /// and, for a setup, design or import job that has none on the Board, its own ghost, in the
-    /// place it would have if it had been announced when the job was created.
+    /// for a setup, design or import job that has none on the Board, its own ghost, and for a Run
+    /// that is cleaning up, its cleanup ghost, each in the place it would have if it had been
+    /// announced when the job was created. Worked out against the latest picture of the project.
     pub fn ghosts_of(&self, project_id: &str) -> Vec<Ghost> {
         let picture = self.host.picture(project_id).map(|(_, image)| image);
+        self.ghosts_against(project_id, picture.as_deref())
+    }
+
+    /// [`Self::ghosts_of`] against `image`, the picture the Board is made of: the cleanup ghost of a
+    /// Run is decided from the Tasks that picture shows, so that it never shows beside a Task or
+    /// leaves `Nothing active` between two pictures.
+    pub fn ghosts_in(&self, project_id: &str, image: &ProjectImage) -> Vec<Ghost> {
+        self.ghosts_against(project_id, Some(image))
+    }
+
+    fn ghosts_against(&self, project_id: &str, picture: Option<&ProjectImage>) -> Vec<Ghost> {
         let inner = self.lock();
         let mut ghosts: Vec<(u64, Ghost)> = Vec::new();
+        // Whether a ghost announced by some job waits in Active (those of a Task).
+        let mut task_announced = false;
+        // The Runs that took a Task and have no announced ghost on the Board.
+        let mut cleaning: Vec<&Live> = Vec::new();
         for live in inner
             .jobs
             .values()
@@ -510,12 +527,13 @@ impl Jobs {
         {
             let before = ghosts.len();
             for announcement in &live.record.announcements {
-                if let (Some(card), Some(image)) = (announcement.card.as_ref(), picture.as_ref()) {
+                if let (Some(card), Some(image)) = (announcement.card.as_ref(), picture) {
                     if card_is_on_the_board(image, card) {
                         continue;
                     }
                 }
                 let kind = ghost_kind(&announcement.kind).unwrap_or(GhostKind::Task);
+                task_announced |= kind == GhostKind::Task;
                 let phase = if live.record.state == JobState::Waiting {
                     GhostPhase::WaitingForAnswers
                 } else if announcement.card.is_some() {
@@ -534,14 +552,27 @@ impl Jobs {
                         title: announcement.title.clone(),
                         phase,
                         note: live.record.latest_note().map(|note| note.text.clone()),
+                        cleanup_of: None,
                     },
                 ));
             }
             if ghosts.len() == before {
                 if let Some(ghost) = weaver_ghost(live) {
                     ghosts.push((live.order, ghost));
+                } else if live.record.kind.is_run() && live.record.took_task {
+                    cleaning.push(live);
                 }
             }
+        }
+        // The cleanup ghosts of the Runs, only while Active shows nothing else: no Task in To do
+        // or In progress (so no Task a Run holds) and no announced ghost of a Task. They never hide
+        // one another.
+        if !task_announced && picture.is_some_and(|image| !active_has_tasks(image)) {
+            ghosts.extend(
+                cleaning
+                    .into_iter()
+                    .map(|live| (live.order, cleanup_ghost(live))),
+            );
         }
         ghosts.sort_by_key(|(order, _)| *order);
         ghosts.into_iter().map(|(_, ghost)| ghost).collect()
@@ -689,6 +720,7 @@ impl Jobs {
                 running: None,
                 running_incomplete: false,
                 by_chat: false,
+                took_task: false,
             };
             self.persist(&record);
             inner.next_announcement += 1;
@@ -1332,6 +1364,26 @@ impl Jobs {
         None
     }
 
+    /// `agent.TAKE_TASK`: the Run took a Task. Weaver remembers it for good, so that the cleanup
+    /// ghost of a Run suspended while it cleans up comes back after a restart. The Task itself
+    /// was written before, so the picture that shows it already hides the cleanup ghost.
+    pub fn task_taken(&self, root: &Path, job_id: &str) {
+        let project = {
+            let mut inner = self.lock();
+            let Some(live) = inner
+                .jobs
+                .get_mut(job_id)
+                .filter(|l| l.root == root && l.record.kind.is_run() && !l.record.took_task)
+            else {
+                return;
+            };
+            live.record.took_task = true;
+            self.persist(&live.record);
+            live.project_id.clone()
+        };
+        self.changed(&project, Some(job_id));
+    }
+
     /// A Task reached Done by `FINISHED`: the count of the Board.
     pub fn task_finished(&self, root: &Path) {
         let project = {
@@ -1663,7 +1715,36 @@ fn weaver_ghost(live: &Live) -> Option<Ghost> {
             GhostPhase::Preparing
         },
         note: live.record.latest_note().map(|note| note.text.clone()),
+        cleanup_of: None,
     })
+}
+
+/// Weaver's cleanup ghost of a Run that took a Task and holds none (`requirements/ui#work`): a
+/// Task being cleaned up after, made by Weaver without any announcement. Its identity comes from
+/// the job like the other ghost of Weaver and is never stored.
+fn cleanup_ghost(live: &Live) -> Ghost {
+    Ghost {
+        id: format!("job:{}", live.record.id),
+        job_id: live.record.id.clone(),
+        kind: GhostKind::Task,
+        title: names::cleanup_ghost_title(&live.record.name),
+        phase: if live.record.state == JobState::Waiting {
+            GhostPhase::WaitingForAnswers
+        } else {
+            GhostPhase::FinishingUp
+        },
+        note: live.record.latest_note().map(|note| note.text.clone()),
+        cleanup_of: Some(live.record.name.clone()),
+    }
+}
+
+/// Whether the picture has a Task in To do or In progress: a real card in Active.
+fn active_has_tasks(image: &ProjectImage) -> bool {
+    use weaver_core::project::cards::CardKind;
+    use weaver_core::project::tasks::{column_of, Column};
+    image
+        .cards_of(CardKind::Task)
+        .any(|task| matches!(column_of(task), Some(Column::Todo | Column::Doing)))
 }
 
 /// The title of the request a setup or design job received, as its draft card shows it; `None`

@@ -156,6 +156,7 @@ function install(initial: SettingsSnapshot) {
   vi.mocked(call).mockImplementation(((name: string, args: { change?: SettingChange }) => {
     if (name === "settings_get") return Promise.resolve(current);
     if (name === "system_certificates_status") return Promise.resolve(OFF);
+    if (name === "shell_command_status") return Promise.resolve({ installed: false, place: "/usr/local/bin/weaver", outcome: { kind: "done" }, pathWarning: false });
     if (name === "project_status") return Promise.resolve(project);
     if (name === "solo_tracked_files") return trackedFiles();
     if (name === "set_solo_mode") return changeSolo(args as unknown as { mode: SoloMode });
@@ -221,7 +222,7 @@ describe("settings view", () => {
   it("shows the groups in order and never a setting key", async () => {
     await show({ projectSlot: <p>Update skills box</p> });
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["omp", "Models", "Agents", "Editor", "Appearance", "Project"]);
+    expect(headings).toEqual(["omp", "Models", "Agents", "Editor", "Command line", "Appearance", "Project"]);
     expect(screen.getByText("Update skills box")).toBeInTheDocument();
     for (const key of ["ompPath", "maxParallelAgents", "models.analysis", "editor.preset"]) {
       expect(screen.queryByText(key)).not.toBeInTheDocument();

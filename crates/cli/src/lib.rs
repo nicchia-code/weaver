@@ -16,6 +16,7 @@
 //! | [`cli`] | One invocation: arguments, root, input, where it runs, what is printed |
 //! | [`client`] | The client of the app socket |
 //! | [`round`] | `question new`: submits a round to the app and waits for the developer |
+//! | [`open`] | `weaver open [<folder>]`: asks the running app to open a folder or show its welcome window |
 //! | [`interrupts`] | What stops a command that waits: signals, a closed standard output |
 
 pub mod cli;
@@ -24,6 +25,7 @@ pub mod commands;
 pub mod exec;
 pub mod help;
 pub mod interrupts;
+pub mod open;
 pub mod registry;
 pub mod round;
 pub mod schema;

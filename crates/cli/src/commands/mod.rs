@@ -12,6 +12,7 @@ mod drift;
 mod history;
 mod job;
 mod model;
+mod open;
 mod project;
 mod proposal;
 mod question;
@@ -31,6 +32,7 @@ pub fn all() -> Vec<Command> {
     all.extend(job::commands());
     all.extend(question::commands());
     all.extend(request::commands());
+    all.extend(open::commands());
     all
 }
 

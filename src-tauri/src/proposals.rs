@@ -770,7 +770,11 @@ mod tests {
         );
         struct Working;
         impl crate::agent_work::AgentWork for Working {
-            fn ghosts(&self, _: &str) -> Vec<crate::agent_work::Ghost> {
+            fn ghosts(
+                &self,
+                _: &str,
+                _: &weaver_core::project::image::ProjectImage,
+            ) -> Vec<crate::agent_work::Ghost> {
                 Vec::new()
             }
             fn facts(&self, _: &str) -> weaver_core::project::board::AgentFacts {
