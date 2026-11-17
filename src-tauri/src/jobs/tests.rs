@@ -1386,7 +1386,12 @@ async fn the_cleanup_ghosts_of_several_runs_show_together_only_while_active_show
 
     let (host, jobs, _dir, project) = one_task().await;
     host.script(json!({ "prompts": [[{ "hold": true }]] }));
-    set_tasks(&host, &project, &[("aaaaaaaa", "todo"), ("bbbbbbbb", "todo")]).await;
+    set_tasks(
+        &host,
+        &project,
+        &[("aaaaaaaa", "todo"), ("bbbbbbbb", "todo")],
+    )
+    .await;
     let image = ProjectImage::load(&project.root);
     let first = run_task(&jobs, &project, "aaaaaaaa").unwrap();
     // A second Run, as the Runs of one Run all are: created without the exclusion of a Run.
@@ -1412,13 +1417,23 @@ async fn the_cleanup_ghosts_of_several_runs_show_together_only_while_active_show
     jobs.task_taken(&project.root, &second);
 
     // The Tasks they hold are real cards: no ghost.
-    set_tasks(&host, &project, &[("aaaaaaaa", "doing"), ("bbbbbbbb", "doing")]).await;
+    set_tasks(
+        &host,
+        &project,
+        &[("aaaaaaaa", "doing"), ("bbbbbbbb", "doing")],
+    )
+    .await;
     assert!(ghost_ids(&jobs, &project).is_empty());
 
     // Both leave Active in one picture: one ghost for each Run, in the order of their creation,
     // and the picture the Board is made of decides, not a later one.
     let before = ProjectImage::load(&project.root);
-    set_tasks(&host, &project, &[("aaaaaaaa", "done"), ("bbbbbbbb", "done")]).await;
+    set_tasks(
+        &host,
+        &project,
+        &[("aaaaaaaa", "done"), ("bbbbbbbb", "done")],
+    )
+    .await;
     let both = [format!("job:{first}"), format!("job:{second}")];
     assert_eq!(ghost_ids(&jobs, &project), both);
     assert!(jobs.ghosts_in(&project.id, &before).is_empty());
@@ -1428,7 +1443,10 @@ async fn the_cleanup_ghosts_of_several_runs_show_together_only_while_active_show
     assert_eq!(ghost_ids(&jobs, &project), std::slice::from_ref(&announced));
     jobs.card_filed(Some(&first), "task", "cccccccc", &announced);
     task_arrives(&host, &project, "cccccccc", "Cancel an order").await;
-    assert!(ghost_ids(&jobs, &project).is_empty(), "the card is in Active");
+    assert!(
+        ghost_ids(&jobs, &project).is_empty(),
+        "the card is in Active"
+    );
 
     // An announced ghost of a Proposal sits in Backlog: it hides only the cleanup of its own Run.
     let proposal = jobs.announce(&first, "proposal", "Order changes").unwrap();

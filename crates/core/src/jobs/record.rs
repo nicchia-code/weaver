@@ -401,7 +401,10 @@ mod tests {
         let mut run = record("jjjjjjjj", "/p", JobState::Running, None);
         store.write(&run).unwrap();
         let text = std::fs::read_to_string(store.file("jjjjjjjj")).unwrap();
-        assert!(!text.contains("tookTask"), "a Run that took nothing stores nothing");
+        assert!(
+            !text.contains("tookTask"),
+            "a Run that took nothing stores nothing"
+        );
         assert!(!store.read("jjjjjjjj").unwrap().unwrap().took_task);
 
         run.took_task = true;
