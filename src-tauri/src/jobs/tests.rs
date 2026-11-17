@@ -1984,6 +1984,7 @@ async fn a_finished_job_leaves_the_list_with_its_x_and_never_while_it_works() {
     assert!(jobs.snapshot(&project.id).jobs.iter().any(|r| r.id == id));
     jobs.remove(&project.id, &id).unwrap();
     assert!(jobs.snapshot(&project.id).jobs.is_empty());
+    jobs.flush();
     assert!(
         JobStore::new(&host.dirs).read(&id).unwrap().is_some(),
         "the registry keeps it"

@@ -136,7 +136,8 @@ mod tests {
 
     fn sandbox() -> Sandbox {
         let base = tempfile::tempdir().unwrap();
-        let cwd = base.path().canonicalize().unwrap().join("cwd");
+        // As the command makes it canonical: without the `\\?\` prefix of Windows.
+        let cwd = paths::canonical_root(base.path()).unwrap().join("cwd");
         fs::create_dir_all(&cwd).unwrap();
         let dirs = AppDirs::from_bases(
             &base.path().join("config"),
