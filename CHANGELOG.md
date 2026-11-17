@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-17
+
 ### Added
 
 - A Run that has finished its Tasks but is still working (the checks, the History entry, the questions on Drifts, the final review) no longer leaves Active empty: the Board shows a ghost of its own, `Cleaning up: <job name>`, with the phase `Finishing up` or `Waiting for your answers` and the job's latest note, which opens the job's conversation. It shows only while Active has no Task and no announced ghost, and while the Run has no announced ghost on the Board; each Run of a Run all has its own, and it comes back after Weaver restarts.
