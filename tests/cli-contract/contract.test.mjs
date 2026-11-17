@@ -11,7 +11,7 @@
 // the first object listed, every command of the table below is tested and a missing one fails.
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, describe, test } from "node:test";
 
@@ -1022,7 +1022,8 @@ describe("weaver open", () => {
   });
 
   test("a folder that does not exist or is not a folder is told with its path, exit 1", async () => {
-    const cwd = emptyFolder();
+    // The command names the canonical folder, which on Windows has no 8.3 short names (RUNNER~1).
+    const cwd = realpathSync.native(emptyFolder());
     const missing = await exec(["open", "nope"], { cwd });
     assert.equal(missing.status, 1);
     assert.equal(missing.stderr, `error: \`${path.join(cwd, "nope")}\` does not exist.\n`);
