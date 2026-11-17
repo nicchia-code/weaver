@@ -74,7 +74,7 @@ File: `system-certificates.md`
 
 ## Tasks, Drifts and concerns
 
-Use when implementing Task blocking, slots, groups, forgetting, Drift rules, prepared Drift questions or when two cards concern the same thing.
+Use when implementing Task blocking, slots, groups, forgetting, Drift rules, prepared Drift questions, the order of the Board's cards or when two cards concern the same thing.
 
 Sections: `task`, `drift`, `work`
 

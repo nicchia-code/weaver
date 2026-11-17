@@ -1,5 +1,5 @@
 ---
-description: "Use when implementing Task blocking, slots, groups, forgetting, Drift rules, prepared Drift questions or when two cards concern the same thing."
+description: "Use when implementing Task blocking, slots, groups, forgetting, Drift rules, prepared Drift questions, the order of the Board's cards or when two cards concern the same thing."
 ---
 # Tasks, Drifts and concerns
 
@@ -28,3 +28,18 @@ description: "Use when implementing Task blocking, slots, groups, forgetting, Dr
 - Containment: Feature ⊃ its Machines; Machine ⊃ its States, Events and their contents; State ⊃ sub-States and Transitions leaving it; Actor ⊃ its Events; Area ⊃ its General section only; `specs` ⊃ each field.
 - Two references concern the same thing when keys are equal or one contains the other; two cards when any reference of one concerns any of the other. A card without references concerns nothing.
 - One core function serves blocking, slots, groups and Drift lookups by references.
+- **Board order:** one core function ranks both columns at every Board snapshot, from the same facts as the cards' disabled reasons; the app passes it the drafts of requests too. The snapshot gives each column's cards in that order and the place where its ghosts go; the interface never sorts. `weaver project show` and the palette's `Cards` group use the same order. Slots, groups, `runnable` and Run all keep their oldest-first order (`## task`).
+- **Actionable:** the card's primary control has none of its own disabled reasons. Reasons shared by every card never count: `The agent is still finishing`, `A run is in progress`, `A merge is in progress`, `Drifts are being resolved`.
+  - Task in To do: not blocked by a Drift and not waiting for a fix Task (`Run`).
+  - Open Proposal or resolution, not stale: none of Approve's reasons 3, 5, 6 and 7 (`requirements/rules#proposal`). Stale and Open: its refinement is not refused (`Refine`). A Draft left half-way by a refinement: actionable (`Refine`). Refining: never.
+  - Open Drift: none of `Being refined`, `This Drift is being resolved`, `Another resolution is being written`, `Proposal <id> resolving Drifts awaits a decision` (`Resolve`, `requirements/ui#drift`).
+  - Draft of a request: not empty (`Send`).
+  - Task In progress: neither; it has its own place.
+- **Unblocks:** a card unblocks when at least one other card waits on it now:
+  - an open Drift that blocks a Task in To do or In progress (as its origin or concerning the same thing);
+  - a fix Task whose Drift is in Code to be fixed and whose origin Task waits for it;
+  - a Proposal that a Proposal in Draft, Open or Refining lists in `requires`, while it is not approved;
+  - a resolution Open, or a Draft left half-way by a refinement, while some open Drift outside it has `Resolve` disabled because of it.
+- **Backlog,** top to bottom: actionable Proposals, resolutions and Drifts that unblock; the other actionable ones; drafts of requests that are not empty; ghosts; Proposals, resolutions and Drifts not actionable that unblock; the other cards not actionable, empty drafts included.
+- **Active,** top to bottom: Tasks in To do actionable that unblock; the other actionable Tasks in To do; Tasks In progress; ghosts; Tasks in To do not actionable that unblock; the other Tasks in To do.
+- Inside each group, creation order, oldest first, ties by identity: a card's `created`, a draft's request id; a rework takes the rejected Proposal's place in it and a refined Proposal keeps its own. Ghosts keep announcement order, Weaver's own ghosts of a job at the place they would have if announced when their job was created (`requirements/ui#work`).

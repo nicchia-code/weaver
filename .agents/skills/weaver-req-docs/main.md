@@ -62,3 +62,11 @@
   - that it needs git.
 - `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line describing Atomic commits.
 - `CHANGELOG.md` adds under `## [Unreleased]`, `Changed`, one line saying that the commits of Atomic commits no longer name Weaver as co-author: their message is the agent's alone.
+
+## shell-command
+
+- `README.md` has a section `## Command line`, right after `## Install`, saying:
+  - that `weaver open <folder>` opens a folder in the running Weaver, and `weaver open` alone shows its welcome window; Weaver must already be running, the command never starts it;
+  - how to install the `weaver` command: Settings › Command line › `Install weaver command`; on macOS a link in `/usr/local/bin`, which may ask for an administrator password; on Linux a link in `~/.local/bin`, which must be on the PATH, and, with the `.deb`, before `/usr/bin`, where `weaver` is the app itself; on Windows Weaver's folder is added to the user's PATH, for terminals opened afterwards;
+  - that `Remove` in the same place undoes it, and that neither touches a `weaver` that is not Weaver's.
+- `CHANGELOG.md` adds under `## [Unreleased]`, `Added`, one line for `weaver open` and one for installing the `weaver` command from Settings.

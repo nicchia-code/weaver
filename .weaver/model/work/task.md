@@ -4,7 +4,7 @@ A unit of work for the agent: a title and a body that say, in domain words, what
 
 A Task written by a design, a scan or a compare may also carry code notes for whoever implements it, made only of what the agent already read of the code: where to look, the conventions to follow, the pitfalls seen and what can be reused, with the commit on which the code was read. They are hints, never part of what must be true. Whoever implements the Task starts from them and explores again only the files that changed since that commit, or all the files they cite when that cannot be told; it always reads a file before changing it, and when a note contradicts the code, the code wins. A Task without code notes, and every fix Task, is implemented as before, reading the code it needs.
 
-A Task is blocked while an open Drift names it as its origin or concerns the same thing, and while the fix Task of its own Drift is not finished. Blocking is worked out every time, never stored, and never moves a Task.
+A Task is blocked while an open Drift names it as its origin or concerns the same thing, and while the fix Task of its own Drift is not finished. Blocking is worked out every time, never stored, and never moves a Task to another State; it only changes the Task's place on the Board.
 
 ## States
 

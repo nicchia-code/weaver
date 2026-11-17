@@ -7,7 +7,7 @@ The window of one project. A project has at most one window; when no project win
 ### Closed (initial)
 The project is not open.
 - `developer.OPEN_PROJECT` → Open: the window the developer chose the folder from stays as it was, with its jobs.
-- `developer.OPEN_PROJECT` → Closed: when the folder no longer exists or the project cannot be opened; the window the developer chose the folder from says why; when no window had the focus, the welcome window opens and says why.
+- `developer.OPEN_PROJECT` → Closed: when the folder no longer exists or the project cannot be opened; the window the developer chose the folder from says why; when no window had the focus, the welcome window opens and says why; when the developer asked from a terminal, only the terminal says why and Weaver shows nothing.
 - `desktop.APP_STARTED` → Open: only the projects whose window was open when Weaver last quit, also those whose window was in the background; their jobs that were working resume.
 
 ### Open

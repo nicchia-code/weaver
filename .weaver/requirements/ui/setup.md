@@ -47,9 +47,21 @@ description: "Use when building or changing Get Started, import exclusions, omp 
   2. `Models`: `Analysis`, `Scan`, `Execution`, with the bold advice `Your most capable model.`, `A fast, light model.`, `A mid-range model.`
   3. `Agents`: `Max parallel sub-agents` (whole number ≥ 1, default 20), `Language of the agent's texts` (empty = English).
   4. `Editor`: preset Select (`VS Code`, `Cursor`, `Zed`, `JetBrains`, `Sublime Text`, `Custom command`); with `Custom command`, a text field that must contain `{file}` (`{line}` optional).
-  5. `Appearance`: `Theme` as a segmented control `Auto` / `Light` / `Dark`, applied live to every window.
-  6. `Project`: `Solo mode` (`requirements/ui#solo-mode`), then `Atomic commits` (`requirements/ui#atomic-commits`), then `Update skills` (`project`).
+  5. `Command line`: the `weaver` command in the terminal (`requirements/ui#shell-command`).
+  6. `Appearance`: `Theme` as a segmented control `Auto` / `Light` / `Dark`, applied live to every window.
+  7. `Project`: `Solo mode` (`requirements/ui#solo-mode`), then `Atomic commits` (`requirements/ui#atomic-commits`), then `Update skills` (`project`).
 - **Model roles:** a Combobox each: free typing, suggestions filtered while typing, the models omp lists (omp's order, `<selector>` with the readable name when different), plus `omp default` (empty value). A thinking-level Select (`Default` + the levels omp lists for that model) sits right of the Combobox only when omp lists levels; the field shows the model only, the value is stored as `<model>:<level>`, split on the last `:` only when the level is one omp lists. Model names are never validated. When the list is unavailable, a secondary line says why: `omp not found at <path>`, `omp did not answer within 15 s`, `omp exited with code <N>`, `omp did not return a valid list`.
 - **Saving:** at once, no confirmation: selects on choice, text and number fields on blur or `Enter`. An invalid value is not saved; the field keeps the typed text and says why under it (`Enter a whole number of at least 1.`, `The command must contain {file}.`). A failed write shows `Could not save <title>: <reason>.` under the field and puts back the stored value.
 - A change from another window shows everywhere at once, except in a field that has focus, which takes it on blur if the developer did not change it.
 - Titles, descriptions (≤160 characters), defaults and validation come from the one settings schema the backend also uses; setting keys are never shown.
+
+## shell-command
+- **Group `Command line`** in Settings, after `Editor`: the line `Open a folder in Weaver from a terminal with weaver open <folder>.` (`weaver open <folder>` in Geist Mono), then the status, then one button.
+- **Status:** `Installed at <place>` (the place in Geist Mono: `/usr/local/bin/weaver`, `~/.local/bin/weaver`, or the folder added to the user's PATH on Windows) or `Not installed`, read again each time Settings shows.
+- **Button:** `Install weaver command` (`Terminal` icon) when not installed, `Remove` when installed; while the action runs it spins and is disabled.
+- **Result** under the button, kept until the next action, as `Update skills` does:
+  - refused at install: `<path> already exists and is not Weaver's command; nothing was changed.`;
+  - refused at removal: `<path> is not Weaver's command; nothing was removed.`;
+  - failures, in the error colour: `Could not install the weaver command: <reason>.`, `Could not remove the weaver command: <reason>.`;
+  - on Linux, after installing, when `~/.local/bin` may not be in the PATH, in the warning colour: `~/.local/bin may not be in your PATH; see the README.`;
+  - a cancelled administrator password request on macOS shows nothing.

@@ -7,7 +7,7 @@ description: "Use when building or changing the `weaver` command line: commands,
 
 ## General
 
-- Shape: `weaver <object> <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>] [--json]`; `-h`/`--help` prints help. No other option exists.
+- Shape: `weaver <object> <verb> [<id>] [<state>] [--input <json>|-] [--root <dir>] [--json]`; the one exception is `weaver open [<folder>] [--json]`, which has no verb (`requirements/cli#developer.OPEN_PROJECT`). `-h`/`--help` prints help. No other option exists. `weaver` with no words keeps its usage error with the help (exit 2).
 
 ```
 model         show, list, check
@@ -20,10 +20,11 @@ announcement  new
 job           new, show, list, edit
 question      new
 request       new
+open          [<folder>]
 ```
 
-- One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. No aliases for removed names; an existing command never answers "unknown command".
-- `--root <dir>` uses `<dir>/.weaver`, default the current folder, never a parent. Without `.weaver/`, every command but `project new` and help fails with exit 1 saying to initialise the project, also when `<dir>/.trama` exists; a `.trama` folder is never read or written.
+- One command registry in the CLI crate produces parsing, dispatch, help, the JSON Schemas and the command reference in the installed skills; a test fails when that reference differs from the registry. `open` is in the help and the JSON Schemas but never in the command reference of the installed skills, since agents cannot run it. No aliases for removed names; an existing command never answers "unknown command".
+- `--root <dir>` uses `<dir>/.weaver`, default the current folder, never a parent. Without `.weaver/`, every command but `project new`, `open` and help fails with exit 1 saying to initialise the project, also when `<dir>/.trama` exists; a `.trama` folder is never read or written.
 - The command is named `weaver` in help, usage, examples and messages, whatever the name of the file it runs from (`weaver-cli` in the build and in the app bundle).
 - Help: `weaver --help` lists objects and verbs; `<object> <verb> --help` prints usage, fields with types and limits, an example and the output fields; `--help --json` prints `{command, input, output}` JSON Schemas (2020-12). Help reads no stdin or file and contacts no app.
 - Input: one camelCase JSON object, inline or from stdin with `--input -` (UTF-8, leading BOM accepted), validated whole first: unknown field, wrong type, value outside its list or range, missing required field → exit 2 listing every problem with its JSON path (`questions[0].options[1].label`). A command without fields accepts only `{}` or no input.
@@ -45,7 +46,7 @@ File: `agent-commands.md`
 
 Use when adding or changing a `weaver` command, its input, output, help or its link with the app.
 
-Sections: `General`, `project`, `proposal`, `task`, `drift`
+Sections: `General`, `project`, `proposal`, `task`, `drift`, `developer.OPEN_PROJECT`, `developer.SHOW_WELCOME`
 
 File: `commands.md`
 

@@ -6,4 +6,6 @@ The window keeps its project in sight: it names the project and the branch git i
 
 Weaver stays next to the developer's own editor: wherever a file and a line are known, it opens them in the editor chosen in the settings.
 
+The developer can also reach Weaver from his own terminal: once he installs the `weaver` command from the settings (Machine `shell-command`), it opens a folder in the running Weaver, or shows its welcome window. Weaver never installs that command by itself, and the agent never uses it to open anything.
+
 The settings belong to the developer, not to a project: they live in the system's configuration folder and apply to every project; a project's files never change them.
